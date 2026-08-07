@@ -27,13 +27,15 @@ module Thingie
     # @param llm_client [Thingie::LlmClient] fallback client, reused when no dedicated `verify.model` is set
     # @param tools [Array, nil] `ruby_llm` tools (e.g. LSP symbol lookup) made available to the critic LLM
     # @param debug_output [Thingie::DebugOutput, nil] optional debug output sink
-    def initialize(config:, changeset:, prompt_builder:, llm_client:, tools: [], debug_output: nil)
+    # @param usage [Thingie::Stats::Usage, nil] optional accumulator fed each critic response
+    def initialize(config:, changeset:, prompt_builder:, llm_client:, tools: [], debug_output: nil, usage: nil)
       @config = config
       @changeset = changeset
       @prompt_builder = prompt_builder
       @tools = tools || []
       @llm_client = verify_client(config, llm_client)
       @debug_output = debug_output
+      @usage = usage
       @warnings = []
     end
 
@@ -107,6 +109,7 @@ module Thingie
         symbol_lookup: @tools.any?
       )
       response = @llm_client.complete_with_schema(prompt, Schemas::VERDICT_SCHEMA, tools: @tools)
+      @usage&.record(response)
       content = parse_content(response)
       verdict = content['verdict'].to_s.strip.downcase
       @debug_output&.critic_call(issue: issue, response: response,

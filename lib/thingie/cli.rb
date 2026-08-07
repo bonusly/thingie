@@ -94,8 +94,13 @@ module Thingie
       tools << Thingie::FileTool.new(root: changeset.workdir)
       skill_tool = Thingie::SkillCatalog.tool(config)
       tools << skill_tool if skill_tool
-      report = build_reviewer(config, changeset, tools).review
+      reviewer = build_reviewer(config, changeset, tools)
+      started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      report = reviewer.review
+      duration_ms = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - started) * 1000).round
       render_report(report, config)
+      Thingie::Stats::Emitter.new(config).emit_review_completed(report: report, duration_ms: duration_ms,
+                                                                usage: reviewer.usage)
     rescue StandardError => e
       warn "Review failed: #{e.class}: #{e.message}"
       warn e.backtrace&.first(5)&.join("\n") if debug_enabled?
@@ -349,7 +354,23 @@ module Thingie
         approve = config['approve']
         return unless approve.is_a?(Hash) && approve['enabled']
 
-        build_approver(context, approve, summary, approval_llm_client(config)).run(report)
+        decision = build_approver(context, approve, summary, approval_llm_client(config)).run(report)
+        emit_approval_stats(config, context, approve, decision) if decision
+      end
+
+      # Emits the `approval.decided` stats event for an approver decision.
+      #
+      # @param config [Thingie::Configuration] the loaded configuration
+      # @param context [Thingie::GitHub::Context, nil] the resolved GitHub Action context
+      # @param approve [Hash] the `[approve]` config section
+      # @param decision [Thingie::GitHub::Approver::Decision] the approver's decision
+      # @return [void]
+      def emit_approval_stats(config, context, approve, decision)
+        Thingie::Stats::Emitter.new(config).emit_approval_decided(
+          action: decision.action, reasons: decision.reasons,
+          repo: [repo_owner(context), repo_name(context)].compact.join('/'),
+          pr_number: options[:pr] || context&.pr_number, dry_run: approve['dry_run'] ? true : false
+        )
       end
 
       # Best-effort LLM client for the approval risk assessment. Returns nil when

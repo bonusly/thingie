@@ -56,6 +56,15 @@ module Thingie
       @repo.workdir
     end
 
+    # The SHA (object id) of the head commit under review. Enriches
+    # `code-review-report.json` and stats events with a stable join key for
+    # downstream dashboards.
+    #
+    # @return [String] the head commit's object id
+    def head_sha
+      head_commit.oid
+    end
+
     # New-side line numbers added in this file's diff — the lines actually
     # changed by the changeset. Returns nil in `all` mode, where there's no
     # diff and the whole file is under review (so nothing is filtered out).

@@ -188,3 +188,28 @@ approval_team = ""
 # a security scan, the test suite). Listed in the approval comment so it's clear
 # Thingie's approval isn't the only gate — these do not affect Thingie's decision.
 external_checks = []
+
+
+[stats]
+# Emit machine-readable stats events after each review and auto-approval
+# decision, so admins can build dashboards (Datadog, Logstash, ...). Nothing
+# is emitted unless enabled AND at least one [[stats.sinks]] destination is
+# configured.
+enabled = false
+
+# Constant key/value pairs copied into every stats event under "tags".
+[stats.tags]
+
+# Destinations, one [[stats.sinks]] block each. Built-in types:
+#   jsonl   — append one JSON object per event to a file, or to stdout/stderr
+#   command — pipe one JSON line per event to an external command's stdin
+# Any gem can register additional sink types via Thingie::Stats.register_sink;
+# set `require` to have it loaded before the type is looked up.
+# [[stats.sinks]]
+# type = "jsonl"
+# path = "log/thingie-stats.jsonl"   # or "stdout" / "stderr"
+#
+# [[stats.sinks]]
+# type = "command"
+# command = "my-stats-shipper"
+# require = "my_thingie_sink_gem"    # optional: required before type lookup

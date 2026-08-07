@@ -23,7 +23,8 @@ RSpec.describe Thingie::Reviewer do
                     full_content_for: "def hello\nend\n",
                     changed_lines_for: Set.new([1]),
                     base_ref: 'main',
-                    head_ref: 'HEAD')
+                    head_ref: 'HEAD',
+                    head_sha: 'abc123')
   end
   let(:fake_llm_client) do
     issues = [{ 'title' => 'Missing return', 'details' => 'No return value', 'severity' => 2,
@@ -49,6 +50,16 @@ RSpec.describe Thingie::Reviewer do
     expect(report.number_of_processed_files).to eq(1)
   end
 
+  it 'accumulates LLM usage and enriches the target with the head commit sha', :aggregate_failures do
+    report = reviewer.review
+    expect(reviewer.usage).to be_a(Thingie::Stats::Usage)
+    # The review pass records the response once; the enabled critic pass records it again.
+    expect(reviewer.usage.input_tokens).to eq(200)
+    expect(reviewer.usage.output_tokens).to eq(100)
+    expect(reviewer.usage.cost).to be_within(1e-9).of(0.0003)
+    expect(report.target.commit_sha).to eq('abc123')
+  end
+
   context 'when an issue falls on an unchanged line' do
     let(:fake_changeset) do
       instance_double(Thingie::Changeset,
@@ -57,7 +68,8 @@ RSpec.describe Thingie::Reviewer do
                       full_content_for: "def hello\nend\n",
                       changed_lines_for: Set.new([5]), # issue is on line 1, not changed
                       base_ref: 'main',
-                      head_ref: 'HEAD')
+                      head_ref: 'HEAD',
+                      head_sha: 'abc123')
     end
 
     it 'drops findings outside the changed lines' do
@@ -83,7 +95,10 @@ RSpec.describe Thingie::Reviewer do
 
   context 'when the LLM returns malformed JSON' do
     let(:fake_llm_client) do
-      response = instance_double(RubyLLM::Message, content: 'not valid json')
+      response = instance_double(RubyLLM::Message, content: 'not valid json',
+                                                   input_tokens: nil, output_tokens: nil, tool_calls: {},
+                                                   cache_read_tokens: nil, cache_write_tokens: nil,
+                                                   cost: instance_double(RubyLLM::Cost, total: nil))
       instance_double(Thingie::LlmClient, complete_with_schema: response)
     end
 
