@@ -173,4 +173,73 @@ RSpec.describe Thingie::Configuration do
       expect(config.skills.map(&:source)).to all(end_with('.github'))
     end
   end
+
+  describe '#mcp_servers' do
+    it 'returns an empty hash when no mcp section is present' do
+      expect(config.mcp_servers).to eq({})
+    end
+
+    context 'with [mcp.<name>] tables' do
+      before do
+        FileUtils.mkdir_p(File.join(tmp_dir, '.thingie'))
+        File.write(File.join(tmp_dir, '.thingie', 'config.toml'), <<~TOML)
+          [mcp.github]
+          command = "npx"
+
+          [mcp.docs]
+          url = "https://example.com/mcp"
+        TOML
+      end
+
+      it 'returns the servers keyed by name', :aggregate_failures do
+        expect(config.mcp_servers.keys).to contain_exactly('github', 'docs')
+        expect(config.mcp_servers['github']['command']).to eq('npx')
+      end
+    end
+
+    it 'returns an empty hash when mcp is not a table' do
+      FileUtils.mkdir_p(File.join(tmp_dir, '.thingie'))
+      File.write(File.join(tmp_dir, '.thingie', 'config.toml'), "mcp = [1, 2, 3]\n")
+      expect(config.mcp_servers).to eq({})
+    end
+  end
+
+  describe '#mcp_config_file' do
+    def write_mcp_file(name)
+      FileUtils.mkdir_p(File.join(tmp_dir, '.thingie'))
+      File.write(File.join(tmp_dir, '.thingie', name), "mcp_servers: {}\n")
+    end
+
+    it 'returns nil when no mcp config file exists' do
+      expect(config.mcp_config_file).to be_nil
+    end
+
+    it 'finds mcp.yml' do
+      write_mcp_file('mcp.yml')
+      expect(config.mcp_config_file).to end_with('mcp.yml')
+    end
+
+    it 'finds mcp.yaml' do
+      write_mcp_file('mcp.yaml')
+      expect(config.mcp_config_file).to end_with('mcp.yaml')
+    end
+
+    it 'finds mcp.json' do
+      write_mcp_file('mcp.json')
+      expect(config.mcp_config_file).to end_with('mcp.json')
+    end
+
+    it 'prefers yml over yaml and json' do
+      write_mcp_file('mcp.yaml')
+      write_mcp_file('mcp.json')
+      write_mcp_file('mcp.yml')
+      expect(config.mcp_config_file).to end_with('mcp.yml')
+    end
+
+    it 'prefers yaml over json' do
+      write_mcp_file('mcp.yaml')
+      write_mcp_file('mcp.json')
+      expect(config.mcp_config_file).to end_with('mcp.yaml')
+    end
+  end
 end
