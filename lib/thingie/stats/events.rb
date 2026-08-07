@@ -43,7 +43,7 @@ module Thingie
           'reasons' => Array(reasons),
           'repo' => repo,
           'pr_number' => pr_number,
-          'dry_run' => dry_run ? true : false
+          'dry_run' => dry_run
         }
       end
 
