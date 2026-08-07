@@ -1,0 +1,5 @@
+mcp_servers:
+  rubydex:
+    transport_type: stdio
+    command: bundle
+    args: ["exec", "rdx", "mcp"]

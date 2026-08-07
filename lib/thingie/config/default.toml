@@ -55,7 +55,37 @@ models_file = ""
 # to enable Ruby (requires ruby-lsp in the reviewed project):
 #   [lsp.ruby]
 #   command = ["ruby-lsp"]
-#   extensions = [".rb", ".rake"]
+
+# MCP (Model Context Protocol) servers the LLM can call during review for extra
+# context — external tools, knowledge bases, etc. Disabled unless at least one
+# server is configured below. API keys/secrets are referenced with ${VAR}
+# environment-variable placeholders (resolved from ~/.thingie/.env and ENV),
+# never stored verbatim. Each server is one [mcp.<name>] table:
+#
+#   [mcp.github]
+#   transport = "stdio"                 # optional; inferred: stdio if
+#                                        # `command` present, streamable if
+#                                        # `url` present. Also: "sse".
+#   command = "npx"                      # stdio: launch command
+#   args = ["-y", "@modelcontextprotocol/server-github"]  # stdio: command args
+#   env = { GITHUB_PERSONAL_ACCESS_TOKEN = "${GITHUB_TOKEN}" }  # stdio env
+#   enabled = true                       # optional, default true
+#   request_timeout = 8000               # optional, ms (gem default 8000)
+#   with_prefix = false                  # optional; prefix tool names with the
+#                                        # server name. When set, the prefixed
+#                                        # name is what include/exclude match.
+#   include_tools = []                   # optional allowlist of tool names
+#   exclude_tools = []                   # optional denylist of tool names
+#
+#   [mcp.docs]
+#   transport = "streamable"             # or "sse"
+#   url = "https://example.com/mcp"
+#   headers = { Authorization = "Bearer ${DOCS_API_TOKEN}" }
+#
+# A server that can't resolve its secrets or start is skipped with a warning to
+# stderr; the review proceeds without it. Alternatively, configure servers in a
+# standalone `.thingie/mcp.yml` (or `mcp.yaml`/`mcp.json`); on duplicate names
+# the project TOML entry wins.
 
 # Issue severity scale shown to the LLM in the review prompt.
 # Keys are numeric levels (as strings), values are labels.

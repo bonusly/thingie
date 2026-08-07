@@ -4,6 +4,29 @@ require 'tomlrb'
 require 'dotenv'
 
 module Thingie
+  # MCP server config accessors, extracted from {Configuration} to keep that
+  # class under RuboCop's ClassLength limit. Mixed in via `include McpConfig`,
+  # so it reads `@data` and `@root` as instance variables of the host class.
+  module McpConfig
+    # The `[mcp.<name>]` tables from project config, keyed by server name.
+    # Returns an empty hash when absent or `mcp` isn't a table, so callers
+    # iterate safely.
+    #
+    # @return [Hash{String=>Hash}] server name => raw TOML table
+    def mcp_servers
+      @data['mcp'].is_a?(Hash) ? @data['mcp'] : {}
+    end
+
+    # Path to a standalone `.thingie/mcp.{yml,yaml,json}` file (yml > yaml >
+    # json precedence), or nil when none exists — mirroring {#project_config_path}.
+    #
+    # @return [String, nil] absolute path to the first matching file, or nil
+    def mcp_config_file
+      candidates = %w[mcp.yml mcp.yaml mcp.json].map { |n| File.join(@root, '.thingie', n) }
+      candidates.find { |path| File.file?(path) }
+    end
+  end
+
   # Loads and merges Thingie configuration.
   #
   # Layers (later layers override earlier ones):
@@ -14,6 +37,8 @@ module Thingie
   # 5. Explicit overrides passed to Configuration.new
   class Configuration
     attr_reader :data, :root
+
+    include McpConfig
 
     # Expanded lazily in load_user_env_file so a missing/unresolvable home
     # directory can't crash at load time.

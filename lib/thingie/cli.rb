@@ -94,6 +94,9 @@ module Thingie
       tools << Thingie::FileTool.new(root: changeset.workdir)
       skill_tool = Thingie::SkillCatalog.tool(config)
       tools << skill_tool if skill_tool
+      mcp_toolset = Thingie::Mcp::Toolset.build(config)
+      mcp_toolset.warnings.each { |w| warn "[thingie] #{w}" }
+      tools.concat(mcp_toolset.tools)
       report = build_reviewer(config, changeset, tools).review
       render_report(report, config)
     rescue StandardError => e
@@ -102,6 +105,7 @@ module Thingie
       exit 1
     ensure
       clients&.each(&:shutdown)
+      mcp_toolset&.shutdown
     end
 
     desc 'files', 'List files in the changeset'

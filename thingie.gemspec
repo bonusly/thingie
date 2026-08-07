@@ -35,6 +35,7 @@ Gem::Specification.new do |spec|
 
   # LLM abstraction
   spec.add_dependency 'ruby_llm', '~> 1.16'
+  spec.add_dependency 'ruby_llm-mcp', '~> 1.0'
   spec.add_dependency 'ruby_llm-skills', '~> 0.3.0'
 
   # Git access
