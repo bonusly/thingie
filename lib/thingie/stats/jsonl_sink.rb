@@ -48,11 +48,11 @@ module Thingie
         @stream_name == 'stdout' ? $stdout : $stderr
       end
 
-      # Resolves `path` into either a stream name (`:stdout`/`:stderr`) or an
+      # Resolves `path` into either a stream name (`"stdout"`/`"stderr"`) or an
       # expanded absolute file path, creating parent directories for the latter.
       #
       # @param path [String] the configured path value
-      # @return [Array(String, String), Array(nil, String)] the stream name (or
+      # @return [Array(String, nil), Array(nil, String)] the stream name (or
       #   nil for file sinks) and the expanded file path (or nil for streams)
       def resolve_path(path)
         case path
