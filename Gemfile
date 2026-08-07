@@ -13,6 +13,7 @@ group :development do
   gem 'rubocop-rake', '~> 0.7'
   gem 'rubocop-rspec', '~> 3.6'
   gem 'ruby-lsp'
+  gem 'rubydex'
   gem 'simplecov', '~> 0.22'
   gem 'yard', '~> 0.9.45'
 end
