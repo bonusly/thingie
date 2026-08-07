@@ -33,6 +33,7 @@ RSpec.describe Thingie::Stats::CommandSink do
     lines = File.readlines(output)
     expect(lines.size).to eq(2)
     expect(JSON.parse(lines.first)).to eq('event' => 'review.completed', 'total_issues' => 2)
+    expect(JSON.parse(lines.last)).to eq('event' => 'approval.decided', 'action' => 'block')
   end
 
   context 'when the command cannot run' do

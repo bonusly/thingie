@@ -37,7 +37,24 @@ module Thingie
         @io.flush
       rescue StandardError => e
         warn "Stats command sink '#{@command}' failed — disabling: #{e.message}"
+        close_io
         @dead = true
+      end
+
+      private
+
+      # Closes the pipe and reaps the child process so a disabled sink doesn't
+      # leak file descriptors or leave a zombie.
+      #
+      # @return [void]
+      def close_io
+        pid = @io&.pid
+        @io&.close
+        Process.wait(pid) if pid
+      rescue Errno::ECHILD, IOError
+        nil
+      ensure
+        @io = nil
       end
     end
   end
