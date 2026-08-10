@@ -154,6 +154,46 @@ RSpec.describe Thingie::Reviewer do
     end
   end
 
+  context 'when the LLM returns reasoning prose before the JSON payload' do
+    let(:fake_llm_client) do
+      prose = "I'll analyze this diff carefully.\n\n" \
+              "Let me check the code for issues.\n\n" \
+              '{"issues":[{"title":"Bug","details":"desc","severity":1,' \
+              '"confidence":1,"tags":[],"affected_lines":[{"start_line":1}]}]}'
+      cost_stub = instance_double(RubyLLM::Cost, total: nil)
+      response = instance_double(RubyLLM::Message, content: prose,
+                                                   input_tokens: 80, output_tokens: 40, tool_calls: {},
+                                                   cache_read_tokens: nil, cache_write_tokens: nil,
+                                                   cost: cost_stub,
+                                                   thinking: nil, thinking_tokens: nil)
+      instance_double(Thingie::LlmClient, complete_with_schema: response)
+    end
+
+    it 'extracts the JSON from the prose and parses issues', :aggregate_failures do
+      report = reviewer.review
+      expect(report.total_issues).to eq(1)
+      expect(report.issues.first.title).to eq('Bug')
+    end
+  end
+
+  context 'when the LLM returns pure prose with no JSON' do
+    let(:fake_llm_client) do
+      cost_stub = instance_double(RubyLLM::Cost, total: nil)
+      response = instance_double(RubyLLM::Message, content: "I'll review this diff carefully.",
+                                                   input_tokens: 80, output_tokens: 40, tool_calls: {},
+                                                   cache_read_tokens: nil, cache_write_tokens: nil,
+                                                   cost: cost_stub,
+                                                   thinking: nil, thinking_tokens: nil)
+      instance_double(Thingie::LlmClient, complete_with_schema: response)
+    end
+
+    it 'records a warning and returns no issues', :aggregate_failures do
+      report = reviewer.review
+      expect(report.total_issues).to eq(0)
+      expect(report.processing_warnings).to include(/Could not parse LLM response/)
+    end
+  end
+
   context 'when debug is enabled' do
     subject(:debug_reviewer) do
       described_class.new(

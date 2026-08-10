@@ -5,6 +5,7 @@ require 'async'
 require 'async/semaphore'
 require 'async/barrier'
 require 'kernel/sync'
+require_relative 'json_extractor'
 
 module Thingie
   # Orchestrates reviewing the changeset: builds prompts, calls the LLM,
@@ -153,10 +154,11 @@ module Thingie
 
     def parse_response(response, file)
       content = response&.content
-      return [] if content.nil?
-      return [] if content.is_a?(String) && content.strip.empty?
+      return [] if content.nil? || (content.is_a?(String) && content.strip.empty?)
 
-      parsed = content.is_a?(String) ? JSON.parse(content) : content
+      parsed = content.is_a?(String) ? JsonExtractor.parse(content) : content
+      raise JSON::ParserError, 'no valid JSON found in response' if parsed.nil?
+
       issues = parsed.is_a?(Hash) ? (parsed['issues'] || parsed[:issues] || []) : parsed
       IssueParser.new.parse(Array(issues), file)
     end
