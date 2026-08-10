@@ -113,7 +113,8 @@ module Thingie
       content = parse_content(response)
       verdict = content['verdict'].to_s.strip.downcase
       @debug_output&.critic_call(issue: issue, response: response,
-                                 verdict: verdict.empty? ? '(no verdict)' : verdict)
+                                 verdict: verdict.empty? ? '(no verdict)' : verdict,
+                                 content: content)
       {
         keep: verdict != 'reject',
         severity: valid_override(content['severity_override'], @config.severity_scale),
@@ -122,6 +123,7 @@ module Thingie
     rescue StandardError => e
       # Fail open: keep the finding unchanged, but surface that the critic didn't run.
       @warnings << "Could not verify finding '#{issue.title}' (#{issue.file}): #{e.class}: #{e.message}"
+      @debug_output&.critic_error(issue: issue, error: e)
       FAIL_OPEN_RESULT
     end
 
