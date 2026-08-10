@@ -33,7 +33,7 @@ RSpec.describe Thingie::Reviewer do
     response = instance_double(RubyLLM::Message, content: { 'issues' => issues },
                                                  input_tokens: 100, output_tokens: 50, tool_calls: {},
                                                  cache_read_tokens: nil, cache_write_tokens: nil, cost: cost_stub,
-                                                 model_info: nil)
+                                                 model_info: nil, thinking: nil, thinking_tokens: nil)
     instance_double(Thingie::LlmClient, complete_with_schema: response)
   end
 
@@ -98,7 +98,8 @@ RSpec.describe Thingie::Reviewer do
       response = instance_double(RubyLLM::Message, content: 'not valid json',
                                                    input_tokens: nil, output_tokens: nil, tool_calls: {},
                                                    cache_read_tokens: nil, cache_write_tokens: nil,
-                                                   cost: instance_double(RubyLLM::Cost, total: nil))
+                                                   cost: instance_double(RubyLLM::Cost, total: nil),
+                                                   thinking: nil, thinking_tokens: nil)
       instance_double(Thingie::LlmClient, complete_with_schema: response)
     end
 
@@ -124,7 +125,8 @@ RSpec.describe Thingie::Reviewer do
       response = instance_double(RubyLLM::Message, content: nil,
                                                    input_tokens: nil, output_tokens: nil, tool_calls: {},
                                                    cache_read_tokens: nil, cache_write_tokens: nil,
-                                                   cost: instance_double(RubyLLM::Cost, total: nil))
+                                                   cost: instance_double(RubyLLM::Cost, total: nil),
+                                                   thinking: nil, thinking_tokens: nil)
       instance_double(Thingie::LlmClient, complete_with_schema: response)
     end
 
@@ -140,7 +142,8 @@ RSpec.describe Thingie::Reviewer do
       cost_stub = instance_double(RubyLLM::Cost, total: nil)
       response = instance_double(RubyLLM::Message, content: json,
                                                    input_tokens: 80, output_tokens: 40, tool_calls: {},
-                                                   cache_read_tokens: nil, cache_write_tokens: nil, cost: cost_stub)
+                                                   cache_read_tokens: nil, cache_write_tokens: nil, cost: cost_stub,
+                                                   thinking: nil, thinking_tokens: nil)
       instance_double(Thingie::LlmClient, complete_with_schema: response)
     end
 
@@ -148,6 +151,46 @@ RSpec.describe Thingie::Reviewer do
       report = reviewer.review
       expect(report.total_issues).to eq(1)
       expect(report.issues.first.title).to eq('Bug')
+    end
+  end
+
+  context 'when the LLM returns reasoning prose before the JSON payload' do
+    let(:fake_llm_client) do
+      prose = "I'll analyze this diff carefully.\n\n" \
+              "Let me check the code for issues.\n\n" \
+              '{"issues":[{"title":"Bug","details":"desc","severity":1,' \
+              '"confidence":1,"tags":[],"affected_lines":[{"start_line":1}]}]}'
+      cost_stub = instance_double(RubyLLM::Cost, total: nil)
+      response = instance_double(RubyLLM::Message, content: prose,
+                                                   input_tokens: 80, output_tokens: 40, tool_calls: {},
+                                                   cache_read_tokens: nil, cache_write_tokens: nil,
+                                                   cost: cost_stub,
+                                                   thinking: nil, thinking_tokens: nil)
+      instance_double(Thingie::LlmClient, complete_with_schema: response)
+    end
+
+    it 'extracts the JSON from the prose and parses issues', :aggregate_failures do
+      report = reviewer.review
+      expect(report.total_issues).to eq(1)
+      expect(report.issues.first.title).to eq('Bug')
+    end
+  end
+
+  context 'when the LLM returns pure prose with no JSON' do
+    let(:fake_llm_client) do
+      cost_stub = instance_double(RubyLLM::Cost, total: nil)
+      response = instance_double(RubyLLM::Message, content: "I'll review this diff carefully.",
+                                                   input_tokens: 80, output_tokens: 40, tool_calls: {},
+                                                   cache_read_tokens: nil, cache_write_tokens: nil,
+                                                   cost: cost_stub,
+                                                   thinking: nil, thinking_tokens: nil)
+      instance_double(Thingie::LlmClient, complete_with_schema: response)
+    end
+
+    it 'records a warning and returns no issues', :aggregate_failures do
+      report = reviewer.review
+      expect(report.total_issues).to eq(0)
+      expect(report.processing_warnings).to include(/Could not parse LLM response/)
     end
   end
 
@@ -203,7 +246,8 @@ RSpec.describe Thingie::Reviewer do
         review_response = instance_double(RubyLLM::Message, content: { 'issues' => issues },
                                                             input_tokens: 200, output_tokens: 80, tool_calls: {},
                                                             cache_read_tokens: nil, cache_write_tokens: nil,
-                                                            cost: review_cost, model_info: nil)
+                                                            cost: review_cost, model_info: nil,
+                                                            thinking: nil, thinking_tokens: nil)
         instance_double(Thingie::LlmClient).tap do |client|
           allow(client).to receive(:complete_with_schema) do |prompt, *_|
             next review_response unless prompt.to_s.include?('FINDING TO CHALLENGE')
@@ -213,7 +257,8 @@ RSpec.describe Thingie::Reviewer do
             instance_double(RubyLLM::Message, content: { 'verdict' => verdict, 'reasoning' => 'r' },
                                               input_tokens: 150, output_tokens: 30, tool_calls: {},
                                               cache_read_tokens: nil, cache_write_tokens: nil,
-                                              cost: verdict_cost, model_info: nil)
+                                              cost: verdict_cost, model_info: nil,
+                                              thinking: nil, thinking_tokens: nil)
           end
         end
       end

@@ -40,10 +40,16 @@ RSpec.describe Thingie::Verifier do
   end
 
   def verdict(value, severity_override: nil, confidence_override: nil)
-    instance_double(RubyLLM::Message, content: {
+    instance_double(RubyLLM::Message,
+                    content: {
                       'verdict' => value, 'reasoning' => 'r',
-                      'severity_override' => severity_override, 'confidence_override' => confidence_override
-                    })
+                      'severity_override' => severity_override,
+                      'confidence_override' => confidence_override
+                    },
+                    thinking: nil, thinking_tokens: nil,
+                    input_tokens: nil, output_tokens: nil, tool_calls: {},
+                    cache_read_tokens: nil, cache_write_tokens: nil,
+                    cost: instance_double(RubyLLM::Cost, total: nil), model_info: nil)
   end
 
   after { FileUtils.rm_rf(tmp_dir) }
@@ -132,12 +138,14 @@ RSpec.describe Thingie::Verifier do
 
     before { allow(fake_debug_output).to receive(:critic_call) }
 
-    it 'calls critic_call with the issue, response, and verdict for each finding' do
+    it 'calls critic_call with the issue, response, verdict, and content for each finding' do
       debug_verifier.call(issues)
       expect(fake_debug_output).to have_received(:critic_call)
-        .with(issue: issues[0], response: anything, verdict: 'uphold')
+        .with(issue: issues[0], response: anything, verdict: 'uphold',
+              content: hash_including('verdict' => 'uphold'))
       expect(fake_debug_output).to have_received(:critic_call)
-        .with(issue: issues[1], response: anything, verdict: 'reject')
+        .with(issue: issues[1], response: anything, verdict: 'reject',
+              content: hash_including('verdict' => 'reject'))
     end
 
     it 'does not call critic_call when verifier is disabled' do
@@ -163,7 +171,8 @@ RSpec.describe Thingie::Verifier do
       response = instance_double(RubyLLM::Message, content: { 'verdict' => 'uphold' },
                                                    input_tokens: 30, output_tokens: 10, tool_calls: {},
                                                    cache_read_tokens: nil, cache_write_tokens: nil,
-                                                   cost: instance_double(RubyLLM::Cost, total: 0.0002))
+                                                   cost: instance_double(RubyLLM::Cost, total: 0.0002),
+                                                   thinking: nil, thinking_tokens: nil)
       instance_double(Thingie::LlmClient, complete_with_schema: response)
     end
 

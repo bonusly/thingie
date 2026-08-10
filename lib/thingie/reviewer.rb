@@ -5,6 +5,7 @@ require 'async'
 require 'async/semaphore'
 require 'async/barrier'
 require 'kernel/sync'
+require_relative 'json_extractor'
 
 module Thingie
   # Orchestrates reviewing the changeset: builds prompts, calls the LLM,
@@ -46,11 +47,13 @@ module Thingie
       @debug_output.review_section_start
       issues = gather_llm_issues
       filtered = PostProcessor.new(@config['post_process']).call(issues)
+      @debug_output.post_process(before: issues.size, after: filtered.size)
       enriched = CodeEnricher.new(@changeset).call(filtered)
       @debug_output.first_pass(enriched)
       verified = verify(enriched)
       sorted = verified.sort_by { |issue| issue.severity || Float::INFINITY }
       sorted.each_with_index { |issue, index| issue.id = index + 1 }
+      @debug_output.warnings(@warnings)
       build_report(sorted)
     end
 
@@ -125,10 +128,11 @@ module Thingie
       response = @llm_client.complete_with_schema(prompt, Schemas::ISSUE_SCHEMA, tools: @tools)
       @usage.record(response)
       issues = parse_response(response, file)
-      @debug_output.review_call(file: file, response: response, issues_found: issues.size)
+      @debug_output.review_call(file: file, response: response, issues: issues)
       only_changed_lines(issues, file)
     rescue JSON::ParserError => e
       @warnings << "Could not parse LLM response for #{file}: #{e.message}"
+      @debug_output.review_error(file: file, error: e)
       []
     end
 
@@ -150,10 +154,11 @@ module Thingie
 
     def parse_response(response, file)
       content = response&.content
-      return [] if content.nil?
-      return [] if content.is_a?(String) && content.strip.empty?
+      return [] if content.nil? || (content.is_a?(String) && content.strip.empty?)
 
-      parsed = content.is_a?(String) ? JSON.parse(content) : content
+      parsed = content.is_a?(String) ? JsonExtractor.parse(content) : content
+      raise JSON::ParserError, 'no valid JSON found in response' if parsed.nil?
+
       issues = parsed.is_a?(Hash) ? (parsed['issues'] || parsed[:issues] || []) : parsed
       IssueParser.new.parse(Array(issues), file)
     end
