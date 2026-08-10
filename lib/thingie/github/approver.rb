@@ -70,7 +70,7 @@ module Thingie
         decision = decide(pr, report)
         log(decision)
         apply(pr, decision, report)
-        sync_status_comment(decision)
+        sync_status_comment(pr, decision, report)
         decision
       rescue StandardError => e
         warn "Auto-approval skipped — #{e.message}"
@@ -325,11 +325,26 @@ module Thingie
         [
           APPROVAL_MARKER,
           'Approved automatically by Thingie: all auto-approval rules passed.',
+          *approval_details(pr, report)
+        ].compact.join("\n\n")
+      end
+
+      def dry_run_approval_body(pr, report)
+        [
+          STATUS_MARKER,
+          '_Dry run — no approval action was taken._',
+          'Thingie would automatically approve this PR: all auto-approval rules passed.',
+          *approval_details(pr, report)
+        ].compact.join("\n\n")
+      end
+
+      def approval_details(pr, report)
+        [
           passed_rules_section(pr),
           external_checks_section,
           risk_assessment_section(pr, report),
           details_section(report)
-        ].compact.join("\n\n")
+        ]
       end
 
       # Deterministic list of the gates that were satisfied for this approval.
@@ -505,14 +520,16 @@ module Thingie
         end
       end
 
-      # Surface the decision on the PR itself, not just in the workflow log. A
-      # blocked or skipped decision upserts a single status comment explaining
-      # why; an approval removes any stale status comment. Posted even in
-      # dry-run (with a note) so the reasons are visible during rollout. Never
-      # raises into the run.
-      def sync_status_comment(decision)
+      # Surface the decision on the PR itself, not just in the workflow log.
+      # Blocked or skipped decisions upsert a single status comment explaining
+      # why. A real approval removes any stale comment; a dry-run approval
+      # instead posts the approval details without taking approval action.
+      # Never raises into the run.
+      def sync_status_comment(pr, decision, report)
         existing = status_comment
-        if decision.action == :approve
+        if decision.action == :approve && dry_run?
+          upsert_status_comment(existing, dry_run_approval_body(pr, report))
+        elsif decision.action == :approve
           remove_status_comment(existing) if existing
         else
           upsert_status_comment(existing, status_body(decision))
