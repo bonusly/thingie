@@ -459,4 +459,26 @@ RSpec.describe Thingie::GitHub::Approver do # rubocop:disable RSpec/SpecFilePath
       expect(pat_client).to have_received(:create_pull_request_review).with('o/r', 1, anything)
     end
   end
+
+  context 'when run returns the decision' do
+    it 'returns an approve Decision for a clean PR' do
+      decision = approver.run(report_for([]))
+      expect(decision.action).to eq(:approve)
+      expect(decision.reasons).to eq([])
+    end
+
+    it 'returns a block Decision with reasons when a rule fails' do
+      allow(pr).to receive_messages(additions: 600, deletions: 0) # exceeds max_changes (500)
+
+      decision = approver.run(report_for([]))
+      expect(decision.action).to eq(:block)
+      expect(decision.reasons).to include(include('600 changes'))
+    end
+
+    it 'returns nil when the client raises' do
+      allow(client).to receive(:pull_request).and_raise(StandardError, 'boom')
+
+      expect(approver.run(report_for([]))).to be_nil
+    end
+  end
 end

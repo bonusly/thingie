@@ -274,6 +274,7 @@ Key settings:
 | Auto-approve dry run | `false` | `approve.dry_run` | — | — |
 | Skill directories | `.agents`, `.claude`, `.cursor` | `skill_directories` | — | — |
 | Language servers | none | `lsp.<name>` | — | — |
+| Stats logging | `false` | `stats.enabled` | — | — |
 
 Supported providers match whatever RubyLLM supports, including `openai`, `anthropic`, `gemini`, `ollama`, `deepseek`, `openrouter`, `mistral`, `perplexity`, `xai`, `azure`, `bedrock`, `vertexai`, and `gpustack`.
 
@@ -303,6 +304,13 @@ model = "anthropic/claude-opus-4.8"
 [lsp.ruby]
 command = ["ruby-lsp"]
 extensions = [".rb", ".rake"]
+
+# Emit machine-readable stats events after each review and auto-approval.
+[stats]
+enabled = true
+[[stats.sinks]]
+type = "jsonl"
+path = "log/thingie-stats.jsonl"
 ```
 
 ### Skills
@@ -397,6 +405,55 @@ cost. LSP is disabled entirely when no `[lsp.*]` entry is configured.
 ### Logging
 
 Set `log_file` to a file path to persist RubyLLM request logs for debugging. Set `log_level` to `debug` to see full request and response bodies. Valid levels are `debug`, `info`, `warn`, `error`, and `fatal`.
+
+### Stats logging
+
+Thingie can emit machine-readable stats events after each review and auto-approval decision, so you can build dashboards (Datadog, Logstash, Fluentd, Vector, …) that track review volume, finding rates, LLM token usage, and the auto-approve rate. It's **off by default** — nothing is emitted unless `stats.enabled` is `true` **and** at least one `[[stats.sinks]]` destination is configured. There is no environment-variable toggle (enable it in config, the same as `[approve]` and `[verify]`).
+
+Two events are emitted:
+
+- **`review.completed`** — after a successful `thingie review` run. Carries the commit SHA, branch, model, files reviewed, total issues, issue counts by severity and by tag, the review duration in milliseconds, and accumulated LLM usage (input/output/cache tokens and cost).
+- **`approval.decided`** — after the auto-approval step of `thingie github-comment`. Carries the action (`approve`, `block`, or `skip`), the block reasons (empty for `approve`/`skip`), the `repo` (`owner/repo`), PR number, and whether it was a dry run.
+
+Every event is a single JSON object on one line, with a stable schema: `event`, `timestamp` (ISO 8601), `thingie_version`, and the event-specific fields. GitHub identity (`repo`, `pr_number`) is enriched from the GitHub Actions environment when available; explicit fields on the `approval.decided` event override the env-derived ones. Constant `tags` from `[stats.tags]` are copied into every event when set.
+
+Built-in sink types:
+
+- **`jsonl`** — append one JSON object per event to a file, or to `stdout`/`stderr`. Relative paths are resolved against the project root; parent directories are created. The Datadog Agent tails JSON-lines files natively; Logstash/Fluentd/Vector ingest them with a `json` codec — no extra gems required.
+- **`command`** — pipe one JSON line per event to an external command's stdin (e.g. `tee -a /var/log/thingie.jsonl` or a stats shipper you already run). On any failure (bad command, dead pipe) the sink warns once and disables itself for the rest of the run — it never raises into the pipeline.
+
+```toml
+[stats]
+enabled = true
+
+# Constant key/value pairs copied into every event under "tags".
+[stats.tags]
+team = "platform"
+environment = "production"
+
+# Destinations — one [[stats.sinks]] block each.
+[[stats.sinks]]
+type = "jsonl"
+path = "log/thingie-stats.jsonl"   # or "stdout" / "stderr"
+
+[[stats.sinks]]
+type = "command"
+command = "my-stats-shipper"
+```
+
+Sink failures are **fail-open**: a stats outage never fails a review. A failing sink is warned about and skipped; the others still receive the event.
+
+#### Custom sink plugins
+
+Any gem can register an additional sink type via `Thingie::Stats.register_sink`. A sink class implements `initialize(config:, root:)` (raise `ArgumentError` on a missing required key) and `emit(event)` (serialize/ship the fully-formed, string-keyed event Hash). Set the entry's `require` to load the gem before the type is looked up:
+
+```toml
+[[stats.sinks]]
+type = "my_custom_sink"
+require = "my_thingie_sink_gem"   # required before the type is looked up
+```
+
+The two key risk indicators that motivated this feature — **auto-approve rate** and **block-reason histogram** — are directly computable from `approval.decided` events. Post-merge indicators (revert rate, human override after approve) happen after merge and can only be computed downstream, so every event carries stable join keys (`repo`, `pr_number`, `commit_sha`) that let a downstream pipeline correlate them with merge and revert events.
 
 ### Structured output
 

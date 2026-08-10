@@ -28,7 +28,14 @@ module Thingie
       # appends between scheduler yields do not race. No lock needed.
       @warnings = []
       @debug_output = DebugOutput.new(config: config, changeset: changeset, enabled: debug)
+      @usage = Stats::Usage.new
     end
+
+    # Accumulated LLM token/cost usage for the run, fed each review and critic
+    # response so the stats emitter can report it.
+    #
+    # @return [Thingie::Stats::Usage] accumulated LLM token/cost usage for the run
+    attr_reader :usage
 
     # Run the full review pipeline: gather LLM findings for each changed file, post-process,
     # enrich with code snippets, run the critic pass, sort by severity, and assign issue ids.
@@ -63,7 +70,7 @@ module Thingie
       @debug_output.critic_section_start
       verifier = Verifier.new(
         config: @config, changeset: @changeset, prompt_builder: @prompt_builder,
-        llm_client: @llm_client, tools: @tools, debug_output: @debug_output
+        llm_client: @llm_client, tools: @tools, debug_output: @debug_output, usage: @usage
       )
       kept = verifier.call(issues)
       @warnings.concat(verifier.warnings)
@@ -116,6 +123,7 @@ module Thingie
       full = @changeset.full_content_for(file)
       prompt = @prompt_builder.review(diff: diff, file_lines: full, symbol_lookup: @tools.any?)
       response = @llm_client.complete_with_schema(prompt, Schemas::ISSUE_SCHEMA, tools: @tools)
+      @usage.record(response)
       issues = parse_response(response, file)
       @debug_output.review_call(file: file, response: response, issues_found: issues.size)
       only_changed_lines(issues, file)
@@ -155,7 +163,7 @@ module Thingie
         platform: 'local',
         repo_url: nil,
         pr_number: nil,
-        commit_sha: nil,
+        commit_sha: @changeset.head_sha,
         branch: nil,
         base_ref: @changeset.base_ref,
         head_ref: @changeset.head_ref,

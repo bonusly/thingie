@@ -60,17 +60,21 @@ module Thingie
 
       # Evaluate the rules and approve / dismiss accordingly. Never raises into
       # the run: a failure here must not fail the review that already posted.
+      # Returns the Decision so the caller can emit it as a stats event; nil
+      # when an error short-circuited the evaluation.
       #
       # @param report [Thingie::Report] the completed review report
-      # @return [void]
+      # @return [Thingie::GitHub::Approver::Decision, nil] the decision, or nil on failure
       def run(report)
         pr = @client.pull_request(slug, @pr_number)
         decision = decide(pr, report)
         log(decision)
         apply(pr, decision, report)
         sync_status_comment(decision)
+        decision
       rescue StandardError => e
         warn "Auto-approval skipped — #{e.message}"
+        nil
       end
 
       private

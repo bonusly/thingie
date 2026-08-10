@@ -146,4 +146,32 @@ RSpec.describe Thingie::Verifier do
       expect(fake_debug_output).not_to have_received(:critic_call)
     end
   end
+
+  context 'when a Usage accumulator is provided' do
+    subject(:usage_verifier) do
+      described_class.new(
+        config: config,
+        changeset: fake_changeset,
+        prompt_builder: Thingie::PromptBuilder.new(Thingie::Configuration.new(root: tmp_dir)),
+        llm_client: token_llm_client,
+        usage: usage
+      )
+    end
+
+    let(:usage) { Thingie::Stats::Usage.new }
+    let(:token_llm_client) do
+      response = instance_double(RubyLLM::Message, content: { 'verdict' => 'uphold' },
+                                                   input_tokens: 30, output_tokens: 10, tool_calls: {},
+                                                   cache_read_tokens: nil, cache_write_tokens: nil,
+                                                   cost: instance_double(RubyLLM::Cost, total: 0.0002))
+      instance_double(Thingie::LlmClient, complete_with_schema: response)
+    end
+
+    it 'records each critic response into the accumulator', :aggregate_failures do
+      usage_verifier.call([issue('keep-me'), issue('reject-me')])
+      expect(usage.input_tokens).to eq(60)
+      expect(usage.output_tokens).to eq(20)
+      expect(usage.cost).to be_within(1e-9).of(0.0004)
+    end
+  end
 end
