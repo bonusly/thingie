@@ -29,6 +29,15 @@ module Thingie
       @merge_base = merge_base
     end
 
+    # Whether the changeset covers every tracked file rather than just the files
+    # changed between refs. Callers use this to adapt review prompts: in `all`
+    # mode there is no diff, so whole-file context replaces it.
+    #
+    # @return [Boolean] true in `all` mode
+    def all?
+      @all
+    end
+
     # The list of file paths under review — changed files between `base_ref` and `head_ref`,
     # or every tracked file when in `all` mode, after filters and excludes are applied.
     #

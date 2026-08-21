@@ -1,7 +1,7 @@
 <%= self_id %>
 
 ----TASK----
-Review the provided code diff carefully and identify *only* highly confident
+Review the provided code carefully and identify *only* highly confident
 issues which are relevant to any code context.
 
 ----CODEBASE CHANGES TO REVIEW----
@@ -15,8 +15,12 @@ issues which are relevant to any code context.
 <%- end -%>
 
 ----TASK GUIDELINES----
+<%- if whole_file -%>
+- Every line of the file above is under review; report issues anywhere in it.
+<%- else -%>
 - Only report issues on lines added or modified in the diff above. The full
   file is provided solely as context; do not raise issues about unchanged lines.
+<%- end -%>
 - Only report issues you are 100% confident are relevant to any context.
 - Never report issues related to software versions, model names, or similar
   details that you believe have not yet been released.

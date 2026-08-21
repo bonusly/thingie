@@ -22,6 +22,7 @@ RSpec.describe Thingie::Reviewer do
                     diff_text_for: "+ def hello\n",
                     full_content_for: "def hello\nend\n",
                     changed_lines_for: Set.new([1]),
+                    all?: false,
                     base_ref: 'main',
                     head_ref: 'HEAD',
                     head_sha: 'abc123')
@@ -67,6 +68,7 @@ RSpec.describe Thingie::Reviewer do
                       diff_text_for: "+ def hello\n",
                       full_content_for: "def hello\nend\n",
                       changed_lines_for: Set.new([5]), # issue is on line 1, not changed
+                      all?: false,
                       base_ref: 'main',
                       head_ref: 'HEAD',
                       head_sha: 'abc123')
@@ -86,10 +88,77 @@ RSpec.describe Thingie::Reviewer do
       end
     end
 
-    it 'propagates the error instead of silently returning no issues' do
+    it 'aborts when every file failed instead of silently returning no issues' do
       expect do
         reviewer.review
-      end.to raise_error(RuntimeError, /Parallel review failures.*Failed to open TCP connection/m)
+      end.to raise_error(RuntimeError, /All 1 file reviews failed.*Failed to open TCP connection/m)
+    end
+  end
+
+  context 'when the LLM client fails on only some files' do
+    let(:fake_changeset) do
+      instance_double(Thingie::Changeset).tap do |changeset|
+        allow(changeset).to receive_messages(files: ['app.rb', 'other.rb'],
+                                             changed_lines_for: Set.new([1]), all?: false,
+                                             base_ref: 'main', head_ref: 'HEAD', head_sha: 'abc123')
+        allow(changeset).to receive(:diff_text_for) { |file| file == 'other.rb' ? "+ def other\n" : "+ def hello\n" }
+        allow(changeset).to receive(:full_content_for) { |file|
+          "#{file == 'other.rb' ? 'def other' : 'def hello'}\nend\n"
+        }
+      end
+    end
+    let(:connection_error) { Class.new(StandardError) }
+    let(:fake_llm_client) do
+      issues = [{ 'title' => 'Missing return', 'details' => 'No return value', 'severity' => 2,
+                  'confidence' => 1, 'tags' => ['bug'], 'affected_lines' => [{ 'start_line' => 1 }] }]
+      response = instance_double(RubyLLM::Message, content: { 'issues' => issues },
+                                                   input_tokens: 100, output_tokens: 50, tool_calls: {},
+                                                   cache_read_tokens: nil, cache_write_tokens: nil,
+                                                   cost: instance_double(RubyLLM::Cost, total: nil),
+                                                   thinking: nil, thinking_tokens: nil)
+      instance_double(Thingie::LlmClient).tap do |client|
+        allow(client).to receive(:complete_with_schema) do |prompt, _schema, _tools|
+          raise connection_error, 'Rate limit exceeded' if prompt.include?('def other')
+
+          response
+        end
+      end
+    end
+
+    it 'skips the failed file with a warning and reviews the rest', :aggregate_failures do
+      report = reviewer.review
+      expect(report.total_issues).to eq(1)
+      expect(report.processing_warnings).to include(/Failed to review other.rb: .*Rate limit exceeded/)
+      expect(report.number_of_processed_files).to eq(2)
+    end
+  end
+
+  context 'when reviewing the whole codebase' do
+    let(:fake_changeset) do
+      instance_double(Thingie::Changeset,
+                      files: ['app.rb'],
+                      diff_text_for: "def hello\nend\n",
+                      full_content_for: "def hello\nend\n",
+                      changed_lines_for: nil,
+                      all?: true,
+                      base_ref: 'main',
+                      head_ref: 'HEAD',
+                      head_sha: 'abc123')
+    end
+    let(:prompt_builder) do
+      builder = Thingie::PromptBuilder.new(config)
+      allow(builder).to receive(:review).and_return('prompt')
+      builder
+    end
+
+    before do
+      allow(Thingie::PromptBuilder).to receive(:new).and_return(prompt_builder)
+    end
+
+    it 'marks the prompt as whole-file and does not duplicate the content' do
+      reviewer.review
+      expect(prompt_builder).to have_received(:review)
+        .with(diff: "def hello\nend\n", file_lines: nil, symbol_lookup: false, whole_file: true)
     end
   end
 

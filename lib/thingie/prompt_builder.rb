@@ -33,10 +33,12 @@ module Thingie
     # @param diff [String, nil] the diff text (or full content in `all` mode) to review
     # @param file_lines [String, nil] the full file content, given as extra context to the LLM
     # @param symbol_lookup [Boolean] whether the LSP symbol-lookup tool is available to the LLM
+    # @param whole_file [Boolean] whether this is a whole-file review (`--all` mode, no diff);
+    #   switches the prompt guideline from "only changed lines" to "every line"
     # @return [String] the rendered prompt text
-    def review(diff:, file_lines: nil, symbol_lookup: false)
+    def review(diff:, file_lines: nil, symbol_lookup: false, whole_file: false)
       render_template(REVIEW_TEMPLATE, 'input' => diff, 'file_lines' => file_lines,
-                                       'symbol_lookup' => symbol_lookup,
+                                       'symbol_lookup' => symbol_lookup, 'whole_file' => whole_file,
                                        'severity_scale' => format_scale(@config.severity_scale),
                                        'confidence_scale' => format_scale(@config.confidence_scale),
                                        'show_threshold_text' => show_threshold_text,
