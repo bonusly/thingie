@@ -1,10 +1,7 @@
 # frozen_string_literal: true
 
 require 'json'
-require 'async'
-require 'async/semaphore'
-require 'async/barrier'
-require 'kernel/sync'
+require_relative 'concurrency'
 
 module Thingie
   # Critic / challenge pass: re-examines each surviving finding with a fresh,
@@ -80,23 +77,10 @@ module Thingie
       model && !model.to_s.strip.empty? ? LlmClient.new(config, model: model) : llm_client
     end
 
-    # Same Async barrier/semaphore structure as Reviewer#review_in_parallel:
-    # results land by index, errors are aggregated, and the block always blocks
-    # until the barrier drains.
+    # Ordered verdicts via the shared bounded-fiber runner; an issue whose
+    # critic call never completes keeps its fail-open slot value.
     def verify_in_parallel(issues, concurrency)
-      results = Array.new(issues.size, FAIL_OPEN_RESULT)
-      barrier = nil
-      Sync do
-        barrier = Async::Barrier.new
-        semaphore = Async::Semaphore.new(concurrency, parent: barrier)
-        issues.each_with_index do |issue, index|
-          semaphore.async(parent: barrier) { results[index] = uphold?(issue) }
-        end
-        barrier.wait
-      ensure
-        barrier&.stop
-      end
-      results
+      Concurrency.map(issues, concurrency, default: FAIL_OPEN_RESULT) { |issue| uphold?(issue) }
     end
 
     # @return [Hash] `{ keep:, severity:, confidence: }` — `severity`/`confidence`

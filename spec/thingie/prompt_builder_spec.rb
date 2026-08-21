@@ -35,6 +35,16 @@ RSpec.describe Thingie::PromptBuilder do
       expect(builder.review(diff: '', symbol_lookup: true)).to include('symbol lookup tool')
     end
 
+    it 'inverts the diff-only guideline for whole-file reviews', :aggregate_failures do
+      diff_prompt = builder.review(diff: "+ def hello\n", file_lines: "def hello\nend\n")
+      expect(diff_prompt).to include('Only report issues on lines added or modified in the diff above')
+      expect(diff_prompt).not_to include('report issues anywhere in it')
+
+      whole_prompt = builder.review(diff: "def hello\nend\n", whole_file: true)
+      expect(whole_prompt).to include('Every line of the file above is under review')
+      expect(whole_prompt).not_to include('Only report issues on lines added or modified')
+    end
+
     context 'when prompt_vars omits requirements/json_requirements/self_id' do
       let(:config) { Thingie::Configuration.new(root: tmp_dir, overrides: { prompt_vars: {} }) }
 

@@ -1,10 +1,7 @@
 # frozen_string_literal: true
 
 require 'json'
-require 'async'
-require 'async/semaphore'
-require 'async/barrier'
-require 'kernel/sync'
+require_relative 'concurrency'
 require_relative 'json_extractor'
 
 module Thingie
@@ -28,6 +25,10 @@ module Thingie
       # Plain array: Async runs fibers cooperatively on a single thread, so
       # appends between scheduler yields do not race. No lock needed.
       @warnings = []
+      # Per-file review failures ([file, error]). A single failure skips the
+      # file with a warning; failures on every file abort the run (see
+      # #raise_if_total_failure). Same cooperative-single-thread guarantee.
+      @file_failures = []
       @debug_output = DebugOutput.new(config: config, changeset: changeset, enabled: debug)
       @usage = Stats::Usage.new
     end
@@ -85,46 +86,38 @@ module Thingie
       files = @changeset.files
       concurrency = [@config['max_concurrent_tasks'] || 10, 1].max
       # Always go through the parallel path (a concurrency of 1 runs serially)
-      # so error aggregation is identical regardless of concurrency.
-      review_in_parallel(files, concurrency)
+      # so behavior is identical regardless of concurrency.
+      issues = review_in_parallel(files, concurrency)
+      raise_if_total_failure(files)
+      issues
     end
 
+    # Per-file failures are rescued inside #review_file, so the block never
+    # raises; a file that fails is skipped with a warning and returns [].
     def review_in_parallel(files, concurrency)
-      results = Array.new(files.size)
-      errors = []
-      barrier = nil # declared here so it's in scope for the ensure block below
+      Concurrency.map(files, concurrency) { |file| review_file(file) }.flatten(1)
+    end
 
-      # Sync (not Async) so the block always blocks until the barrier is
-      # drained, even when invoked inside an existing reactor. Async would
-      # return the scheduled task immediately and race ahead to results.
-      # Barrier/semaphore are created inside the reactor so they bind to it.
-      Sync do
-        barrier = Async::Barrier.new
-        semaphore = Async::Semaphore.new(concurrency, parent: barrier)
-        files.each_with_index do |file, index|
-          semaphore.async(parent: barrier) do
-            results[index] = review_file(file)
-          rescue StandardError => e
-            errors << [file, e]
-          end
-        end
-        barrier.wait # drain on normal path; wait can raise and mask errors in ensure
-      ensure
-        barrier&.stop
-      end
+    # A review where every file failed (dead API key, unreachable provider)
+    # would otherwise "succeed" with an empty report — silently not reviewing
+    # anything. Abort instead. Any partial success completes the run; the
+    # failed files are listed in the report's processing warnings.
+    def raise_if_total_failure(files)
+      return unless files.any? && @file_failures.size == files.size
 
-      if errors.any?
-        message = errors.map { |file, e| "#{file}: #{e.class}: #{e.message}" }.join("\n")
-        raise "Parallel review failures (#{errors.size} files):\n#{message}"
-      end
-
-      results.flatten(1)
+      file, error = @file_failures.first
+      raise "All #{files.size} file reviews failed " \
+            "(#{file}: #{error.class}: #{error.message}); aborting instead of reporting an empty review"
     end
 
     def review_file(file)
+      # In `--all` mode the "diff" is the full file content; sending it again
+      # as context duplicates every byte of the prompt for no information.
+      whole_file = @changeset.all?
       diff = @changeset.diff_text_for(file)
-      full = @changeset.full_content_for(file)
-      prompt = @prompt_builder.review(diff: diff, file_lines: full, symbol_lookup: @tools.any?)
+      full = whole_file ? nil : @changeset.full_content_for(file)
+      prompt = @prompt_builder.review(diff: diff, file_lines: full, symbol_lookup: @tools.any?,
+                                      whole_file: whole_file)
       response = @llm_client.complete_with_schema(prompt, Schemas::ISSUE_SCHEMA, tools: @tools)
       @usage.record(response)
       issues = parse_response(response, file)
@@ -132,6 +125,11 @@ module Thingie
       only_changed_lines(issues, file)
     rescue JSON::ParserError => e
       @warnings << "Could not parse LLM response for #{file}: #{e.message}"
+      @debug_output.review_error(file: file, error: e)
+      []
+    rescue StandardError => e
+      @warnings << "Failed to review #{file}: #{e.class}: #{e.message}"
+      @file_failures << [file, e]
       @debug_output.review_error(file: file, error: e)
       []
     end
