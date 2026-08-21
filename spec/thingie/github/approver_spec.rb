@@ -360,11 +360,17 @@ RSpec.describe Thingie::GitHub::Approver do # rubocop:disable RSpec/SpecFilePath
     expect(client).to have_received(:create_pull_request_review)
   end
 
-  it 'does not approve in dry-run mode' do
+  it 'posts the successful approval result without approving in dry-run mode', :aggregate_failures do
     config['dry_run'] = true
     approver.run(report_for([]))
 
     expect(client).not_to have_received(:create_pull_request_review)
+    expected_body = a_string_including(described_class::STATUS_MARKER)
+                    .and(a_string_including('Dry run — no approval action was taken'))
+                    .and(a_string_including('would automatically approve this PR'))
+                    .and(a_string_including('Checks passed'))
+                    .and(a_string_including("Thingie version: #{Thingie::VERSION}"))
+    expect(client).to have_received(:add_comment).with('o/r', 1, expected_body)
   end
 
   it 'posts a status comment explaining why the PR was not approved' do
@@ -393,7 +399,18 @@ RSpec.describe Thingie::GitHub::Approver do # rubocop:disable RSpec/SpecFilePath
     expect(client).to have_received(:delete_comment).with('o/r', 7)
   end
 
-  it 'still posts the status comment in dry-run mode' do
+  it 'updates a stale status comment with the successful dry-run result', :aggregate_failures do
+    config['dry_run'] = true
+    existing = double('comment', id: 7, body: described_class::STATUS_MARKER) # rubocop:disable RSpec/VerifiedDoubles
+    allow(client).to receive(:issue_comments).and_return([existing])
+    approver.run(report_for([]))
+
+    expect(client).to have_received(:update_comment)
+      .with('o/r', 7, a_string_including('would automatically approve this PR'))
+    expect(client).not_to have_received(:delete_comment)
+  end
+
+  it 'still posts a blocked status comment in dry-run mode' do
     config['dry_run'] = true
     allow(pr).to receive_messages(additions: 600, deletions: 0)
     approver.run(report_for([]))
