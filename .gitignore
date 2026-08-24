@@ -69,6 +69,7 @@ Gemfile.lock
 .envrc
 
 # Various agent directories:
+/scratch/
 /.scratch/
 /.claude/
 /.codex/
