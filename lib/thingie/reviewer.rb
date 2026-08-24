@@ -40,9 +40,9 @@ module Thingie
     attr_reader :usage
 
     # Run the full review pipeline: gather LLM findings for each changed file, post-process,
-    # enrich with code snippets, run the critic pass, sort by severity, and assign issue ids.
-    #
-    # @return [Thingie::Report] the finished report
+    # enrich with code snippets, run the critic pass, scan changed files for obfuscation
+    # (added after the critic pass so thresholds cannot suppress it), sort by severity,
+    # and assign issue ids.
     def review
       @debug_output.banner
       @debug_output.review_section_start
@@ -52,7 +52,8 @@ module Thingie
       enriched = CodeEnricher.new(@changeset).call(filtered)
       @debug_output.first_pass(enriched)
       verified = verify(enriched)
-      sorted = verified.sort_by { |issue| issue.severity || Float::INFINITY }
+      obfuscated = ObfuscationDetector.new(@changeset).call
+      sorted = (verified + obfuscated).sort_by { |issue| issue.severity || Float::INFINITY }
       sorted.each_with_index { |issue, index| issue.id = index + 1 }
       @debug_output.warnings(@warnings)
       build_report(sorted)

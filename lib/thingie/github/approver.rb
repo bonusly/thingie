@@ -124,10 +124,26 @@ module Thingie
         reasons << 'a protected path was changed in this PR' if protected_path_changed?
         reasons << change_size_reason(pr) if too_many_changes?(pr)
         reasons << 'new findings at or above the approval severity threshold' if current_issues?(report)
+        reasons << obfuscation_reason(report) if obfuscated?(report)
         reasons << 'unresolved Thingie findings remain' if unresolved?(threads)
         reasons << 'Thingie findings were resolved by the author or a contributor' if self_resolved?(threads, pr)
         reasons << 'a human reviewer requested changes' if human_requested_changes?
         reasons
+      end
+
+      # Obfuscation findings are a hard block regardless of [approve] max_severity:
+      # encoded or dynamically-constructed code must always get human review, the
+      # same fail-safe posture as config/protected-path changes. Catches both
+      # scanner findings from this run and LLM findings that carried the tag.
+      def obfuscated?(report)
+        report.issues.any? { |issue| issue.tags.to_a.include?('obfuscation') }
+      end
+
+      def obfuscation_reason(report)
+        files = report.issues
+                      .select { |issue| issue.tags.to_a.include?('obfuscation') }
+                      .map(&:file).uniq
+        "obfuscated code detected in #{files.join(', ')}"
       end
 
       def approve
