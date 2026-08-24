@@ -42,8 +42,13 @@ RSpec.describe Thingie::ObfuscationDetector do
       expect(issues_for_content(code)).to be_empty
     end
 
-    it 'ignores readable eval of a plain literal' do
+    it 'blocks readable eval of a plain literal too (any eval requires review)' do
       code = "instance_eval('2 + 2')\n"
+      expect(issues_for_content(code).first.title).to include('dynamic code execution')
+    end
+
+    it 'still ignores ordinary send with a non-eval method name' do
+      code = "object.send(:method_name)\n"
       expect(issues_for_content(code)).to be_empty
     end
 
@@ -90,9 +95,38 @@ RSpec.describe Thingie::ObfuscationDetector do
       expect(issues.first.title).to include('dynamic code execution')
     end
 
-    it 'flags instance_eval on a reversed string' do
-      code = "instance_eval(payload.reverse)\n"
-      expect(issues_for_content(code).first.title).to include('dynamic code execution')
+    it 'flags eval of a payload decoded on a previous line' do
+      code = "payload = Base64.decode64(encoded)\neval(payload)\n"
+      issues = issues_for_content(code)
+      expect(issues.size).to eq(1)
+      expect(issues.first.title).to include('dynamic code execution')
+      expect(issues.first.affected_lines.first.start_line).to eq(2)
+    end
+
+    it 'flags indirect eval invocation via send/public_send/method' do
+      invocations = [
+        'send(:eval, code)',
+        'public_send(:eval, code)',
+        '__send__("eval", code)',
+        "send('eval', code)",
+        'method(:eval).call(code)'
+      ]
+      invocations.each do |invocation|
+        expect(issues_for_content("#{invocation}\n").first.title).to include('dynamic code execution'),
+                                                                     "expected #{invocation} to be flagged"
+      end
+    end
+
+    it 'flags eval of a payload built from concatenated strings' do
+      code = "s = '41' + '42' + '43'\neval(s)\n"
+      issues = issues_for_content(code)
+      expect(issues.size).to eq(1)
+      expect(issues.first.title).to include('dynamic code execution')
+    end
+
+    it 'flags eval of a payload built with pack' do
+      code = "s = [109, 97].pack('C*')\neval(s)\n"
+      expect(issues_for_content(code).map(&:title).join).to include('dynamic code execution')
     end
 
     it 'flags String.fromCharCode construction' do
@@ -100,6 +134,13 @@ RSpec.describe Thingie::ObfuscationDetector do
       issues = issues_for_content(code)
       expect(issues.size).to eq(1)
       expect(issues.first.title).to include('character codes')
+    end
+
+    it 'flags lowercase pack c* and unicode pack U* variants' do
+      ["payload = [109, 97].pack('c*')", "payload = [109, 97].pack('U*')"].each do |line|
+        expect(issues_for_content("#{line}\n").first.title).to include('character codes'),
+                                                               "expected #{line} to be flagged"
+      end
     end
 
     it 'flags pack C* byte-array string construction' do
@@ -110,6 +151,29 @@ RSpec.describe Thingie::ObfuscationDetector do
     it 'flags three or more .chr literals in one line' do
       code = 's = 104.chr + 101.chr + 108.chr'
       expect(issues_for_content(code).first.title).to include('character codes')
+    end
+
+    describe 'blob thresholds' do
+      it 'flags a hex blob at exactly 80 chars' do
+        expect(issues_for_content("p = '#{'f' * 80}'\n").size).to eq(1)
+      end
+
+      it 'ignores a hex run of 79 chars' do
+        expect(issues_for_content("p = '#{'f' * 79}'\n")).to be_empty
+      end
+
+      it 'flags a base64 blob at exactly 100 chars' do
+        expect(issues_for_content("p = '#{'z' * 100}'\n").size).to eq(1)
+      end
+
+      it 'ignores a base64 run of 99 chars' do
+        expect(issues_for_content("p = '#{'z' * 99}'\n")).to be_empty
+      end
+    end
+
+    it 'flags escape runs split across literals when followed by eval' do
+      code = "data = \"\\x41\\x42\\x43\\x44\" + \"\\x45\\x46\\x47\\x48\"\neval(data)\n"
+      expect(issues_for_content(code).map(&:title).join).to include('dynamic code execution')
     end
 
     it 'flags a dense \x hex escape run' do

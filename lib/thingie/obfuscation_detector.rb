@@ -2,7 +2,7 @@
 
 module Thingie
   # Scans the full content of every changed file for common code-obfuscation
-  # techniques (encoded blobs, dynamic code execution on encoded data,
+  # techniques (encoded blobs, any eval-family call, indirect eval invocation,
   # character-code string construction, dense escape runs). Findings are
   # returned as severity-1 issues tagged `obfuscation`, which the auto-approval
   # rules treat as a hard block independent of the severity threshold.
@@ -26,15 +26,19 @@ module Thingie
     HEX_BLOB = /\h{80,}/
     # 100+ contiguous base64 chars — encoded payloads, not prose (which has spaces).
     BASE64_BLOB = %r{[A-Za-z0-9+/]{100,}={0,2}}
-    # Ruby eval family; `send`/`public_send` are excluded as ordinary metaprogramming.
-    EVAL_CALL = /\b(?:eval|instance_eval|class_eval|module_eval)\b\s*\(/
-    # Same-line markers that make an eval-family call suspicious: the argument
-    # is decoded or constructed at runtime rather than a readable literal.
-    DECODE_MARKER = /Base64|decode|unpack\b|pack\b|\.chr\b|\\x\h{2}|fromCharCode|\.reverse\b/
+    # Eval family — direct or indirect invocation. ANY eval call blocks: composed
+    # obfuscation (decode on one line, eval on the next) evades same-line
+    # heuristics, so whether a given eval is benign is a human reviewer's call.
+    EVAL_CALL = /
+      \b(?:eval|instance_eval|class_eval|module_eval)\b\s*\(
+      |\b(?:send|public_send|__send__)\s*\(\s*['":]eval\b
+      |\bmethod\s*\(\s*['":]eval\b
+    /x
     # JavaScript `String.fromCharCode(72, 101, ...)` with two or more codes.
     FROM_CHAR_CODE = /String\.fromCharCode\s*\(\s*\d+\s*,/
-    # Ruby byte-array-to-string construction: `[65, 66].pack('C*')`.
-    PACK_C_STAR = /pack\s*\(\s*['"]C\*['"]/
+    # Ruby byte-array-to-string construction: `[65, 66].pack('C*')` (and the
+    # lowercase/unicode pack directives).
+    PACK_C_STAR = /pack\s*\(\s*['"][CcUu]\*['"]/
     # Repeated Ruby character-code literals: `104.chr + 101.chr + ...`.
     CHAR_LITERAL = /\d+\s*\.\s*chr\b/
     # Dense escape runs: `...\x41\x42...` (8+) or `...\u0041\u0042...` (10+).
@@ -85,9 +89,7 @@ module Thingie
     def describe(line)
       return 'a long hex-encoded blob' if line.match?(HEX_BLOB)
       return 'a long base64-encoded blob' if line.match?(BASE64_BLOB)
-      if line.match?(EVAL_CALL) && line.match?(DECODE_MARKER)
-        return 'dynamic code execution on encoded or constructed data'
-      end
+      return 'dynamic code execution (eval)' if line.match?(EVAL_CALL)
       return 'an executable string built from character codes' if char_code_construction?(line)
 
       'a dense run of escape sequences' if line.match?(ESCAPE_RUN)
