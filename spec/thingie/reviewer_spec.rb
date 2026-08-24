@@ -162,6 +162,52 @@ RSpec.describe Thingie::Reviewer do
     end
   end
 
+  context 'when a changed file contains obfuscated code' do
+    let(:hex_blob) do
+      '4142434445464748494a4b4c4d4e4f505152535455565758595a6162636465666768696a6b6c6d6e6f70'
+    end
+    let(:fake_changeset) do
+      instance_double(Thingie::Changeset,
+                      files: ['app.rb'],
+                      diff_text_for: "+ def hello\n",
+                      full_content_for: "def hello\nend\npayload = '#{hex_blob}'\n",
+                      changed_lines_for: Set.new([1]),
+                      all?: false,
+                      base_ref: 'main',
+                      head_ref: 'HEAD',
+                      head_sha: 'abc123')
+    end
+
+    it 'adds the obfuscation finding alongside the LLM findings', :aggregate_failures do
+      report = reviewer.review
+      obfuscation_issues = report.issues.select { |issue| issue.tags.include?('obfuscation') }
+      expect(obfuscation_issues.size).to eq(1)
+      expect(obfuscation_issues.first.file).to eq('app.rb')
+      expect(obfuscation_issues.first.severity).to eq(1)
+      # LLM finding on the changed line is still present.
+      expect(report.issues.map(&:title)).to include('Missing return')
+      expect(report.total_issues).to eq(2)
+    end
+
+    it 'flags obfuscation even when it sits on an unchanged line' do
+      allow(fake_changeset).to receive(:changed_lines_for).and_return(Set.new([1]))
+      report = reviewer.review
+      expect(report.issues.any? { |issue| issue.tags.include?('obfuscation') }).to be true
+    end
+
+    it 'assigns ids across LLM and scanner findings' do
+      report = reviewer.review
+      expect(report.issues.map(&:id).sort).to eq([1, 2])
+    end
+  end
+
+  context 'when no obfuscation is present' do
+    it 'does not add scanner findings' do
+      report = reviewer.review
+      expect(report.issues.none? { |issue| issue.tags.include?('obfuscation') }).to be true
+    end
+  end
+
   context 'when the LLM returns malformed JSON' do
     let(:fake_llm_client) do
       response = instance_double(RubyLLM::Message, content: 'not valid json',

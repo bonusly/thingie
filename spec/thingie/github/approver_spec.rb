@@ -184,6 +184,35 @@ RSpec.describe Thingie::GitHub::Approver do # rubocop:disable RSpec/SpecFilePath
     expect(client).not_to have_received(:create_pull_request_review)
   end
 
+  it 'blocks approval when the report contains an obfuscation finding' do
+    raw = Thingie::RawIssue.new(title: 'Obfuscated code detected', severity: 1, confidence: 1,
+                                details: 'd', tags: %w[security obfuscation])
+    issue = Thingie::Issue.new(id: 1, file: 'payload.rb', raw_issue: raw, affected_lines: [])
+    approver.run(report_for([issue]))
+
+    expect(client).not_to have_received(:create_pull_request_review)
+  end
+
+  it 'names the obfuscated files in the status comment' do
+    raw = Thingie::RawIssue.new(title: 'Obfuscated code detected', severity: 1, confidence: 1,
+                                details: 'd', tags: %w[security obfuscation])
+    issue = Thingie::Issue.new(id: 1, file: 'payload.rb', raw_issue: raw, affected_lines: [])
+    approver.run(report_for([issue]))
+
+    expect(client).to have_received(:add_comment)
+      .with('o/r', 1, a_string_including('obfuscated code detected in payload.rb'))
+  end
+
+  it 'blocks on obfuscation even at a permissive severity threshold' do
+    config['max_severity'] = 4
+    raw = Thingie::RawIssue.new(title: 'Obfuscated code detected', severity: 1, confidence: 1,
+                                details: 'd', tags: %w[security obfuscation])
+    issue = Thingie::Issue.new(id: 1, file: 'payload.rb', raw_issue: raw, affected_lines: [])
+    approver.run(report_for([issue]))
+
+    expect(client).not_to have_received(:create_pull_request_review)
+  end
+
   it 'blocks when a changed file matches a protected glob' do
     config['protected_paths'] = ['app/billing/**']
     allow(client).to receive(:pull_request_files)
