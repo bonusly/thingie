@@ -10,13 +10,12 @@ RSpec.describe Thingie::GitHub::Approver do # rubocop:disable RSpec/SpecFilePath
   let(:config) { { 'enabled' => true } }
   let(:client) { instance_double(Octokit::Client) }
 
-  # rubocop:disable RSpec/VerifiedDoubles
+  # rubocop:disable-next RSpec/VerifiedDoubles
   let(:pr) do
     double('pr', draft: false, additions: 10, deletions: 20, title: 'Example PR',
                  head: double('head', sha: 'sha1'), user: double('user', login: 'author'),
                  labels: [])
   end
-  # rubocop:enable RSpec/VerifiedDoubles
 
   # Default: no threads. Per-example overrides stub :post with thread nodes.
   before do
@@ -483,6 +482,53 @@ RSpec.describe Thingie::GitHub::Approver do # rubocop:disable RSpec/SpecFilePath
     expect(client).to have_received(:dismiss_pull_request_review).with('o/r', 1, 42, anything)
     expect(client).to have_received(:create_pull_request_review)
       .with('o/r', 1, hash_including(event: 'APPROVE'))
+  end
+
+  context 'when dismissing existing approvals before a review begins' do
+    it 'dismisses all existing Thingie approvals' do
+      stub_existing_approval(commit_id: 'sha1', id: 99)
+      approver.dismiss_existing_approvals
+
+      expect(client).to have_received(:dismiss_pull_request_review).with('o/r', 1, 99, anything)
+    end
+
+    it 'dismisses multiple existing Thingie approvals' do
+      review1 = double('rev1', id: 10, state: 'APPROVED', commit_id: 'sha1', # rubocop:disable RSpec/VerifiedDoubles
+                               body: described_class::APPROVAL_MARKER)
+      review2 = double('rev2', id: 20, state: 'APPROVED', commit_id: 'sha2', # rubocop:disable RSpec/VerifiedDoubles
+                               body: described_class::APPROVAL_MARKER)
+      stub_reviews(review1, review2)
+      approver.dismiss_existing_approvals
+
+      expect(client).to have_received(:dismiss_pull_request_review).with('o/r', 1, 10, anything)
+      expect(client).to have_received(:dismiss_pull_request_review).with('o/r', 1, 20, anything)
+    end
+
+    it 'does not dismiss non-Thingie approvals' do
+      stub_reviews(human_review(login: 'dev', state: 'APPROVED', id: 30))
+      approver.dismiss_existing_approvals
+
+      expect(client).not_to have_received(:dismiss_pull_request_review)
+    end
+
+    it 'does not dismiss in dry-run mode' do
+      config['dry_run'] = true
+      stub_existing_approval(commit_id: 'sha1', id: 99)
+      approver.dismiss_existing_approvals
+
+      expect(client).not_to have_received(:dismiss_pull_request_review)
+    end
+
+    it 'does not raise when there are no existing approvals' do
+      expect { approver.dismiss_existing_approvals }.not_to raise_error
+    end
+
+    it 'does not raise when the API call fails' do
+      stub_existing_approval(commit_id: 'sha1', id: 99)
+      allow(client).to receive(:dismiss_pull_request_review).and_raise(Octokit::Forbidden)
+
+      expect { approver.dismiss_existing_approvals }.not_to raise_error
+    end
   end
 
   context 'when the main token cannot approve and a PAT fallback is configured' do

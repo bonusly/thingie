@@ -161,4 +161,25 @@ RSpec.describe Thingie::CLI do
       expect(event['dry_run']).to be(false)
     end
   end
+
+  context 'when running dismiss-approvals with approve enabled' do
+    let(:config) do
+      Thingie::Configuration.new(root: tmp_dir, overrides: { 'approve' => { 'enabled' => true } })
+    end
+    let(:fake_approver) { instance_double(Thingie::GitHub::Approver) }
+
+    before do
+      allow(Thingie::Configuration).to receive(:new).and_return(config)
+      allow(Thingie::GitHub::Approver).to receive(:new).and_return(fake_approver)
+      allow(fake_approver).to receive(:dismiss_existing_approvals)
+      allow(Thingie::Env).to receive(:fetch).and_call_original
+      allow(Thingie::Env).to receive(:fetch).with('GITHUB_TOKEN', nil).and_return('token')
+    end
+
+    it 'dismisses existing approvals on the PR' do
+      described_class.start(['dismiss-approvals', '--pr', '42', '--gh-repo', 'o/r'])
+
+      expect(fake_approver).to have_received(:dismiss_existing_approvals)
+    end
+  end
 end
