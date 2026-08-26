@@ -106,6 +106,14 @@ runs:
           git fetch --no-tags --deepen=1 || true
           echo "ref=HEAD~1" >> "$GITHUB_OUTPUT"
         fi
+    - name: Dismiss existing approvals
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github_token || github.token }}
+        THINGIE_RESOLVE_TOKEN: ${{ inputs.resolve_token }}
+        THINGIE_CMD: ${{ inputs.thingie_command }}
+      run: $THINGIE_CMD dismiss-approvals || true
+
     - name: Run Thingie review
       shell: bash
       env:

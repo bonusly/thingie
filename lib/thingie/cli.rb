@@ -147,6 +147,29 @@ module Thingie
       exit 1
     end
 
+    desc 'dismiss-approvals', 'Dismiss existing Thingie approvals on a PR before reviewing'
+    option :pr, type: :numeric, desc: 'Pull Request number'
+    option :gh_repo, type: :string, desc: 'owner/repo'
+    option :token, type: :string, desc: 'GitHub token'
+    option :resolve_token, type: :string,
+                           desc: 'Token for dismissing approvals (PAT; falls back to main token)'
+    # Dismisses all existing Thingie approvals on the PR. Run this at the start
+    # of a review cycle so a stale approval from a prior run can't be used to
+    # merge new changes before the current review finishes.
+    #
+    # @return [void]
+    def dismiss_approvals
+      context = resolve_github_context
+      config = Thingie::Configuration.new
+      approve = config['approve']
+      return unless approve.is_a?(Hash) && approve['enabled']
+
+      build_approver(context, approve, nil, nil).dismiss_existing_approvals
+    rescue StandardError => e
+      warn "Could not dismiss approvals: #{e.message}"
+      exit 1
+    end
+
     desc 'github-comment', 'Post a code review comment to GitHub'
     option :md_report_file, type: :string, desc: 'Path to the Markdown report'
     option :pr, type: :numeric, desc: 'Pull Request number'

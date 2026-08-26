@@ -58,6 +58,20 @@ module Thingie
         @review_summary = review_summary.to_s
       end
 
+      # Dismiss all existing Thingie approvals on this PR before a new review
+      # begins, so a stale approval from a prior run never outlives the review
+      # that produced it. The new run will re-approve if the rules still pass.
+      # Never raises: a dismissal failure must not block the review.
+      #
+      # @return [void]
+      def dismiss_existing_approvals
+        return if dry_run?
+
+        dismiss(thingie_approvals)
+      rescue StandardError => e
+        warn "Could not dismiss existing approvals — #{e.message}"
+      end
+
       # Evaluate the rules and approve / dismiss accordingly. Never raises into
       # the run: a failure here must not fail the review that already posted.
       # Returns the Decision so the caller can emit it as a stats event; nil
