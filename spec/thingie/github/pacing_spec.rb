@@ -31,9 +31,18 @@ RSpec.describe Thingie::GitHub::Pacing do # rubocop:disable RSpec/SpecFilePathFo
       expect(described_class.pacing_error?(nil, error)).to be false
     end
 
-    it 'retries a secondary rate limit unconditionally' do
+    it 'retries a secondary rate limit' do
       error = octokit_error(Octokit::TooManyRequests, 'You have exceeded a secondary rate limit')
       expect(described_class.pacing_error?(nil, error)).to be true
+    end
+
+    # Octokit's own Error.error_for_403 maps both messages into the same
+    # Octokit::TooManyRequests class, but they mean very different things: the
+    # primary limit only clears at a fixed reset time, often up to an hour
+    # away — no amount of ~30s-capped retrying will outlast that.
+    it 'does not retry the primary API rate limit despite sharing a class with the secondary one' do
+      error = octokit_error(Octokit::TooManyRequests, 'API rate limit exceeded for user ID 123.')
+      expect(described_class.pacing_error?(nil, error)).to be false
     end
 
     it 'retries abuse detection unconditionally' do
@@ -141,6 +150,17 @@ RSpec.describe Thingie::GitHub::Pacing do # rubocop:disable RSpec/SpecFilePathFo
       end
 
       expect { build_client.post('/repos/o/r/pulls/1/comments', {}) }.to raise_error(Octokit::UnprocessableEntity)
+      expect(calls).to eq(1)
+    end
+
+    it 'does not retry the primary rate limit, raising immediately as the plain Octokit error' do
+      calls = 0
+      stubs.post('/repos/o/r/pulls/1/comments') do
+        calls += 1
+        [403, {}, '{"message":"API rate limit exceeded for user ID 123."}']
+      end
+
+      expect { build_client.post('/repos/o/r/pulls/1/comments', {}) }.to raise_error(Octokit::TooManyRequests)
       expect(calls).to eq(1)
     end
 

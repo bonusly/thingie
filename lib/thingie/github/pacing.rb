@@ -65,6 +65,16 @@ module Thingie
       # permanent "no" and must not be retried — this is what tells them apart.
       SUBMITTED_TOO_QUICKLY = /submitted too quickly/i
 
+      # Octokit::Error.error_for_403 maps two different messages into the same
+      # Octokit::TooManyRequests class: the secondary/abuse rate limit (a short
+      # burst-detection cooldown, recovers in seconds) and the *primary* API
+      # rate limit (a fixed hourly budget that only resets at a specific time,
+      # often up to an hour away). Only the former is worth retrying here —
+      # five ~30s-capped attempts cannot outlast an hour-away reset, so
+      # retrying the primary limit just wastes time and then hides the real
+      # "rate limit exceeded" diagnostic behind a generic Throttled refusal.
+      SECONDARY_RATE_LIMIT = /secondary rate limit/i
+
       class << self
         # The Faraday middleware stack for an `Octokit::Client`. Mirrors
         # `Octokit::Default::MIDDLEWARE` exactly, replacing only the retry step.
@@ -124,16 +134,18 @@ module Thingie
         # decision (`methods: []` above routes every request through this,
         # regardless of HTTP verb).
         #
-        # `Octokit::TooManyRequests` covers a 403 whose body reads "exceeded a
-        # secondary rate limit": Octokit's own `Error.error_for_403` classifies
-        # that wording into this class, not plain `Forbidden`. It does *not*
-        # cover a genuine HTTP 429: `Error.from_response` has no dedicated
-        # branch for status 429, so that falls through to the generic
-        # `Octokit::ClientError` — checked by status here, since the class
-        # alone covers plenty of 4xx statuses that are not pacing signals.
-        # `Octokit::UnprocessableEntity` is shared by a genuine pacing 422 and
-        # an ordinary one (a comment outside the diff), so only the pacing
-        # wording is retried.
+        # `Octokit::TooManyRequests` covers two different 403 bodies —
+        # Octokit's own `Error.error_for_403` classifies both "rate limit
+        # exceeded" (the primary hourly budget) and "exceeded a secondary
+        # rate limit" (a short burst cooldown) into this one class. Only the
+        # secondary wording is retried; see {SECONDARY_RATE_LIMIT}. It does
+        # *not* cover a genuine HTTP 429: `Error.from_response` has no
+        # dedicated branch for status 429, so that falls through to the
+        # generic `Octokit::ClientError` — checked by status here, since the
+        # class alone covers plenty of 4xx statuses that are not pacing
+        # signals. `Octokit::UnprocessableEntity` is shared by a genuine
+        # pacing 422 and an ordinary one (a comment outside the diff), so
+        # only the pacing wording is retried there too.
         #
         # @param _env [Faraday::Env] the request environment (unused; the
         #   decision only needs the exception)
@@ -142,7 +154,8 @@ module Thingie
         def pacing_error?(_env, exception)
           case exception
           when Octokit::UnprocessableEntity then exception.message.match?(SUBMITTED_TOO_QUICKLY)
-          when Octokit::TooManyRequests, Octokit::AbuseDetected then true
+          when Octokit::TooManyRequests then exception.message.match?(SECONDARY_RATE_LIMIT)
+          when Octokit::AbuseDetected then true
           when Octokit::ClientError then exception.response_status == 429
           else false
           end

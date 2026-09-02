@@ -67,4 +67,34 @@ RSpec.describe Thingie::ReportRenderer do
       expect(renderer.to_md).to include('**✅ No issues found** across 5 file(s)')
     end
   end
+
+  # A file with no findings and a file no verdict was ever produced for look
+  # identical via total_issues alone, so a run with unreviewed files must not
+  # render as a plain clean pass in either human-facing surface.
+  context 'with unreviewed files' do
+    let(:report) do
+      Thingie::Report.new(
+        target: Thingie::ReviewTarget.new(
+          platform: 'local', repo_url: nil, pr_number: nil, commit_sha: nil,
+          branch: nil, base_ref: 'main', head_ref: 'HEAD', merge_base: false
+        ),
+        model: 'gpt-4o',
+        issues: [],
+        number_of_processed_files: 5,
+        unreviewed_files: ['broken.rb', 'blank.rb']
+      )
+    end
+
+    it 'discloses the unreviewed files in CLI output rather than reading as a clean pass', :aggregate_failures do
+      output = renderer.to_cli
+      expect(output).to include('No issues found across 5 file(s)')
+      expect(output).to include('2 file(s) could not be reviewed: broken.rb, blank.rb')
+    end
+
+    it 'discloses the unreviewed files in Markdown output rather than reading as a clean pass', :aggregate_failures do
+      output = renderer.to_md
+      expect(output).to include('**✅ No issues found** across 5 file(s)')
+      expect(output).to include('**⚠️ 2 file(s) could not be reviewed:** broken.rb, blank.rb')
+    end
+  end
 end

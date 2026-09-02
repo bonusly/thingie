@@ -44,21 +44,46 @@ module Thingie
     private
 
     def summary_line
-      if @report.total_issues.positive?
-        "⚠️  #{@report.total_issues} issue(s) found across " \
-          "#{@report.number_of_processed_files} file(s).\n"
-      else
-        "✅ No issues found across #{@report.number_of_processed_files} file(s).\n"
-      end
+      line = if @report.total_issues.positive?
+               "⚠️  #{@report.total_issues} issue(s) found across " \
+                 "#{@report.number_of_processed_files} file(s).\n"
+             else
+               "✅ No issues found across #{@report.number_of_processed_files} file(s).\n"
+             end
+      line + unreviewed_files_line
     end
 
     def md_summary_line
-      if @report.total_issues.positive?
-        "**⚠️ #{@report.total_issues} issue(s) found** across " \
-          "#{@report.number_of_processed_files} file(s)."
-      else
-        "**✅ No issues found** across #{@report.number_of_processed_files} file(s)."
-      end
+      line = if @report.total_issues.positive?
+               "**⚠️ #{@report.total_issues} issue(s) found** across " \
+                 "#{@report.number_of_processed_files} file(s)."
+             else
+               "**✅ No issues found** across #{@report.number_of_processed_files} file(s)."
+             end
+      line + md_unreviewed_files_line
+    end
+
+    # A file with no findings and a file no verdict was ever produced for
+    # look identical in `total_issues` alone — this is the only thing that
+    # tells them apart in the human-facing summary. Without it, a run where a
+    # file's LLM call failed or came back blank reads as a clean pass in both
+    # the CLI output and the Markdown PR comment, even though the report
+    # covers less than the full changeset.
+    #
+    # @return [String] a disclosure line, or "" when every file got a verdict
+    def unreviewed_files_line
+      return '' if @report.unreviewed_files.empty?
+
+      "⚠️  #{@report.unreviewed_files.size} file(s) could not be reviewed: " \
+        "#{@report.unreviewed_files.join(', ')}\n"
+    end
+
+    # @return [String] a disclosure line, or "" when every file got a verdict
+    def md_unreviewed_files_line
+      return '' if @report.unreviewed_files.empty?
+
+      "\n\n**⚠️ #{@report.unreviewed_files.size} file(s) could not be reviewed:** " \
+        "#{@report.unreviewed_files.join(', ')}"
     end
 
     def render_issue(issue)
