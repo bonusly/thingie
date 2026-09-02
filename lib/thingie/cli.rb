@@ -190,7 +190,14 @@ module Thingie
       maybe_approve(context, report, summary, review_posted: posting_error.nil?)
       exit 1 if posting_error
     rescue StandardError => e
-      warn "GitHub comment failed: #{e.message}"
+      # post_review_without_raising already reports a posting failure
+      # specifically ("GitHub comment failed: ...") and keeps running; this
+      # only catches everything else in the command — context/report
+      # loading, or maybe_approve itself raising. Labeling it the same as a
+      # posting failure would mislabel an approval-evaluation error as the
+      # special_sauce#26652 incident class this change exists to fix,
+      # making a log scan for that class ambiguous.
+      warn "Thingie github-comment failed: #{e.message}"
       exit 1
     end
 

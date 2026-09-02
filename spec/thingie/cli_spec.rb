@@ -187,6 +187,34 @@ RSpec.describe Thingie::CLI do
         expect { run_github_comment }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
       end
     end
+
+    # A log scan for the special_sauce#26652 incident class (posting failed)
+    # must not also match an unrelated approval-evaluation failure — they
+    # need distinct messages, or the incident's log signal is ambiguous.
+    #
+    # run_github_comment raises SystemExit (exit 1) on this path — it must be
+    # rescued *inside* the block passed to expect {}, not around the whole
+    # example. output(...).to_stderr captures $stderr only while its block
+    # runs; letting SystemExit escape that block skips the matcher's own
+    # assertion entirely; a rescue around the whole `it` would then silently
+    # swallow that, and the example would pass no matter what was printed.
+    context 'when approval evaluation itself fails, unrelated to posting' do
+      before { allow(fake_approver).to receive(:run).and_raise(StandardError, 'bad config') }
+
+      def run_github_comment_swallowing_exit
+        run_github_comment
+      rescue SystemExit
+        nil
+      end
+
+      it 'reports it as a command failure, not a posting failure' do
+        expect { run_github_comment_swallowing_exit }.to output(/Thingie github-comment failed: bad config/).to_stderr
+      end
+
+      it 'does not print the posting-failure message for an unrelated error' do
+        expect { run_github_comment_swallowing_exit }.not_to output(/GitHub comment failed/).to_stderr
+      end
+    end
   end
 
   context 'when running dismiss-approvals with approve enabled' do

@@ -72,9 +72,27 @@ RSpec.describe Thingie::Reviewer do
 
   # Routes 'other.rb' to clean_response and 'app.rb' to the given response,
   # so only app.rb exercises the shape under test.
+  # The critic/verify pass reuses this same llm_client (Reviewer#verify passes
+  # it straight to Verifier), so clean_response's finding on 'other.rb'
+  # triggers a second, VERDICT_SCHEMA call — routing that to an issues-shaped
+  # response too would hand Verifier#uphold? a Hash with no 'verdict' key,
+  # which it silently keeps (nil.to_s != 'reject'), accidentally exercising
+  # the fail-open path instead of a real verdict. Answer every critic call
+  # with an explicit "keep" so the critic pass behaves predictably regardless
+  # of which file it's verifying.
+  def verdict_response
+    instance_double(RubyLLM::Message, content: { 'verdict' => 'keep' },
+                                      input_tokens: 10, output_tokens: 5, tool_calls: {},
+                                      cache_read_tokens: nil, cache_write_tokens: nil,
+                                      cost: instance_double(RubyLLM::Cost, total: nil),
+                                      thinking: nil, thinking_tokens: nil)
+  end
+
   def two_file_llm_client(app_rb_response)
     instance_double(Thingie::LlmClient).tap do |client|
-      allow(client).to receive(:complete_with_schema) do |prompt, _schema, _tools|
+      allow(client).to receive(:complete_with_schema) do |prompt, schema, _tools|
+        next verdict_response if schema == Thingie::Schemas::VERDICT_SCHEMA
+
         prompt.include?('def other') ? clean_response : app_rb_response
       end
     end
