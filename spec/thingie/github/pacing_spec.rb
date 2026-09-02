@@ -9,14 +9,14 @@ RSpec.describe Thingie::GitHub::Pacing do # rubocop:disable RSpec/SpecFilePathFo
   # UnprocessableEntity, 403 for Forbidden/TooManyRequests/AbuseDetected), so
   # a fixture built without an explicit status stays faithful to the real
   # response shape even where pacing_error? doesn't (yet) key off it.
-  def octokit_error(klass, message, status: nil, headers: {})
+  def octokit_error(klass, message, status: nil)
     status ||= klass <= Octokit::UnprocessableEntity ? 422 : 403
     klass.new(
       method: :post,
       url: 'https://api.github.com/repos/o/r/pulls/1/comments',
       status: status,
       body: JSON.generate({ message: message }),
-      response_headers: { 'content-type' => 'application/json' }.merge(headers)
+      response_headers: { 'content-type' => 'application/json' }
     )
   end
 
