@@ -5,11 +5,16 @@ require 'json'
 require 'faraday'
 
 RSpec.describe Thingie::GitHub::Pacing do # rubocop:disable RSpec/SpecFilePathFormat
-  def octokit_error(klass, message, headers = {})
+  # Status defaults to what Octokit actually raises this class for (422 for
+  # UnprocessableEntity, 403 for Forbidden/TooManyRequests/AbuseDetected), so
+  # a fixture built without an explicit status stays faithful to the real
+  # response shape even where pacing_error? doesn't (yet) key off it.
+  def octokit_error(klass, message, status: nil, headers: {})
+    status ||= klass <= Octokit::UnprocessableEntity ? 422 : 403
     klass.new(
       method: :post,
       url: 'https://api.github.com/repos/o/r/pulls/1/comments',
-      status: 422,
+      status: status,
       body: JSON.generate({ message: message }),
       response_headers: { 'content-type' => 'application/json' }.merge(headers)
     )
@@ -43,6 +48,21 @@ RSpec.describe Thingie::GitHub::Pacing do # rubocop:disable RSpec/SpecFilePathFo
 
     it 'does not retry a non-Octokit error' do
       expect(described_class.pacing_error?(nil, ArgumentError.new('bad'))).to be false
+    end
+
+    # Octokit 10's Error.from_response has no dedicated branch for status 429;
+    # it falls through to the generic 400..499 => Octokit::ClientError case.
+    # Octokit::TooManyRequests is reachable only via a 403 body reading
+    # "exceeded a secondary rate limit" (Error.error_for_403) — never from an
+    # actual 429 — so a real rate-limit response needs its own check.
+    it 'retries a genuine HTTP 429' do
+      error = octokit_error(Octokit::ClientError, 'API rate limit exceeded', status: 429)
+      expect(described_class.pacing_error?(nil, error)).to be true
+    end
+
+    it 'does not retry a ClientError for an unrelated 4xx status' do
+      error = octokit_error(Octokit::ClientError, 'Conflict', status: 409)
+      expect(described_class.pacing_error?(nil, error)).to be false
     end
   end
 
@@ -141,6 +161,18 @@ RSpec.describe Thingie::GitHub::Pacing do # rubocop:disable RSpec/SpecFilePathFo
       stubs.post('/repos/o/r/pulls/1/comments') do
         calls += 1
         calls < 2 ? [403, {}, '{"message":"You have exceeded a secondary rate limit"}'] : [201, {}, '{}']
+      end
+
+      build_client.post('/repos/o/r/pulls/1/comments', {})
+
+      expect(calls).to eq(2)
+    end
+
+    it 'retries a genuine 429, raised as the untyped Octokit::ClientError, through to success' do
+      calls = 0
+      stubs.post('/repos/o/r/pulls/1/comments') do
+        calls += 1
+        calls < 2 ? [429, {}, '{"message":"API rate limit exceeded"}'] : [201, {}, '{}']
       end
 
       build_client.post('/repos/o/r/pulls/1/comments', {})

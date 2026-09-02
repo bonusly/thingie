@@ -370,13 +370,6 @@ module Thingie
         )
       end
 
-      # Auto-approve the PR when the [approve] config block is enabled. Loads
-      # config here because github-comment otherwise runs without it.
-      #
-      # @param context [Thingie::GitHub::Context, nil] the resolved GitHub Action context
-      # @param report [Thingie::Report] the review report
-      # @param summary [String] the Markdown review summary
-      # @return [void]
       # Posts the review, returning the failure instead of raising it.
       #
       # The approval gate must be evaluated even when commenting fails. The
@@ -399,6 +392,15 @@ module Thingie
         e
       end
 
+      # Auto-approve the PR when the [approve] config block is enabled. Loads
+      # config here because github-comment otherwise runs without it.
+      #
+      # @param context [Thingie::GitHub::Context, nil] the resolved GitHub Action context
+      # @param report [Thingie::Report] the review report
+      # @param summary [String] the Markdown review summary
+      # @param review_posted [Boolean] whether the review reached the PR; false
+      #   is passed straight through to Approver#run, which blocks on it
+      # @return [void]
       def maybe_approve(context, report, summary, review_posted: true)
         config = Thingie::Configuration.new
         approve = config['approve']

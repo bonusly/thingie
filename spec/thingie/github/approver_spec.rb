@@ -53,10 +53,10 @@ RSpec.describe Thingie::GitHub::Approver do # rubocop:disable RSpec/SpecFilePath
     }
   end
 
-  def report_for(issues)
+  def report_for(issues, unreviewed_files: [])
     target = Thingie::ReviewTarget.new(platform: 'github', repo_url: nil, pr_number: 1, commit_sha: nil,
                                        branch: nil, base_ref: nil, head_ref: nil, merge_base: false)
-    Thingie::Report.new(target: target, model: 'm', issues: issues)
+    Thingie::Report.new(target: target, model: 'm', issues: issues, unreviewed_files: unreviewed_files)
   end
 
   def build_issue(severity)
@@ -88,9 +88,7 @@ RSpec.describe Thingie::GitHub::Approver do # rubocop:disable RSpec/SpecFilePath
   # on an upstream failure is not.
   describe 'refusing to approve on an incomplete run' do
     def report_missing(*files)
-      target = Thingie::ReviewTarget.new(platform: 'github', repo_url: nil, pr_number: 1, commit_sha: nil,
-                                         branch: nil, base_ref: nil, head_ref: nil, merge_base: false)
-      Thingie::Report.new(target: target, model: 'm', issues: [], unreviewed_files: files)
+      report_for([], unreviewed_files: files)
     end
 
     it 'blocks an otherwise clean PR when a file could not be reviewed', :aggregate_failures do
@@ -107,7 +105,8 @@ RSpec.describe Thingie::GitHub::Approver do # rubocop:disable RSpec/SpecFilePath
       expect(decision.reasons).to include(a_string_including('2 changed file(s): a.rb, b.rb'))
     end
 
-    it 'dismisses a stale approval rather than leaving it standing' do
+    it 'dismisses an existing approval rather than leaving it standing' do
+      # 'sha1' is the current head SHA (see `pr`) — a block dismisses this too, not only a superseded approval.
       stub_existing_approval(commit_id: 'sha1')
 
       approver.run(report_missing('a.rb'))

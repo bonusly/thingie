@@ -98,7 +98,14 @@ module Thingie
             # methods: [] forces every request through retry_if, GET included —
             # no HTTP method gets an unconditional retry on any listed exception.
             methods: [],
-            exceptions: [Octokit::UnprocessableEntity, Octokit::TooManyRequests, Octokit::AbuseDetected],
+            # Octokit::ClientError is the broad 4xx catch-all Error.from_response
+            # raises for any status it has no dedicated branch for — including a
+            # genuine 429, which Octokit 10 does not classify into
+            # Octokit::TooManyRequests. Listing it here only makes it eligible for
+            # retry_if to inspect; pacing_error? still checks response_status
+            # before treating one as a pacing signal.
+            exceptions: [Octokit::UnprocessableEntity, Octokit::TooManyRequests, Octokit::AbuseDetected,
+                         Octokit::ClientError],
             retry_if: method(:pacing_error?),
             retry_block: method(:log_retry),
             exhausted_retries_block: method(:raise_throttled),
@@ -117,12 +124,16 @@ module Thingie
         # decision (`methods: []` above routes every request through this,
         # regardless of HTTP verb).
         #
-        # `Octokit::TooManyRequests` already covers both a real 429 and a 403
-        # whose body reads "exceeded a secondary rate limit": Octokit's own
-        # `Error.error_for_403` classifies that wording into this class, not
-        # plain `Forbidden`. `Octokit::UnprocessableEntity` is shared by a
-        # genuine pacing 422 and an ordinary one (a comment outside the diff),
-        # so only the pacing wording is retried.
+        # `Octokit::TooManyRequests` covers a 403 whose body reads "exceeded a
+        # secondary rate limit": Octokit's own `Error.error_for_403` classifies
+        # that wording into this class, not plain `Forbidden`. It does *not*
+        # cover a genuine HTTP 429: `Error.from_response` has no dedicated
+        # branch for status 429, so that falls through to the generic
+        # `Octokit::ClientError` — checked by status here, since the class
+        # alone covers plenty of 4xx statuses that are not pacing signals.
+        # `Octokit::UnprocessableEntity` is shared by a genuine pacing 422 and
+        # an ordinary one (a comment outside the diff), so only the pacing
+        # wording is retried.
         #
         # @param _env [Faraday::Env] the request environment (unused; the
         #   decision only needs the exception)
@@ -132,6 +143,7 @@ module Thingie
           case exception
           when Octokit::UnprocessableEntity then exception.message.match?(SUBMITTED_TOO_QUICKLY)
           when Octokit::TooManyRequests, Octokit::AbuseDetected then true
+          when Octokit::ClientError then exception.response_status == 429
           else false
           end
         end
