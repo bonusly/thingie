@@ -395,6 +395,15 @@ module Thingie
           dismiss(superseded_approvals(pr.head.sha))
           ensure_approved(pr, report)
         when :block
+          # Including a B10 block (the review itself could not be posted):
+          # dismissing rather than leaving a possibly-stale approval in place
+          # matches the fail-safe stance the rest of this rule set already
+          # takes, and §8 of the control document names dismissal as the
+          # first corrective action on any doubt. In the normal case this is
+          # a no-op read, not new throttled traffic: the workflow's separate
+          # `dismiss-approvals` step already clears every Thingie approval on
+          # this PR before the review that produces `decision` even begins,
+          # so thingie_approvals is typically already empty here.
           dismiss(thingie_approvals)
         end
       end
