@@ -68,9 +68,9 @@ RSpec.describe Thingie::ReportRenderer do
     end
   end
 
-  # A file with no findings and a file no verdict was ever produced for look
-  # identical via total_issues alone, so a run with unreviewed files must not
-  # render as a plain clean pass in either human-facing surface.
+  # A file with no findings and a file for which no verdict was ever produced
+  # look identical via total_issues alone, so a run with unreviewed files must
+  # not render as a plain clean pass in either human-facing surface.
   context 'with unreviewed files' do
     let(:report) do
       Thingie::Report.new(

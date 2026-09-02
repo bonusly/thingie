@@ -42,6 +42,44 @@ RSpec.describe Thingie::Reviewer do
     FileUtils.rm_rf(tmp_dir)
   end
 
+  # A second, always-clean file alongside 'app.rb' — for contexts proving one
+  # malformed-response shape is handled gracefully, not that a total failure
+  # aborts (that's raise_if_total_failure's own tests). With only one file in
+  # the changeset, any single-file failure is a total failure by definition.
+  def two_file_changeset
+    instance_double(Thingie::Changeset).tap do |changeset|
+      allow(changeset).to receive_messages(files: %w[app.rb other.rb],
+                                           changed_lines_for: Set.new([1]), all?: false,
+                                           base_ref: 'main', head_ref: 'HEAD', head_sha: 'abc123')
+      allow(changeset).to receive(:diff_text_for) { |file| file == 'other.rb' ? "+ def other\n" : "+ def hello\n" }
+      allow(changeset).to receive(:full_content_for) { |file|
+        "#{file == 'other.rb' ? 'def other' : 'def hello'}\nend\n"
+      }
+    end
+  end
+
+  # 'other.rb' gets this normal response; 'app.rb' gets whatever the context
+  # under test is exercising.
+  def clean_response
+    issues = [{ 'title' => 'Missing return', 'details' => 'No return value', 'severity' => 2,
+                'confidence' => 1, 'tags' => ['bug'], 'affected_lines' => [{ 'start_line' => 1 }] }]
+    instance_double(RubyLLM::Message, content: { 'issues' => issues },
+                                      input_tokens: 100, output_tokens: 50, tool_calls: {},
+                                      cache_read_tokens: nil, cache_write_tokens: nil,
+                                      cost: instance_double(RubyLLM::Cost, total: nil),
+                                      thinking: nil, thinking_tokens: nil)
+  end
+
+  # Routes 'other.rb' to clean_response and 'app.rb' to the given response,
+  # so only app.rb exercises the shape under test.
+  def two_file_llm_client(app_rb_response)
+    instance_double(Thingie::LlmClient).tap do |client|
+      allow(client).to receive(:complete_with_schema) do |prompt, _schema, _tools|
+        prompt.include?('def other') ? clean_response : app_rb_response
+      end
+    end
+  end
+
   it 'returns a report with parsed issues', :aggregate_failures do
     report = reviewer.review
     expect(report).to be_a(Thingie::Report)
@@ -92,6 +130,19 @@ RSpec.describe Thingie::Reviewer do
       expect do
         reviewer.review
       end.to raise_error(RuntimeError, /All 1 file reviews failed.*Failed to open TCP connection/m)
+    end
+  end
+
+  # A provider that returns blank content for every file (wrong model, broken
+  # structured-output support, a degrading rather than erroring outage) is
+  # the same systemic failure as the connection-error case above — it must
+  # abort loudly too, not "succeed" with an empty, deceptively clean report.
+  context 'when the LLM client returns a blank response for every file' do
+    let(:fake_changeset) { two_file_changeset }
+    let(:fake_llm_client) { instance_double(Thingie::LlmClient, complete_with_schema: nil) }
+
+    it 'aborts instead of silently returning an empty report' do
+      expect { reviewer.review }.to raise_error(RuntimeError, /All 2 file reviews failed.*empty LLM response/m)
     end
   end
 
@@ -215,18 +266,19 @@ RSpec.describe Thingie::Reviewer do
   end
 
   context 'when the LLM returns malformed JSON' do
+    let(:fake_changeset) { two_file_changeset }
     let(:fake_llm_client) do
       response = instance_double(RubyLLM::Message, content: 'not valid json',
                                                    input_tokens: nil, output_tokens: nil, tool_calls: {},
                                                    cache_read_tokens: nil, cache_write_tokens: nil,
                                                    cost: instance_double(RubyLLM::Cost, total: nil),
                                                    thinking: nil, thinking_tokens: nil)
-      instance_double(Thingie::LlmClient, complete_with_schema: response)
+      two_file_llm_client(response)
     end
 
     it 'records a warning and continues with no issues for that file', :aggregate_failures do
       report = reviewer.review
-      expect(report.total_issues).to eq(0)
+      expect(report.total_issues).to eq(1)
       expect(report.processing_warnings).to include(/Could not parse LLM response for app.rb/)
     end
 
@@ -240,12 +292,11 @@ RSpec.describe Thingie::Reviewer do
   # response at all means no verdict was produced, so it must record the file
   # as unreviewed rather than read as a clean pass.
   context 'when the LLM returns a nil response' do
-    let(:fake_llm_client) do
-      instance_double(Thingie::LlmClient, complete_with_schema: nil)
-    end
+    let(:fake_changeset) { two_file_changeset }
+    let(:fake_llm_client) { two_file_llm_client(nil) }
 
     it 'treats the file as having no issues' do
-      expect(reviewer.review.total_issues).to eq(0)
+      expect(reviewer.review.total_issues).to eq(1)
     end
 
     it 'records the file as unreviewed rather than clean' do
@@ -254,17 +305,18 @@ RSpec.describe Thingie::Reviewer do
   end
 
   context 'when the LLM returns a response with nil content' do
+    let(:fake_changeset) { two_file_changeset }
     let(:fake_llm_client) do
       response = instance_double(RubyLLM::Message, content: nil,
                                                    input_tokens: nil, output_tokens: nil, tool_calls: {},
                                                    cache_read_tokens: nil, cache_write_tokens: nil,
                                                    cost: instance_double(RubyLLM::Cost, total: nil),
                                                    thinking: nil, thinking_tokens: nil)
-      instance_double(Thingie::LlmClient, complete_with_schema: response)
+      two_file_llm_client(response)
     end
 
     it 'treats the file as having no issues' do
-      expect(reviewer.review.total_issues).to eq(0)
+      expect(reviewer.review.total_issues).to eq(1)
     end
 
     it 'records the file as unreviewed rather than clean' do
@@ -314,6 +366,7 @@ RSpec.describe Thingie::Reviewer do
   end
 
   context 'when the LLM returns pure prose with no JSON' do
+    let(:fake_changeset) { two_file_changeset }
     let(:fake_llm_client) do
       cost_stub = instance_double(RubyLLM::Cost, total: nil)
       response = instance_double(RubyLLM::Message, content: "I'll review this diff carefully.",
@@ -321,12 +374,12 @@ RSpec.describe Thingie::Reviewer do
                                                    cache_read_tokens: nil, cache_write_tokens: nil,
                                                    cost: cost_stub,
                                                    thinking: nil, thinking_tokens: nil)
-      instance_double(Thingie::LlmClient, complete_with_schema: response)
+      two_file_llm_client(response)
     end
 
-    it 'records a warning and returns no issues', :aggregate_failures do
+    it 'records a warning and returns no issues for that file', :aggregate_failures do
       report = reviewer.review
-      expect(report.total_issues).to eq(0)
+      expect(report.total_issues).to eq(1)
       expect(report.processing_warnings).to include(/Could not parse LLM response/)
     end
   end

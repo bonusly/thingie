@@ -131,15 +131,22 @@ module Thingie
       @debug_output.review_call(file: file, response: response, issues: issues)
       only_changed_lines(issues, file)
     rescue JSON::ParserError => e
-      @warnings << "Could not parse LLM response for #{file}: #{e.message}"
-      @unreviewed_files << file
-      @debug_output.review_error(file: file, error: e)
-      []
+      record_file_failure(file, e, "Could not parse LLM response for #{file}: #{e.message}")
     rescue StandardError => e
-      @warnings << "Failed to review #{file}: #{e.class}: #{e.message}"
-      @file_failures << [file, e]
+      record_file_failure(file, e, "Failed to review #{file}: #{e.class}: #{e.message}")
+    end
+
+    # Shared by both review_file rescues: an unparseable response and any
+    # other failure mean the same thing to the rest of the pipeline — no
+    # verdict was produced for this file. Both count toward
+    # raise_if_total_failure, so a provider that returns blank or malformed
+    # content for every file aborts the run instead of "succeeding" with an
+    # empty report.
+    def record_file_failure(file, error, warning)
+      @warnings << warning
+      @file_failures << [file, error]
       @unreviewed_files << file
-      @debug_output.review_error(file: file, error: e)
+      @debug_output.review_error(file: file, error: error)
       []
     end
 
