@@ -235,6 +235,10 @@ RSpec.describe Thingie::Reviewer do
     end
   end
 
+  # A blank response is not "the LLM found nothing" — a legitimate empty
+  # finding set comes back as valid JSON with an empty issues array. No
+  # response at all means no verdict was produced, so it must record the file
+  # as unreviewed rather than read as a clean pass.
   context 'when the LLM returns a nil response' do
     let(:fake_llm_client) do
       instance_double(Thingie::LlmClient, complete_with_schema: nil)
@@ -242,6 +246,10 @@ RSpec.describe Thingie::Reviewer do
 
     it 'treats the file as having no issues' do
       expect(reviewer.review.total_issues).to eq(0)
+    end
+
+    it 'records the file as unreviewed rather than clean' do
+      expect(reviewer.review.unreviewed_files).to eq(['app.rb'])
     end
   end
 
@@ -257,6 +265,10 @@ RSpec.describe Thingie::Reviewer do
 
     it 'treats the file as having no issues' do
       expect(reviewer.review.total_issues).to eq(0)
+    end
+
+    it 'records the file as unreviewed rather than clean' do
+      expect(reviewer.review.unreviewed_files).to eq(['app.rb'])
     end
   end
 

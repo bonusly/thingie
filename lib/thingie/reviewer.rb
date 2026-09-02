@@ -161,7 +161,11 @@ module Thingie
 
     def parse_response(response, file)
       content = response&.content
-      return [] if content.nil? || (content.is_a?(String) && content.strip.empty?)
+      # A blank response is not "the LLM found nothing" (that comes back as
+      # valid JSON with an empty issues array) — it's no verdict at all, so it
+      # must flow into the same rescue that unparseable JSON does, or this
+      # file silently reads as clean with nothing in unreviewed_files.
+      raise JSON::ParserError, 'empty LLM response' if content.to_s.strip.empty?
 
       parsed = content.is_a?(String) ? JsonExtractor.parse(content) : content
       raise JSON::ParserError, 'no valid JSON found in response' if parsed.nil?

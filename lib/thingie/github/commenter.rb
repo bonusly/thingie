@@ -55,14 +55,16 @@ module Thingie
         commit_id = pr.head.sha
         resolve_previous_threads(report.issues)
         collapse_previous_summaries
+        off_diff_count = 0
         if report.issues.empty?
           # Only post the overview comment when there's nothing to flag inline.
           post_summary_comment(summary)
         else
           off_diff = post_inline_comments(report.issues, commit_id)
           post_off_diff_comment(off_diff)
+          off_diff_count = off_diff.size
         end
-        log_posting_tally(off_diff_count: off_diff.to_a.size)
+        log_posting_tally(off_diff_count: off_diff_count)
       end
 
       # Comments posted inline on this run.
