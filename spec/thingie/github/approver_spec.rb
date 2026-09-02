@@ -53,10 +53,14 @@ RSpec.describe Thingie::GitHub::Approver do # rubocop:disable RSpec/SpecFilePath
     }
   end
 
-  def report_for(issues)
+  def report_for(issues, unreviewed_files: [])
     target = Thingie::ReviewTarget.new(platform: 'github', repo_url: nil, pr_number: 1, commit_sha: nil,
                                        branch: nil, base_ref: nil, head_ref: nil, merge_base: false)
-    Thingie::Report.new(target: target, model: 'm', issues: issues)
+    Thingie::Report.new(target: target, model: 'm', issues: issues, unreviewed_files: unreviewed_files)
+  end
+
+  def report_missing(*files)
+    report_for([], unreviewed_files: files)
   end
 
   def build_issue(severity)
@@ -81,6 +85,108 @@ RSpec.describe Thingie::GitHub::Approver do # rubocop:disable RSpec/SpecFilePath
 
   def stub_reviews(*reviews)
     allow(client).to receive(:pull_request_reviews).and_return(reviews)
+  end
+
+  # An incomplete run has not cleared the files it could not read; it only
+  # failed to look at them. Failing to approve is always acceptable. Approving
+  # on an upstream failure is not.
+  describe 'refusing to approve on an incomplete run' do
+    it 'blocks an otherwise clean PR when a file could not be reviewed', :aggregate_failures do
+      decision = approver.run(report_missing('a.rb'))
+
+      expect(decision.action).to eq(:block)
+      expect(decision.reasons).to include(a_string_including('did not cover 1 changed file(s): a.rb'))
+      expect(client).not_to have_received(:create_pull_request_review)
+    end
+
+    it 'names every file it could not review' do
+      decision = approver.run(report_missing('a.rb', 'b.rb'))
+
+      expect(decision.reasons).to include(a_string_including('2 changed file(s): a.rb, b.rb'))
+    end
+
+    it 'dismisses an existing approval rather than leaving it standing' do
+      # 'sha1' is the current head SHA (see `pr`) — a block dismisses this too, not only a superseded approval.
+      stub_existing_approval(commit_id: 'sha1')
+
+      approver.run(report_missing('a.rb'))
+
+      expect(client).to have_received(:dismiss_pull_request_review).with('o/r', 1, 99, anything)
+    end
+
+    it 'blocks an otherwise clean PR when the review could not be posted', :aggregate_failures do
+      decision = approver.run(report_for([]), review_posted: false)
+
+      expect(decision.action).to eq(:block)
+      expect(decision.reasons).to include('the review could not be posted to this PR')
+      expect(client).not_to have_received(:create_pull_request_review)
+    end
+
+    it 'still approves when the review posted and covered every file' do
+      decision = approver.run(report_for([]), review_posted: true)
+
+      expect(decision.action).to eq(:approve)
+    end
+  end
+
+  # Every client this class touches carries Pacing.middleware, so any of them
+  # can raise Pacing::Throttled once GitHub keeps throttling a request. Only
+  # attempt_with_fallback's own rescue was updated when the middleware was
+  # first wired in; a throttle anywhere else escaped to run's outer
+  # `rescue StandardError`, which returns nil instead of a Decision — losing
+  # the approval.decided event, and in the review_posted: false case losing
+  # the status comment too. Every guard on a paced client now rescues
+  # Pacing::Throttled the same way it already rescued Octokit::Error.
+  describe 'pacing resilience' do
+    it 'still returns a Decision, not nil, when reading the existing status comment is throttled' do
+      allow(client).to receive(:issue_comments)
+        .and_raise(Thingie::GitHub::Pacing::Throttled.new('GET issue comments', Octokit::Forbidden.new))
+
+      decision = approver.run(report_missing('a.rb'))
+
+      expect(decision).not_to be_nil
+      expect(decision.action).to eq(:block)
+    end
+
+    # decide() itself — not just apply/sync afterward — reads from the same
+    # paced client with no protection of its own: pull_request_files (via
+    # config_changed?/protected_path_changed?), the GraphQL thread fetch (via
+    # block_reasons), and pull_request_commits (via self_resolved?). None of
+    # these has a Decision yet to preserve, unlike apply_decision's case, so
+    # each fails safe to its own dedicated block reason instead.
+    it 'blocks (fails safe), not aborts the run, when changed_files is throttled', :aggregate_failures do
+      error = Thingie::GitHub::Pacing::Throttled.new('GET files', Octokit::Forbidden.new)
+      allow(client).to receive(:pull_request_files).and_raise(error)
+
+      decision = approver.run(report_for([]))
+
+      expect(decision).not_to be_nil
+      expect(decision.action).to eq(:block)
+      expect(decision.reasons).to include('could not determine which files changed in this PR')
+    end
+
+    it 'blocks (fails safe), not aborts the run, when the Thingie thread fetch is throttled', :aggregate_failures do
+      error = Thingie::GitHub::Pacing::Throttled.new('POST graphql', Octokit::Forbidden.new)
+      allow(client).to receive(:post).and_raise(error)
+
+      decision = approver.run(report_for([]))
+
+      expect(decision).not_to be_nil
+      expect(decision.action).to eq(:block)
+      expect(decision.reasons).to include('could not determine Thingie review thread state')
+    end
+
+    it 'blocks (fails safe), not aborts the run, when reading commit authors is throttled', :aggregate_failures do
+      stub_threads([thingie_thread(resolved: true, resolved_by: 'someone')])
+      error = Thingie::GitHub::Pacing::Throttled.new('GET commits', Octokit::Forbidden.new)
+      allow(client).to receive(:pull_request_commits).and_raise(error)
+
+      decision = approver.run(report_for([]))
+
+      expect(decision).not_to be_nil
+      expect(decision.action).to eq(:block)
+      expect(decision.reasons).to include('could not determine who authored or committed to this PR')
+    end
   end
 
   it 'approves a clean PR with the approval marker' do
@@ -319,6 +425,22 @@ RSpec.describe Thingie::GitHub::Approver do # rubocop:disable RSpec/SpecFilePath
     expect(client).not_to have_received(:create_pull_request_review)
   end
 
+  # Pacing.middleware is installed on this same client, so an exhausted
+  # throttle here raises Pacing::Throttled — not an Octokit::Error — and must
+  # trip the identical fail-safe rather than escaping to run's outer rescue,
+  # which would return nil (no Decision, no approval.decided event, and in
+  # the review_posted: false case no status comment either).
+  it 'blocks (fails safe), not aborts the run, when reading review state is throttled', :aggregate_failures do
+    cause = Octokit::Forbidden.new(method: :get, url: 'x', status: 403, body: '')
+    error = Thingie::GitHub::Pacing::Throttled.new('GET reviews', cause)
+    allow(client).to receive(:pull_request_reviews).and_raise(error)
+
+    decision = approver.run(report_for([]))
+
+    expect(decision.action).to eq(:block)
+    expect(client).not_to have_received(:create_pull_request_review)
+  end
+
   it 'skips a PR carrying the skip label' do
     allow(pr).to receive(:labels).and_return([double('l', name: 'thingie-skip-approve')]) # rubocop:disable RSpec/VerifiedDoubles
     approver.run(report_for([]))
@@ -363,6 +485,17 @@ RSpec.describe Thingie::GitHub::Approver do # rubocop:disable RSpec/SpecFilePath
       allow(client).to receive(:get).with(membership_path).and_raise(Octokit::Forbidden)
       approver.run(report_for([]))
 
+      expect(client).not_to have_received(:create_pull_request_review)
+    end
+
+    # Same fail-safe as an ordinary Octokit::Error, but via Pacing::Throttled —
+    # the client this method reads from also carries Pacing.middleware.
+    it 'does not approve when team membership reads are throttled', :aggregate_failures do
+      error = Thingie::GitHub::Pacing::Throttled.new('GET membership', Octokit::Forbidden.new)
+      allow(client).to receive(:get).with(membership_path).and_raise(error)
+      decision = approver.run(report_for([]))
+
+      expect(decision).not_to be_nil
       expect(client).not_to have_received(:create_pull_request_review)
     end
 

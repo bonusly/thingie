@@ -7,6 +7,7 @@ module Thingie
 end
 
 require_relative 'github/context'
+require_relative 'github/pacing'
 require_relative 'github/graphql_client'
 require_relative 'github/commenter'
 require_relative 'github/approver'

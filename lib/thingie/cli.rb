@@ -186,10 +186,18 @@ module Thingie
       summary = File.read(options[:md_report_file] || 'code-review-report.md')
       report = Thingie::Report.from_file(json_path_for(options[:md_report_file]))
       debug_approve_state
-      commenter.post_review(summary: summary, report: report)
-      maybe_approve(context, report, summary)
+      posting_error = post_review_without_raising(commenter, summary, report)
+      maybe_approve(context, report, summary, review_posted: posting_error.nil?)
+      exit 1 if posting_error
     rescue StandardError => e
-      warn "GitHub comment failed: #{e.message}"
+      # post_review_without_raising already reports a posting failure
+      # specifically ("GitHub comment failed: ...") and keeps running; this
+      # only catches everything else in the command — context/report
+      # loading, or maybe_approve itself raising. Labeling it the same as a
+      # posting failure would mislabel an approval-evaluation error as the
+      # special_sauce#26652 incident class this change exists to fix,
+      # making a log scan for that class ambiguous.
+      warn "Thingie github-comment failed: #{e.message}"
       exit 1
     end
 
@@ -369,19 +377,44 @@ module Thingie
         )
       end
 
+      # Posts the review, returning the failure instead of raising it.
+      #
+      # The approval gate must be evaluated even when commenting fails. The
+      # decision is the control; the comments only explain it. On
+      # special_sauce#26652 a rate-limited comment post raised out of this
+      # step, `maybe_approve` never ran, and the run finished with no decision
+      # anywhere: none on the pull request and no `approval.decided` event in
+      # the stats stream. The command still exits non-zero afterwards, so a
+      # failed post stays visible as a red check.
+      #
+      # @param commenter [Thingie::GitHub::Commenter] the configured commenter
+      # @param summary [String] the human-readable review summary text
+      # @param report [Thingie::Report] the completed review report
+      # @return [StandardError, nil] the posting failure, or nil on success
+      def post_review_without_raising(commenter, summary, report)
+        commenter.post_review(summary: summary, report: report)
+        nil
+      rescue StandardError => e
+        warn "GitHub comment failed: #{e.message}"
+        e
+      end
+
       # Auto-approve the PR when the [approve] config block is enabled. Loads
       # config here because github-comment otherwise runs without it.
       #
       # @param context [Thingie::GitHub::Context, nil] the resolved GitHub Action context
       # @param report [Thingie::Report] the review report
       # @param summary [String] the Markdown review summary
+      # @param review_posted [Boolean] whether the review reached the PR; false
+      #   is passed straight through to Approver#run, which blocks on it
       # @return [void]
-      def maybe_approve(context, report, summary)
+      def maybe_approve(context, report, summary, review_posted: true)
         config = Thingie::Configuration.new
         approve = config['approve']
         return unless approve.is_a?(Hash) && approve['enabled']
 
-        decision = build_approver(context, approve, summary, approval_llm_client(config)).run(report)
+        approver = build_approver(context, approve, summary, approval_llm_client(config))
+        decision = approver.run(report, review_posted: review_posted)
         emit_approval_stats(config, context, approve, decision) if decision
       end
 
