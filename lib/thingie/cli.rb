@@ -186,8 +186,9 @@ module Thingie
       summary = File.read(options[:md_report_file] || 'code-review-report.md')
       report = Thingie::Report.from_file(json_path_for(options[:md_report_file]))
       debug_approve_state
-      commenter.post_review(summary: summary, report: report)
+      posting_error = post_review_without_raising(commenter, summary, report)
       maybe_approve(context, report, summary)
+      exit 1 if posting_error
     rescue StandardError => e
       warn "GitHub comment failed: #{e.message}"
       exit 1
@@ -376,6 +377,28 @@ module Thingie
       # @param report [Thingie::Report] the review report
       # @param summary [String] the Markdown review summary
       # @return [void]
+      # Posts the review, returning the failure instead of raising it.
+      #
+      # The approval gate must be evaluated even when commenting fails. The
+      # decision is the control; the comments only explain it. On
+      # special_sauce#26652 a rate-limited comment post raised out of this
+      # step, `maybe_approve` never ran, and the run finished with no decision
+      # anywhere: none on the pull request and no `approval.decided` event in
+      # the stats stream. The command still exits non-zero afterwards, so a
+      # failed post stays visible as a red check.
+      #
+      # @param commenter [Thingie::GitHub::Commenter] the configured commenter
+      # @param summary [String] the human-readable review summary text
+      # @param report [Thingie::Report] the completed review report
+      # @return [StandardError, nil] the posting failure, or nil on success
+      def post_review_without_raising(commenter, summary, report)
+        commenter.post_review(summary: summary, report: report)
+        nil
+      rescue StandardError => e
+        warn "GitHub comment failed: #{e.message}"
+        e
+      end
+
       def maybe_approve(context, report, summary)
         config = Thingie::Configuration.new
         approve = config['approve']

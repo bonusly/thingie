@@ -8,6 +8,8 @@ module Thingie
     # Thingie review threads and collapses previous summary comments before
     # posting new feedback.
     class Commenter # rubocop:disable Metrics/ClassLength
+      include Pacing
+
       REVIEW_COMMENT_MARKER = '<!-- thingie-review-comment -->'
 
       # Mirrors the default severity_scale in config/default.toml — used only
@@ -77,7 +79,9 @@ module Thingie
         rows = issues.map { |issue| off_diff_row(issue) }
         body = "<details><summary>#{issues.size} Thingie finding(s) outside this diff</summary>\n\n" \
                "#{rows.join("\n")}\n\n</details>\n\n#{Context::SUMMARY_MARKER}"
-        @client.add_comment("#{@owner}/#{@repo}", @pr_number, body)
+        with_pacing_retry('the off-diff findings comment') do
+          @client.add_comment("#{@owner}/#{@repo}", @pr_number, body)
+        end
       end
 
       def off_diff_row(issue)
@@ -102,19 +106,23 @@ module Thingie
       end
 
       def create_inline_comment(issue, commit_id, line)
-        @client.create_pull_request_comment(
-          "#{@owner}/#{@repo}",
-          @pr_number,
-          issue_body(issue),
-          commit_id,
-          issue.file,
-          line, # Octokit 9: 6th positional is the new-side line number
-          { side: 'RIGHT' }
-        )
+        with_pacing_retry("#{issue.file}:#{line}") do
+          @client.create_pull_request_comment(
+            "#{@owner}/#{@repo}",
+            @pr_number,
+            issue_body(issue),
+            commit_id,
+            issue.file,
+            line, # Octokit 9: 6th positional is the new-side line number
+            { side: 'RIGHT' }
+          )
+        end
       end
 
       def post_summary_comment(summary)
-        @client.add_comment("#{@owner}/#{@repo}", @pr_number, "#{summary}\n\n#{Context::SUMMARY_MARKER}")
+        with_pacing_retry('the summary comment') do
+          @client.add_comment("#{@owner}/#{@repo}", @pr_number, "#{summary}\n\n#{Context::SUMMARY_MARKER}")
+        end
       end
 
       def severity_label(severity)

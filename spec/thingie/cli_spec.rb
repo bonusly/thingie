@@ -160,6 +160,25 @@ RSpec.describe Thingie::CLI do
       expect(event['pr_number']).to eq(42)
       expect(event['dry_run']).to be(false)
     end
+
+    # special_sauce#26652: a rate-limited comment post raised out of the
+    # posting step, approval was never evaluated, and the run left no decision
+    # on the PR and no approval.decided event anywhere.
+    context 'when posting the review fails' do
+      before { allow(fake_commenter).to receive(:post_review).and_raise(StandardError, 'secondary rate limit') }
+
+      it 'still evaluates approval and records the decision', :aggregate_failures do
+        expect { run_github_comment }.to raise_error(SystemExit)
+
+        expect(fake_approver).to have_received(:run)
+        events = File.readlines(sink_path).map { |line| JSON.parse(line) }
+        expect(events.map { |event| event['event'] }).to eq(['approval.decided'])
+      end
+
+      it 'still fails the command so the broken post stays visible' do
+        expect { run_github_comment }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end
+    end
   end
 
   context 'when running dismiss-approvals with approve enabled' do

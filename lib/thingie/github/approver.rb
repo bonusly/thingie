@@ -12,6 +12,8 @@ module Thingie
     # approval (and any dismissal) is attempted with the main token first, then
     # falls back to the resolve-token user (PAT) when that attempt errors.
     class Approver # rubocop:disable Metrics/ClassLength
+      include Pacing
+
       APPROVAL_MARKER = '<!-- thingie-approval -->'
       # Marks the single upsert-able comment that explains why a PR was not
       # auto-approved, so re-runs update it in place instead of stacking comments.
@@ -501,7 +503,7 @@ module Thingie
       def attempt_with_fallback(action)
         last_error = nil
         [@client, @resolve_client].compact.each do |client|
-          return yield(client)
+          return with_pacing_retry(action) { yield(client) }
         rescue Octokit::Error => e
           last_error = e
         end

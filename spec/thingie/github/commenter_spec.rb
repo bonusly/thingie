@@ -61,6 +61,69 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
       .with('o/r', 1, a_string_including('[Critical]'), 'commit-sha', 'app.rb', 11, { side: 'RIGHT' })
   end
 
+  describe 'pacing' do
+    def github_error(klass, message)
+      klass.new(method: :post, url: 'https://api.github.com', status: 422,
+                body: JSON.generate({ message: message }),
+                response_headers: { 'content-type' => 'application/json' })
+    end
+
+    # Stubbing the subject's own sleep is the point: these specs assert the
+    # retry path without spending the backoff.
+    before { allow(commenter).to receive(:sleep) } # rubocop:disable RSpec/SubjectStub
+
+    it 'retries an inline comment GitHub says arrived too quickly' do
+      calls = 0
+      allow(client).to receive(:create_pull_request_comment) do
+        calls += 1
+        raise github_error(Octokit::UnprocessableEntity, 'was submitted too quickly') if calls < 2
+
+        nil
+      end
+
+      commenter.post_review(summary: 'S', report: report_for([build_issue('app.rb', 11)]))
+
+      expect(calls).to eq(2)
+    end
+
+    it 'retries the summary comment through a secondary rate limit' do
+      calls = 0
+      allow(client).to receive(:add_comment) do
+        calls += 1
+        raise github_error(Octokit::Forbidden, 'You have exceeded a secondary rate limit') if calls < 3
+
+        nil
+      end
+
+      commenter.post_review(summary: 'All good', report: report_for([]))
+
+      expect(calls).to eq(3)
+    end
+
+    # An off-diff line is a permanent "no", and the existing off-diff handling
+    # must keep seeing it rather than the caller waiting out four backoffs.
+    it 'does not retry a comment rejected for being outside the diff' do
+      calls = 0
+      allow(client).to receive(:create_pull_request_comment) do
+        calls += 1
+        raise github_error(Octokit::UnprocessableEntity, 'line must be part of the diff')
+      end
+
+      commenter.post_review(summary: 'S', report: report_for([build_issue('app.rb', 11)]))
+
+      expect(calls).to eq(1)
+    end
+
+    it 'reports an off-diff rejection in the off-diff comment' do
+      allow(client).to receive(:create_pull_request_comment)
+        .and_raise(github_error(Octokit::UnprocessableEntity, 'line must be part of the diff'))
+
+      commenter.post_review(summary: 'S', report: report_for([build_issue('app.rb', 11)]))
+
+      expect(client).to have_received(:add_comment).with('o/r', 1, a_string_including('outside this diff'))
+    end
+  end
+
   it 'posts the summary comment only when there are no issues', :aggregate_failures do
     commenter.post_review(summary: 'All good', report: report_for([]))
 
