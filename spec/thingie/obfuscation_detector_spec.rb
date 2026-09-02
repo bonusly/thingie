@@ -187,6 +187,49 @@ RSpec.describe Thingie::ObfuscationDetector do
     end
   end
 
+  describe 'comments' do
+    it 'ignores the word eval in a Ruby comment' do
+      code = "# GitHub Observed Moments — SCORED eval (LLM judge, pass/fail).\n"
+      expect(issues_for_content(code)).to be_empty
+    end
+
+    it 'ignores example code quoted in a comment' do
+      code = "# Ruby byte-array-to-string construction: `[65, 66].pack('C*')`.\n" \
+             "# JavaScript `String.fromCharCode(72, 101, 108)`.\n"
+      expect(issues_for_content(code)).to be_empty
+    end
+
+    it 'ignores an eval mentioned in a JavaScript comment' do
+      code = "// use indirect eval (which violates Content Security Policy).\n"
+      expect(issues_for_content(code)).to be_empty
+    end
+
+    it 'still flags real code that carries a trailing comment' do
+      code = "eval(payload) # decoded above\n"
+      expect(issues_for_content(code).first.title).to include('dynamic code execution')
+    end
+
+    it 'does not treat a hash inside a string literal as a comment' do
+      code = "label = '#not-a-comment'\ninstance_eval(payload)\n"
+      expect(issues_for_content(code).first.title).to include('dynamic code execution')
+    end
+
+    it 'does not treat the slashes in a URL as a comment' do
+      code = %(fetch('http://example.com') && eval(payload)\n)
+      expect(issues_for_content(code).first.title).to include('dynamic code execution')
+    end
+
+    it 'still flags an encoded blob sitting in a comment' do
+      code = "# leftover payload #{hex_payload}\n"
+      expect(issues_for_content(code).first.title).to include('hex-encoded blob')
+    end
+
+    it 'does not flag its own documentation' do
+      source = File.read(File.expand_path('../../lib/thingie/obfuscation_detector.rb', __dir__))
+      expect(issues_for_content(source)).to be_empty
+    end
+  end
+
   describe 'matching behavior' do
     it 'caps matches per file' do
       code = (1..10).map { |i| "line#{i} = '#{hex_payload}#{i}'" }.join("\n")

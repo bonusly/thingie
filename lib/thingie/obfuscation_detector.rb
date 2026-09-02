@@ -7,6 +7,12 @@ module Thingie
   # returned as severity-1 issues tagged `obfuscation`, which the auto-approval
   # rules treat as a hard block independent of the severity threshold.
   #
+  # Signals naming a real code construct are matched against the executable
+  # part of a line only, because documentation quotes example code constantly
+  # ("a SCORED eval (LLM judge)", "`[65, 66].pack('C*')`") and a comment cannot
+  # execute. Blob and escape-run signals still scan the whole line: prose never
+  # contains 80 hex characters or ten consecutive unicode escapes by accident.
+  #
   # Deliberately pattern-based rather than LLM-based: obfuscation signals are
   # lexical, the check must run on every changed file every time (not at the
   # model's discretion), and a heuristic that can't hallucinate can't be
@@ -89,10 +95,38 @@ module Thingie
     def describe(line)
       return 'a long hex-encoded blob' if line.match?(HEX_BLOB)
       return 'a long base64-encoded blob' if line.match?(BASE64_BLOB)
-      return 'dynamic code execution (eval)' if line.match?(EVAL_CALL)
-      return 'an executable string built from character codes' if char_code_construction?(line)
+
+      code = code_portion(line)
+      return 'dynamic code execution (eval)' if code.match?(EVAL_CALL)
+      return 'an executable string built from character codes' if char_code_construction?(code)
 
       'a dense run of escape sequences' if line.match?(ESCAPE_RUN)
+    end
+
+    # The executable part of a line, with any trailing single-line comment
+    # removed. Quote-aware, so the `#` in `'#ff0000'` and the `//` in
+    # `'http://example.com'` are not read as comment markers. Multi-line
+    # comment blocks (`=begin`, `/* ... */`) are not tracked, so example code
+    # quoted inside one still matches; tracking them needs per-file lexer
+    # state for a case that has not come up.
+    #
+    # @param line [String] a single line of source
+    # @return [String] the line up to its comment marker, or the whole line
+    def code_portion(line)
+      quote = nil
+      line.each_char.with_index do |char, index|
+        if quote
+          quote = nil if char == quote && line[index - 1] != '\\'
+          next
+        end
+
+        case char
+        when "'", '"' then quote = char
+        when '#' then return line[0, index]
+        when '/' then return line[0, index] if line[index + 1] == '/'
+        end
+      end
+      line
     end
 
     # @param line [String] a single line of source
