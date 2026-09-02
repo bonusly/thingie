@@ -119,13 +119,15 @@ module Thingie
             retry_if: method(:pacing_error?),
             retry_block: method(:log_retry),
             exhausted_retries_block: method(:raise_throttled),
-            # Parses AND clamps Retry-After / RateLimit-Reset ourselves rather
-            # than via Faraday::Retry's own `max_interval` cap: its cap works by
-            # skipping the retry outright when the header exceeds it, which
-            # falls through to re-raising the *original* Octokit error instead
-            # of reaching exhausted_retries_block — exactly the untyped-escape
-            # this module exists to prevent. Clamping the parsed value keeps
-            # every exhaustion routed through {.raise_throttled}.
+            # `max_interval` is deliberately left unset (defaults to
+            # Float::MAX) — its own cap works by skipping the retry outright
+            # once a header exceeds it, which falls through to re-raising the
+            # *original* Octokit error instead of reaching
+            # exhausted_retries_block: exactly the untyped escape this module
+            # exists to prevent. parse_and_clamp_retry_after bounds the parsed
+            # value itself instead, so a long stated wait is capped rather
+            # than skipped, and every exhaustion still reaches
+            # {.raise_throttled}.
             header_parser_block: method(:parse_and_clamp_retry_after)
           }
         end
@@ -169,8 +171,13 @@ module Thingie
         # @param will_retry_in [Float] seconds until the next attempt
         # @return [void]
         def log_retry(env:, retry_count:, will_retry_in:, **)
+          # faraday-retry's own retry_count is 0-based and counts retries, not
+          # attempts — retry_count: 0 fires after attempt 1 fails, right before
+          # attempt 2. Labeling that "attempt 1 of MAX_ATTEMPTS" describes what
+          # just failed, not what's about to happen. Count retries instead
+          # (1-based, out of MAX_ATTEMPTS - 1 possible) to avoid the mismatch.
           warn "GitHub asked for a slower pace on #{request_description(env)}; " \
-               "waiting #{will_retry_in.round(1)}s (attempt #{retry_count + 1} of #{MAX_ATTEMPTS})."
+               "waiting #{will_retry_in.round(1)}s (retry #{retry_count + 1} of #{MAX_ATTEMPTS - 1})."
         end
 
         # Raises {Throttled} once every attempt has been refused. A plain

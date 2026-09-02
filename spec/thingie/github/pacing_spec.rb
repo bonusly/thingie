@@ -215,15 +215,24 @@ RSpec.describe Thingie::GitHub::Pacing do # rubocop:disable RSpec/SpecFilePathFo
       expect(waited).to eq(3.0)
     end
 
-    it 'never lets a runaway Retry-After header bypass Throttled' do
-      # Without the clamp in parse_and_clamp_retry_after, Faraday::Retry treats
-      # a Retry-After past max_interval as "give up silently" and re-raises the
-      # original Octokit error instead of routing through exhausted_retries_block.
+    # retry_options never sets max_interval, so Faraday::Retry's own default
+    # (Float::MAX) never triggers its "give up before sleeping" branch for a
+    # realistic header value — parse_and_clamp_retry_after is the only thing
+    # bounding the wait. Without it, this would sleep 99999s (over a day) per
+    # attempt instead of capping at MAX_DELAY_SECONDS.
+    it 'clamps a runaway Retry-After header rather than sleeping for it verbatim' do
+      waited = nil
+      allow_any_instance_of(Faraday::Retry::Middleware).to receive(:sleep) { |_, seconds| waited = seconds } # rubocop:disable RSpec/AnyInstance
+      calls = 0
       stubs.post('/repos/o/r/pulls/1/comments') do
-        [403, { 'Retry-After' => '99999' }, '{"message":"You have exceeded a secondary rate limit"}']
+        calls += 1
+        body = '{"message":"You have exceeded a secondary rate limit"}'
+        calls < 2 ? [403, { 'Retry-After' => '99999' }, body] : [201, {}, '{}']
       end
 
-      expect { build_client.post('/repos/o/r/pulls/1/comments', {}) }.to raise_error(described_class::Throttled)
+      build_client.post('/repos/o/r/pulls/1/comments', {})
+
+      expect(waited).to eq(described_class::MAX_DELAY_SECONDS)
     end
   end
 end

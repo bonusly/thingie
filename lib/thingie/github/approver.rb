@@ -162,7 +162,26 @@ module Thingie
         reasons << 'unresolved Thingie findings remain' if unresolved?(threads)
         reasons << 'Thingie findings were resolved by the author or a contributor' if self_resolved?(threads, pr)
         reasons << 'a human reviewer requested changes' if human_requested_changes?
-        reasons
+        reasons.concat(undetermined_reasons)
+      end
+
+      # Reasons for state decide() could not read at all, as opposed to state
+      # it read and evaluated. changed_files, thingie_threads and
+      # insider_logins have no local rescue of their own — a Pacing::Throttled
+      # from any of them would otherwise reach run's outer rescue and discard
+      # the whole decision, the same "no decision anywhere" failure the rest
+      # of this PR closes. Failing safe here can't reuse config_changed?'s or
+      # protected_path_changed?'s own true/false, since returning [] from
+      # changed_files would make both silently read as "nothing changed" —
+      # the opposite of fail-safe — so each gets its own flag and reason
+      # instead of forcing a specific rule's message to lie about what it
+      # found.
+      def undetermined_reasons
+        [
+          ('could not determine which files changed in this PR' if @changed_files_undetermined),
+          ('could not determine Thingie review thread state' if @threads_undetermined),
+          ('could not determine who authored or committed to this PR' if @insiders_undetermined)
+        ].compact
       end
 
       # A run that could not read a verdict for every changed file has not
@@ -270,7 +289,12 @@ module Thingie
       end
 
       def changed_files
-        @changed_files ||= @client.pull_request_files(slug, @pr_number).map(&:filename)
+        return @changed_files if defined?(@changed_files)
+
+        @changed_files = @client.pull_request_files(slug, @pr_number).map(&:filename)
+      rescue Octokit::Error, Pacing::Throttled
+        @changed_files_undetermined = true
+        @changed_files = []
       end
 
       # Fail safe: an unknown size (nil) blocks approval so a PR whose size
@@ -327,6 +351,9 @@ module Thingie
           logins << commit.committer&.login
         end
         logins.compact.uniq
+      rescue Octokit::Error, Pacing::Throttled
+        @insiders_undetermined = true
+        [pr.user&.login].compact
       end
 
       # Treat unknown severity as qualifying so an unparseable thread fails safe.
@@ -342,6 +369,9 @@ module Thingie
         GraphqlClient.new(@client)
                      .review_threads(owner: @owner, repo: @repo, pr_number: @pr_number)
                      .select { |thread| thingie_thread?(thread) }
+      rescue Octokit::Error, Pacing::Throttled
+        @threads_undetermined = true
+        []
       end
 
       def thingie_thread?(thread)

@@ -26,9 +26,9 @@ module Thingie
       def initialize(token:, owner:, repo:, pr_number:, resolve_token: nil)
         # auto_paginate so PRs with many files/comments aren't truncated to the
         # first page when validating diff lines or collapsing old summaries.
-        # middleware: Pacing.middleware retries a write GitHub only throttled
-        # and raises Pacing::Throttled — never an Octokit::Error — once every
-        # attempt is refused.
+        # middleware: Pacing.middleware retries a write only when GitHub
+        # throttles it, and raises Pacing::Throttled — never an Octokit::Error
+        # — once every attempt is refused.
         @client = Octokit::Client.new(access_token: token, auto_paginate: true, middleware: Pacing.middleware)
         # Resolving review threads (GraphQL resolveReviewThread) needs a
         # user-to-server token (a PAT). The Actions GITHUB_TOKEN and GitHub App

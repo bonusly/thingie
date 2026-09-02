@@ -59,6 +59,10 @@ RSpec.describe Thingie::GitHub::Approver do # rubocop:disable RSpec/SpecFilePath
     Thingie::Report.new(target: target, model: 'm', issues: issues, unreviewed_files: unreviewed_files)
   end
 
+  def report_missing(*files)
+    report_for([], unreviewed_files: files)
+  end
+
   def build_issue(severity)
     raw = Thingie::RawIssue.new(title: 'T', severity: severity, confidence: 1, details: 'd', tags: [])
     Thingie::Issue.new(id: 1, file: 'a.rb', raw_issue: raw, affected_lines: [])
@@ -87,10 +91,6 @@ RSpec.describe Thingie::GitHub::Approver do # rubocop:disable RSpec/SpecFilePath
   # failed to look at them. Failing to approve is always acceptable. Approving
   # on an upstream failure is not.
   describe 'refusing to approve on an incomplete run' do
-    def report_missing(*files)
-      report_for([], unreviewed_files: files)
-    end
-
     it 'blocks an otherwise clean PR when a file could not be reviewed', :aggregate_failures do
       decision = approver.run(report_missing('a.rb'))
 
@@ -148,8 +148,44 @@ RSpec.describe Thingie::GitHub::Approver do # rubocop:disable RSpec/SpecFilePath
       expect(decision.action).to eq(:block)
     end
 
-    def report_missing(*files)
-      report_for([], unreviewed_files: files)
+    # decide() itself — not just apply/sync afterward — reads from the same
+    # paced client with no protection of its own: pull_request_files (via
+    # config_changed?/protected_path_changed?), the GraphQL thread fetch (via
+    # block_reasons), and pull_request_commits (via self_resolved?). None of
+    # these has a Decision yet to preserve, unlike apply_decision's case, so
+    # each fails safe to its own dedicated block reason instead.
+    it 'blocks (fails safe), not aborts the run, when changed_files is throttled', :aggregate_failures do
+      error = Thingie::GitHub::Pacing::Throttled.new('GET files', Octokit::Forbidden.new)
+      allow(client).to receive(:pull_request_files).and_raise(error)
+
+      decision = approver.run(report_for([]))
+
+      expect(decision).not_to be_nil
+      expect(decision.action).to eq(:block)
+      expect(decision.reasons).to include('could not determine which files changed in this PR')
+    end
+
+    it 'blocks (fails safe), not aborts the run, when the Thingie thread fetch is throttled', :aggregate_failures do
+      error = Thingie::GitHub::Pacing::Throttled.new('POST graphql', Octokit::Forbidden.new)
+      allow(client).to receive(:post).and_raise(error)
+
+      decision = approver.run(report_for([]))
+
+      expect(decision).not_to be_nil
+      expect(decision.action).to eq(:block)
+      expect(decision.reasons).to include('could not determine Thingie review thread state')
+    end
+
+    it 'blocks (fails safe), not aborts the run, when reading commit authors is throttled', :aggregate_failures do
+      stub_threads([thingie_thread(resolved: true, resolved_by: 'someone')])
+      error = Thingie::GitHub::Pacing::Throttled.new('GET commits', Octokit::Forbidden.new)
+      allow(client).to receive(:pull_request_commits).and_raise(error)
+
+      decision = approver.run(report_for([]))
+
+      expect(decision).not_to be_nil
+      expect(decision.action).to eq(:block)
+      expect(decision.reasons).to include('could not determine who authored or committed to this PR')
     end
   end
 
