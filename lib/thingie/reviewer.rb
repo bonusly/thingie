@@ -29,6 +29,11 @@ module Thingie
       # file with a warning; failures on every file abort the run (see
       # #raise_if_total_failure). Same cooperative-single-thread guarantee.
       @file_failures = []
+      # Files the run produced no verdict for, whether the call failed or its
+      # response could not be parsed. A report listing any of these covers less
+      # than the changeset, so finding nothing in them means nothing, and the
+      # approver refuses to approve on it.
+      @unreviewed_files = []
       @debug_output = DebugOutput.new(config: config, changeset: changeset, enabled: debug)
       @usage = Stats::Usage.new
     end
@@ -67,7 +72,8 @@ module Thingie
         model: @config['model'],
         issues: issues,
         processing_warnings: @warnings,
-        number_of_processed_files: @changeset.files.size
+        number_of_processed_files: @changeset.files.size,
+        unreviewed_files: @unreviewed_files
       )
     end
 
@@ -126,11 +132,13 @@ module Thingie
       only_changed_lines(issues, file)
     rescue JSON::ParserError => e
       @warnings << "Could not parse LLM response for #{file}: #{e.message}"
+      @unreviewed_files << file
       @debug_output.review_error(file: file, error: e)
       []
     rescue StandardError => e
       @warnings << "Failed to review #{file}: #{e.class}: #{e.message}"
       @file_failures << [file, e]
+      @unreviewed_files << file
       @debug_output.review_error(file: file, error: e)
       []
     end

@@ -187,7 +187,7 @@ module Thingie
       report = Thingie::Report.from_file(json_path_for(options[:md_report_file]))
       debug_approve_state
       posting_error = post_review_without_raising(commenter, summary, report)
-      maybe_approve(context, report, summary)
+      maybe_approve(context, report, summary, review_posted: posting_error.nil?)
       exit 1 if posting_error
     rescue StandardError => e
       warn "GitHub comment failed: #{e.message}"
@@ -399,12 +399,13 @@ module Thingie
         e
       end
 
-      def maybe_approve(context, report, summary)
+      def maybe_approve(context, report, summary, review_posted: true)
         config = Thingie::Configuration.new
         approve = config['approve']
         return unless approve.is_a?(Hash) && approve['enabled']
 
-        decision = build_approver(context, approve, summary, approval_llm_client(config)).run(report)
+        approver = build_approver(context, approve, summary, approval_llm_client(config))
+        decision = approver.run(report, review_posted: review_posted)
         emit_approval_stats(config, context, approve, decision) if decision
       end
 

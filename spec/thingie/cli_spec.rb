@@ -175,6 +175,14 @@ RSpec.describe Thingie::CLI do
         expect(events.map { |event| event['event'] }).to eq(['approval.decided'])
       end
 
+      # Evaluating is not the same as approving: findings nobody can see must
+      # not be approved past, so the approver is told the review never landed.
+      it 'tells the approver the review did not reach the PR' do
+        expect { run_github_comment }.to raise_error(SystemExit)
+
+        expect(fake_approver).to have_received(:run).with(anything, review_posted: false)
+      end
+
       it 'still fails the command so the broken post stays visible' do
         expect { run_github_comment }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
       end

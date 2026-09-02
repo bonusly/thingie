@@ -80,8 +80,11 @@ module Thingie
       # when an error short-circuited the evaluation.
       #
       # @param report [Thingie::Report] the completed review report
+      # @param review_posted [Boolean] whether the review reached the PR. False blocks:
+      #   findings a reviewer cannot see must not be approved past.
       # @return [Thingie::GitHub::Approver::Decision, nil] the decision, or nil on failure
-      def run(report)
+      def run(report, review_posted: true)
+        @review_posted = review_posted
         pr = @client.pull_request(slug, @pr_number)
         decision = decide(pr, report)
         log(decision)
@@ -136,6 +139,8 @@ module Thingie
       def block_reasons(pr, report)
         threads = thingie_threads
         reasons = []
+        reasons << incomplete_review_reason(report) if report.unreviewed_files.to_a.any?
+        reasons << 'the review could not be posted to this PR' unless @review_posted
         reasons << "#{CONFIG_PATH} was changed in this PR" if config_changed?
         reasons << 'a protected path was changed in this PR' if protected_path_changed?
         reasons << change_size_reason(pr) if too_many_changes?(pr)
@@ -145,6 +150,14 @@ module Thingie
         reasons << 'Thingie findings were resolved by the author or a contributor' if self_resolved?(threads, pr)
         reasons << 'a human reviewer requested changes' if human_requested_changes?
         reasons
+      end
+
+      # A run that could not read a verdict for every changed file has not
+      # cleared those files; it only failed to look at them. Approving on it
+      # would treat "we did not see anything" as "there is nothing there".
+      def incomplete_review_reason(report)
+        files = report.unreviewed_files.to_a
+        "the review did not cover #{files.size} changed file(s): #{files.join(', ')}"
       end
 
       # Obfuscation findings are a hard block regardless of [approve] max_severity:

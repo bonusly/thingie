@@ -83,6 +83,53 @@ RSpec.describe Thingie::GitHub::Approver do # rubocop:disable RSpec/SpecFilePath
     allow(client).to receive(:pull_request_reviews).and_return(reviews)
   end
 
+  # An incomplete run has not cleared the files it could not read; it only
+  # failed to look at them. Failing to approve is always acceptable. Approving
+  # on an upstream failure is not.
+  describe 'refusing to approve on an incomplete run' do
+    def report_missing(*files)
+      target = Thingie::ReviewTarget.new(platform: 'github', repo_url: nil, pr_number: 1, commit_sha: nil,
+                                         branch: nil, base_ref: nil, head_ref: nil, merge_base: false)
+      Thingie::Report.new(target: target, model: 'm', issues: [], unreviewed_files: files)
+    end
+
+    it 'blocks an otherwise clean PR when a file could not be reviewed', :aggregate_failures do
+      decision = approver.run(report_missing('a.rb'))
+
+      expect(decision.action).to eq(:block)
+      expect(decision.reasons).to include(a_string_including('did not cover 1 changed file(s): a.rb'))
+      expect(client).not_to have_received(:create_pull_request_review)
+    end
+
+    it 'names every file it could not review' do
+      decision = approver.run(report_missing('a.rb', 'b.rb'))
+
+      expect(decision.reasons).to include(a_string_including('2 changed file(s): a.rb, b.rb'))
+    end
+
+    it 'dismisses a stale approval rather than leaving it standing' do
+      stub_existing_approval(commit_id: 'sha1')
+
+      approver.run(report_missing('a.rb'))
+
+      expect(client).to have_received(:dismiss_pull_request_review).with('o/r', 1, 99, anything)
+    end
+
+    it 'blocks an otherwise clean PR when the review could not be posted', :aggregate_failures do
+      decision = approver.run(report_for([]), review_posted: false)
+
+      expect(decision.action).to eq(:block)
+      expect(decision.reasons).to include('the review could not be posted to this PR')
+      expect(client).not_to have_received(:create_pull_request_review)
+    end
+
+    it 'still approves when the review posted and covered every file' do
+      decision = approver.run(report_for([]), review_posted: true)
+
+      expect(decision.action).to eq(:approve)
+    end
+  end
+
   it 'approves a clean PR with the approval marker' do
     approver.run(report_for([]))
 

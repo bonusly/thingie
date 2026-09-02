@@ -131,6 +131,12 @@ RSpec.describe Thingie::Reviewer do
       expect(report.processing_warnings).to include(/Failed to review other.rb: .*Rate limit exceeded/)
       expect(report.number_of_processed_files).to eq(2)
     end
+
+    # The approver refuses to approve a report that lists any of these, so a
+    # file the run never got a verdict for cannot be mistaken for a clean one.
+    it 'records the failed file as unreviewed' do
+      expect(reviewer.review.unreviewed_files).to eq(['other.rb'])
+    end
   end
 
   context 'when reviewing the whole codebase' do
@@ -222,6 +228,10 @@ RSpec.describe Thingie::Reviewer do
       report = reviewer.review
       expect(report.total_issues).to eq(0)
       expect(report.processing_warnings).to include(/Could not parse LLM response for app.rb/)
+    end
+
+    it 'records the unparseable file as unreviewed' do
+      expect(reviewer.review.unreviewed_files).to eq(['app.rb'])
     end
   end
 

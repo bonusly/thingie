@@ -154,7 +154,7 @@ module Thingie
   # Collection of issues and metadata produced by a review run.
   class Report
     attr_reader :target, :issues, :processing_warnings, :created_at, :model,
-                :number_of_processed_files
+                :number_of_processed_files, :unreviewed_files
 
     # Loads a `Report` from a saved JSON file.
     #
@@ -186,7 +186,8 @@ module Thingie
         model: data['model'],
         issues: issues,
         processing_warnings: data['processing_warnings'] || [],
-        number_of_processed_files: data['number_of_processed_files']
+        number_of_processed_files: data['number_of_processed_files'],
+        unreviewed_files: data['unreviewed_files'] || []
       )
     end
 
@@ -198,12 +199,16 @@ module Thingie
     # @param processing_warnings [Array<String>] non-fatal warnings from the review pipeline
     # @param number_of_processed_files [Integer, nil] files processed; defaults to the
     #   unique file count across `issues`
+    # @param unreviewed_files [Array<String>] files the review could not read a verdict
+    #   for. A report listing any of these covers less than the changeset, so the
+    #   absence of findings in them means nothing.
     def initialize(target:, model:, issues: [], processing_warnings: [],
-                   number_of_processed_files: nil)
+                   number_of_processed_files: nil, unreviewed_files: [])
       @target = target
       @model = model
       @issues = Array(issues)
       @processing_warnings = Array(processing_warnings)
+      @unreviewed_files = Array(unreviewed_files).uniq
       @number_of_processed_files = number_of_processed_files || @issues.map(&:file).compact.uniq.size
       @created_at = Time.now.iso8601
     end
@@ -226,6 +231,7 @@ module Thingie
         'number_of_processed_files' => number_of_processed_files,
         'total_issues' => total_issues,
         'processing_warnings' => @processing_warnings,
+        'unreviewed_files' => @unreviewed_files,
         'created_at' => @created_at
       }
     end
