@@ -165,17 +165,7 @@ RSpec.describe Thingie::Reviewer do
   end
 
   context 'when the LLM client fails on only some files' do
-    let(:fake_changeset) do
-      instance_double(Thingie::Changeset).tap do |changeset|
-        allow(changeset).to receive_messages(files: ['app.rb', 'other.rb'],
-                                             changed_lines_for: Set.new([1]), all?: false,
-                                             base_ref: 'main', head_ref: 'HEAD', head_sha: 'abc123')
-        allow(changeset).to receive(:diff_text_for) { |file| file == 'other.rb' ? "+ def other\n" : "+ def hello\n" }
-        allow(changeset).to receive(:full_content_for) { |file|
-          "#{file == 'other.rb' ? 'def other' : 'def hello'}\nend\n"
-        }
-      end
-    end
+    let(:fake_changeset) { two_file_changeset }
     let(:connection_error) { Class.new(StandardError) }
     let(:fake_llm_client) do
       issues = [{ 'title' => 'Missing return', 'details' => 'No return value', 'severity' => 2,

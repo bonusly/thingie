@@ -139,8 +139,8 @@ RSpec.describe Thingie::GitHub::Approver do # rubocop:disable RSpec/SpecFilePath
   # Pacing::Throttled the same way it already rescued Octokit::Error.
   describe 'pacing resilience' do
     it 'still returns a Decision, not nil, when posting the status comment is throttled' do
-      allow(client).to receive(:issue_comments)
-        .and_raise(Thingie::GitHub::Pacing::Throttled.new('GET issue comments', Octokit::Forbidden.new))
+      allow(client).to receive(:add_comment)
+        .and_raise(Thingie::GitHub::Pacing::Throttled.new('POST issue comment', Octokit::Forbidden.new))
 
       decision = approver.run(report_missing('a.rb'))
 
