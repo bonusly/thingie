@@ -219,6 +219,28 @@ RSpec.describe Thingie::ObfuscationDetector do
       expect(issues_for_content(code).first.title).to include('dynamic code execution')
     end
 
+    # A comment marker inside a regex, percent literal or template literal is
+    # not a comment. Splitting the line there would hide the eval that follows.
+    it 'flags an eval that follows a slash-slash inside a percent regex' do
+      code = "case path when %r{^https?://} then eval(payload) end\n"
+      expect(issues_for_content(code).first.title).to include('dynamic code execution')
+    end
+
+    it 'flags an eval that follows a hash inside a percent regex' do
+      code = "s =~ %r{#frag} and eval(x)\n"
+      expect(issues_for_content(code).first.title).to include('dynamic code execution')
+    end
+
+    it 'flags an eval that follows a JavaScript template literal' do
+      code = "const u = `https://api.example.com/${id}`; eval(payload);\n"
+      expect(issues_for_content(code).first.title).to include('dynamic code execution')
+    end
+
+    it 'flags character-code construction that follows a URL in a regex' do
+      code = "next if url =~ %r{//cdn}\npayload = [109, 97].pack('C*')\n"
+      expect(issues_for_content(code).map(&:title).join).to include('character codes')
+    end
+
     it 'still flags an encoded blob sitting in a comment' do
       code = "# leftover payload #{hex_payload}\n"
       expect(issues_for_content(code).first.title).to include('hex-encoded blob')

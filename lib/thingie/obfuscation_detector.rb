@@ -7,11 +7,13 @@ module Thingie
   # returned as severity-1 issues tagged `obfuscation`, which the auto-approval
   # rules treat as a hard block independent of the severity threshold.
   #
-  # Signals naming a real code construct are matched against the executable
-  # part of a line only, because documentation quotes example code constantly
-  # ("a SCORED eval (LLM judge)", "`[65, 66].pack('C*')`") and a comment cannot
-  # execute. Blob and escape-run signals still scan the whole line: prose never
-  # contains 80 hex characters or ten consecutive unicode escapes by accident.
+  # Signals naming a real code construct are skipped on lines that are wholly
+  # comments, because documentation quotes example code constantly ("a SCORED
+  # eval (LLM judge)", "`[65, 66].pack('C*')`") and a comment cannot execute.
+  # Only whole-line comments are exempt, never the tail of a line that also
+  # holds code, so no line is ever scanned in part. Blob and escape-run
+  # signals scan every line: prose never contains 80 hex characters or ten
+  # consecutive unicode escapes by accident.
   #
   # Deliberately pattern-based rather than LLM-based: obfuscation signals are
   # lexical, the check must run on every changed file every time (not at the
@@ -49,6 +51,8 @@ module Thingie
     CHAR_LITERAL = /\d+\s*\.\s*chr\b/
     # Dense escape runs: `...\x41\x42...` (8+) or `...\u0041\u0042...` (10+).
     ESCAPE_RUN = /(?:\\x\h{2}){8,}|(?:\\u\h{4}){10,}/i
+    # A line holding nothing but a comment: Ruby `#` or C-family `//`.
+    COMMENT_LINE = %r{\A\s*(?:#|//)}
 
     # Builds a detector for a changeset.
     #
@@ -96,37 +100,32 @@ module Thingie
       return 'a long hex-encoded blob' if line.match?(HEX_BLOB)
       return 'a long base64-encoded blob' if line.match?(BASE64_BLOB)
 
-      code = code_portion(line)
-      return 'dynamic code execution (eval)' if code.match?(EVAL_CALL)
-      return 'an executable string built from character codes' if char_code_construction?(code)
+      unless comment_line?(line)
+        return 'dynamic code execution (eval)' if line.match?(EVAL_CALL)
+        return 'an executable string built from character codes' if char_code_construction?(line)
+      end
 
       'a dense run of escape sequences' if line.match?(ESCAPE_RUN)
     end
 
-    # The executable part of a line, with any trailing single-line comment
-    # removed. Quote-aware, so the `#` in `'#ff0000'` and the `//` in
-    # `'http://example.com'` are not read as comment markers. Multi-line
-    # comment blocks (`=begin`, `/* ... */`) are not tracked, so example code
-    # quoted inside one still matches; tracking them needs per-file lexer
-    # state for a case that has not come up.
+    # Whether the whole line is a comment. Only a line that is nothing but a
+    # comment is exempted, never the tail of a line that also holds code: a
+    # comment marker is exempted only where nothing on the line can execute.
+    #
+    # Splitting a line at its first `#` or `//` instead would need a real
+    # lexer to be safe. A marker inside a regex, percent literal or template
+    # literal (`%r{^https?://}`, `s =~ %r{#frag}`, a JS `${}` template) is not
+    # a comment, and truncating there would hide any obfuscation later on the
+    # same line. For a rule that hard-blocks, a missed signal is the worse
+    # error, so the trailing-comment case keeps its (rare) false positive.
+    #
+    # Block-comment interiors (`=begin`, `/* ... */`) are not tracked; example
+    # code quoted inside one still matches.
     #
     # @param line [String] a single line of source
-    # @return [String] the line up to its comment marker, or the whole line
-    def code_portion(line)
-      quote = nil
-      line.each_char.with_index do |char, index|
-        if quote
-          quote = nil if char == quote && line[index - 1] != '\\'
-          next
-        end
-
-        case char
-        when "'", '"' then quote = char
-        when '#' then return line[0, index]
-        when '/' then return line[0, index] if line[index + 1] == '/'
-        end
-      end
-      line
+    # @return [Boolean] whether the line is entirely a comment
+    def comment_line?(line)
+      line.match?(COMMENT_LINE)
     end
 
     # @param line [String] a single line of source
