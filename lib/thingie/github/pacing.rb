@@ -213,8 +213,14 @@ module Thingie
           # attempt 2. Labeling that "attempt 1 of MAX_ATTEMPTS" describes what
           # just failed, not what's about to happen. Count retries instead
           # (1-based, out of MAX_ATTEMPTS - 1 possible) to avoid the mismatch.
-          warn "GitHub asked for a slower pace on #{request_description(env)}; " \
-               "waiting #{will_retry_in.round(1)}s (retry #{retry_count + 1} of #{MAX_ATTEMPTS - 1})."
+          #
+          # Worded neutrally rather than "GitHub asked for a slower pace":
+          # methods: [] routes every retry through this same block, including
+          # transient_read_error?'s connection-failure/5xx retries, which are
+          # not a pacing signal at all — that wording would misdescribe them
+          # to anyone grepping this log for actual throttling.
+          warn "Retrying #{request_description(env)} in #{will_retry_in.round(1)}s " \
+               "(retry #{retry_count + 1} of #{MAX_ATTEMPTS - 1})."
         end
 
         # Raises {Throttled} once every attempt has been refused. A plain

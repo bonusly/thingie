@@ -45,29 +45,30 @@ module Thingie
 
     def summary_line
       line = if @report.total_issues.positive?
-               "⚠️  #{@report.total_issues} issue(s) found across " \
-                 "#{@report.number_of_processed_files} file(s).\n"
+               "⚠️  #{@report.total_issues} issue(s) found across #{coverage_file_count}.\n"
              else
-               "✅ No issues found across #{clean_pass_file_count}.\n"
+               "✅ No issues found across #{coverage_file_count}.\n"
              end
       line + unreviewed_files_line
     end
 
     def md_summary_line
       line = if @report.total_issues.positive?
-               "**⚠️ #{@report.total_issues} issue(s) found** across " \
-                 "#{@report.number_of_processed_files} file(s)."
+               "**⚠️ #{@report.total_issues} issue(s) found** across #{coverage_file_count}."
              else
-               "**✅ No issues found** across #{clean_pass_file_count}."
+               "**✅ No issues found** across #{coverage_file_count}."
              end
       line + md_unreviewed_files_line
     end
 
-    # A bare "No issues found across N file(s)" reads as a complete pass over
-    # every file. When some of those N were never reviewed, say so in the
-    # headline itself, not only in the disclosure line beneath it, so the
-    # headline can't be mistaken for full coverage on its own.
-    def clean_pass_file_count
+    # A bare "N issue(s)/No issues found across M file(s)" reads as a complete
+    # pass over every file, whether or not any issues were found. When some of
+    # those M were never reviewed, say so in the headline itself, not only in
+    # the disclosure line beneath it, so the headline can't be mistaken for
+    # full coverage on its own — number_of_processed_files is the whole
+    # changeset (see Reviewer#build_report) and unreviewed_files is a subset
+    # of it, in both the clean-pass and issues-found case alike.
+    def coverage_file_count
       reviewed = @report.number_of_processed_files - @report.unreviewed_files.size
       return "#{@report.number_of_processed_files} file(s)" if @report.unreviewed_files.empty?
 
