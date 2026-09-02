@@ -48,7 +48,7 @@ module Thingie
                "⚠️  #{@report.total_issues} issue(s) found across " \
                  "#{@report.number_of_processed_files} file(s).\n"
              else
-               "✅ No issues found across #{@report.number_of_processed_files} file(s).\n"
+               "✅ No issues found across #{clean_pass_file_count}.\n"
              end
       line + unreviewed_files_line
     end
@@ -58,9 +58,20 @@ module Thingie
                "**⚠️ #{@report.total_issues} issue(s) found** across " \
                  "#{@report.number_of_processed_files} file(s)."
              else
-               "**✅ No issues found** across #{@report.number_of_processed_files} file(s)."
+               "**✅ No issues found** across #{clean_pass_file_count}."
              end
       line + md_unreviewed_files_line
+    end
+
+    # A bare "No issues found across N file(s)" reads as a complete pass over
+    # every file. When some of those N were never reviewed, say so in the
+    # headline itself, not only in the disclosure line beneath it, so the
+    # headline can't be mistaken for full coverage on its own.
+    def clean_pass_file_count
+      reviewed = @report.number_of_processed_files - @report.unreviewed_files.size
+      return "#{@report.number_of_processed_files} file(s)" if @report.unreviewed_files.empty?
+
+      "#{reviewed} of #{@report.number_of_processed_files} file(s)"
     end
 
     # A file with no findings and a file no verdict was ever produced for

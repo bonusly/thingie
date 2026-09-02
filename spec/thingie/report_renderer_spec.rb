@@ -87,13 +87,13 @@ RSpec.describe Thingie::ReportRenderer do
 
     it 'discloses the unreviewed files in CLI output rather than reading as a clean pass', :aggregate_failures do
       output = renderer.to_cli
-      expect(output).to include('No issues found across 5 file(s)')
+      expect(output).to include('No issues found across 3 of 5 file(s)')
       expect(output).to include('2 file(s) could not be reviewed: broken.rb, blank.rb')
     end
 
     it 'discloses the unreviewed files in Markdown output rather than reading as a clean pass', :aggregate_failures do
       output = renderer.to_md
-      expect(output).to include('**✅ No issues found** across 5 file(s)')
+      expect(output).to include('**✅ No issues found** across 3 of 5 file(s)')
       expect(output).to include('**⚠️ 2 file(s) could not be reviewed:** broken.rb, blank.rb')
     end
   end

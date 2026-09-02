@@ -73,6 +73,27 @@ RSpec.describe Thingie::GitHub::Pacing do # rubocop:disable RSpec/SpecFilePathFo
       error = octokit_error(Octokit::ClientError, 'Conflict', status: 409)
       expect(described_class.pacing_error?(nil, error)).to be false
     end
+
+    # Octokit::Default::MIDDLEWARE itself retries a connection-level failure
+    # or 5xx on an idempotent method — replacing that stack must not drop this
+    # coverage, or a transient read failure that used to self-heal now aborts
+    # the run outright instead.
+    def env_for(method)
+      Faraday::Env.from(method: method, url: URI('https://api.github.com/repos/o/r/pulls/1'))
+    end
+
+    it 'retries a connection timeout on a GET' do
+      expect(described_class.pacing_error?(env_for(:get), Faraday::TimeoutError.new)).to be true
+    end
+
+    it 'retries a 5xx on a GET' do
+      error = octokit_error(Octokit::ServerError, 'Internal Server Error', status: 500)
+      expect(described_class.pacing_error?(env_for(:get), error)).to be true
+    end
+
+    it 'does not retry a connection timeout on a POST, where repeating it is not safe' do
+      expect(described_class.pacing_error?(env_for(:post), Faraday::TimeoutError.new)).to be false
+    end
   end
 
   describe '.parse_and_clamp_retry_after' do

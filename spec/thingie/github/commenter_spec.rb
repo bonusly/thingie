@@ -65,7 +65,7 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
     def github_error(klass, message)
       klass.new(method: :post, url: 'https://api.github.com', status: 422,
                 body: JSON.generate({ message: message }),
-                response_headers: { 'content-type' => 'application/json' })
+                response_headers: { content_type: 'application/json' })
     end
 
     # Retrying is now a Faraday::Retry concern configured once on the

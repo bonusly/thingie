@@ -75,6 +75,17 @@ module Thingie
       # "rate limit exceeded" diagnostic behind a generic Throttled refusal.
       SECONDARY_RATE_LIMIT = /secondary rate limit/i
 
+      # What Octokit::Default::MIDDLEWARE itself retries: a connection-level
+      # timeout/failure or a 5xx, and only for methods where repeating the
+      # request is safe. Replacing the default stack must not drop this
+      # coverage — a transient read failure (e.g. `client.pull_request` at the
+      # top of `Commenter#post_review`, or `pull_request_files` behind
+      # `commentable_lines`) would otherwise abort the run or silently lose
+      # inline-comment placement instead of self-healing on retry, as it did
+      # before this module existed.
+      TRANSIENT_EXCEPTIONS = (Faraday::Retry::Middleware::DEFAULT_EXCEPTIONS + [Octokit::ServerError]).freeze
+      IDEMPOTENT_METHODS = %i[get head put delete options].freeze
+
       class << self
         # The Faraday middleware stack for an `Octokit::Client`. Mirrors
         # `Octokit::Default::MIDDLEWARE` exactly, replacing only the retry step.
@@ -115,7 +126,7 @@ module Thingie
             # retry_if to inspect; pacing_error? still checks response_status
             # before treating one as a pacing signal.
             exceptions: [Octokit::UnprocessableEntity, Octokit::TooManyRequests, Octokit::AbuseDetected,
-                         Octokit::ClientError],
+                         Octokit::ClientError, *TRANSIENT_EXCEPTIONS],
             retry_if: method(:pacing_error?),
             retry_block: method(:log_retry),
             exhausted_retries_block: method(:raise_throttled),
@@ -149,11 +160,12 @@ module Thingie
         # pacing 422 and an ordinary one (a comment outside the diff), so
         # only the pacing wording is retried there too.
         #
-        # @param _env [Faraday::Env] the request environment (unused; the
-        #   decision only needs the exception)
+        # @param env [Faraday::Env] the request environment
         # @param exception [Exception] the error Octokit raised for this attempt
         # @return [Boolean] whether this error means "slow down"
-        def pacing_error?(_env, exception)
+        def pacing_error?(env, exception)
+          return true if transient_read_error?(env, exception)
+
           case exception
           when Octokit::UnprocessableEntity then exception.message.match?(SUBMITTED_TOO_QUICKLY)
           when Octokit::TooManyRequests then exception.message.match?(SECONDARY_RATE_LIMIT)
@@ -161,6 +173,31 @@ module Thingie
           when Octokit::ClientError then exception.response_status == 429
           else false
           end
+        end
+
+        # Mirrors Octokit's own default retry scope: a connection-level
+        # failure or 5xx is only safe to repeat automatically on a method with
+        # no side effect to duplicate.
+        #
+        # @param env [Faraday::Env] the request environment
+        # @param exception [Exception] the error Octokit raised for this attempt
+        # @return [Boolean] whether this is a retriable transient failure on an idempotent request
+        def transient_read_error?(env, exception)
+          return false unless env
+
+          IDEMPOTENT_METHODS.include?(env.method) &&
+            TRANSIENT_EXCEPTIONS.any? { |klass| exception.is_a?(resolve_exception_class(klass)) }
+        end
+
+        # {TRANSIENT_EXCEPTIONS} includes `'Timeout::Error'` as a string, the
+        # same lazy-resolution `Faraday::Retry`'s own matcher uses, since
+        # requiring `timeout` just to reference the class isn't otherwise
+        # needed here.
+        #
+        # @param klass [Module, String] a class, or its name
+        # @return [Module] the resolved class
+        def resolve_exception_class(klass)
+          klass.is_a?(Module) ? klass : Object.const_get(klass.to_s)
         end
 
         # Logs each retry as one line, called only when an attempt is actually
