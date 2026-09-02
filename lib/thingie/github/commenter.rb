@@ -8,8 +8,6 @@ module Thingie
     # Thingie review threads and collapses previous summary comments before
     # posting new feedback.
     class Commenter # rubocop:disable Metrics/ClassLength
-      include Pacing
-
       REVIEW_COMMENT_MARKER = '<!-- thingie-review-comment -->'
 
       # Mirrors the default severity_scale in config/default.toml — used only
@@ -28,7 +26,10 @@ module Thingie
       def initialize(token:, owner:, repo:, pr_number:, resolve_token: nil)
         # auto_paginate so PRs with many files/comments aren't truncated to the
         # first page when validating diff lines or collapsing old summaries.
-        @client = Octokit::Client.new(access_token: token, auto_paginate: true)
+        # middleware: Pacing.middleware retries a write GitHub only throttled
+        # and raises Pacing::Throttled — never an Octokit::Error — once every
+        # attempt is refused.
+        @client = Octokit::Client.new(access_token: token, auto_paginate: true, middleware: Pacing.middleware)
         # Resolving review threads (GraphQL resolveReviewThread) needs a
         # user-to-server token (a PAT). The Actions GITHUB_TOKEN and GitHub App
         # *installation* tokens can't and return "Resource not accessible by
@@ -100,9 +101,7 @@ module Thingie
         rows = issues.map { |issue| off_diff_row(issue) }
         body = "<details><summary>#{issues.size} Thingie finding(s) outside this diff</summary>\n\n" \
                "#{rows.join("\n")}\n\n</details>\n\n#{Context::SUMMARY_MARKER}"
-        with_pacing_retry('the off-diff findings comment') do
-          @client.add_comment("#{@owner}/#{@repo}", @pr_number, body)
-        end
+        @client.add_comment("#{@owner}/#{@repo}", @pr_number, body)
       end
 
       def off_diff_row(issue)
@@ -127,24 +126,20 @@ module Thingie
       end
 
       def create_inline_comment(issue, commit_id, line)
-        with_pacing_retry("#{issue.file}:#{line}") do
-          @client.create_pull_request_comment(
-            "#{@owner}/#{@repo}",
-            @pr_number,
-            issue_body(issue),
-            commit_id,
-            issue.file,
-            line, # Octokit 9: 6th positional is the new-side line number
-            { side: 'RIGHT' }
-          )
-        end
+        @client.create_pull_request_comment(
+          "#{@owner}/#{@repo}",
+          @pr_number,
+          issue_body(issue),
+          commit_id,
+          issue.file,
+          line, # Octokit 9: 6th positional is the new-side line number
+          { side: 'RIGHT' }
+        )
         @comments_posted += 1
       end
 
       def post_summary_comment(summary)
-        with_pacing_retry('the summary comment') do
-          @client.add_comment("#{@owner}/#{@repo}", @pr_number, "#{summary}\n\n#{Context::SUMMARY_MARKER}")
-        end
+        @client.add_comment("#{@owner}/#{@repo}", @pr_number, "#{summary}\n\n#{Context::SUMMARY_MARKER}")
       end
 
       def severity_label(severity)
@@ -256,7 +251,7 @@ module Thingie
       def resolve_client
         return @client unless @resolve_token
 
-        Octokit::Client.new(access_token: @resolve_token, auto_paginate: true)
+        Octokit::Client.new(access_token: @resolve_token, auto_paginate: true, middleware: Pacing.middleware)
       end
 
       def fetch_review_threads

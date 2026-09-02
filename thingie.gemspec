@@ -46,6 +46,11 @@ Gem::Specification.new do |spec|
 
   # GitHub API
   spec.add_dependency 'octokit', '~> 10.0'
+  # Retries GitHub writes that fail for pacing reasons (Thingie::GitHub::Pacing).
+  # Already present transitively via ruby_llm's Faraday stack, but this is now
+  # load-bearing for the approval gate rather than opportunistic, so it is
+  # declared directly rather than relying on another gem's dependency choices.
+  spec.add_dependency 'faraday-retry', '~> 2.4'
 
   # Configuration / templating
   spec.add_dependency 'dotenv', '~> 3.1'

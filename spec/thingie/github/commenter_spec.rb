@@ -68,58 +68,28 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
                 response_headers: { 'content-type' => 'application/json' })
     end
 
-    # Stubbing the subject's own sleep is the point: these specs assert the
-    # retry path without spending the backoff.
-    before { allow(commenter).to receive(:sleep) } # rubocop:disable RSpec/SubjectStub
+    # Retrying is now a Faraday::Retry concern configured once on the
+    # Octokit::Client (Thingie::GitHub::Pacing.middleware) — see pacing_spec.rb
+    # for the real end-to-end retry behavior, driven through the actual
+    # middleware stack rather than this double. What Commenter itself is still
+    # responsible for is covered below: that a Pacing::Throttled the client
+    # raises can't be mistaken for an off-diff rejection, and that the client
+    # is actually built with the pacing middleware in the first place.
+    it 'builds its client with the pacing middleware' do
+      commenter
 
-    it 'retries an inline comment GitHub says arrived too quickly' do
-      calls = 0
-      allow(client).to receive(:create_pull_request_comment) do
-        calls += 1
-        raise github_error(Octokit::UnprocessableEntity, 'was submitted too quickly') if calls < 2
-
-        nil
-      end
-
-      commenter.post_review(summary: 'S', report: report_for([build_issue('app.rb', 11)]))
-
-      expect(calls).to eq(2)
-    end
-
-    it 'retries the summary comment through a secondary rate limit' do
-      calls = 0
-      allow(client).to receive(:add_comment) do
-        calls += 1
-        raise github_error(Octokit::Forbidden, 'You have exceeded a secondary rate limit') if calls < 3
-
-        nil
-      end
-
-      commenter.post_review(summary: 'All good', report: report_for([]))
-
-      expect(calls).to eq(3)
-    end
-
-    # An off-diff line is a permanent "no", and the existing off-diff handling
-    # must keep seeing it rather than the caller waiting out four backoffs.
-    it 'does not retry a comment rejected for being outside the diff' do
-      calls = 0
-      allow(client).to receive(:create_pull_request_comment) do
-        calls += 1
-        raise github_error(Octokit::UnprocessableEntity, 'line must be part of the diff')
-      end
-
-      commenter.post_review(summary: 'S', report: report_for([build_issue('app.rb', 11)]))
-
-      expect(calls).to eq(1)
+      expect(Octokit::Client).to have_received(:new)
+        .with(hash_including(middleware: an_instance_of(Faraday::RackBuilder))).at_least(:once)
     end
 
     # The failure mode this guards: "was submitted too quickly" is a 422, the
-    # same class as an off-diff rejection, so re-raising it would land in the
-    # off-diff rescue and report a clean post that never happened.
+    # same class as an off-diff rejection, so treating Pacing::Throttled as
+    # just another Octokit::UnprocessableEntity would file a comment GitHub
+    # refused as one that merely had nowhere to go.
     it 'does not file a refused comment as merely off-diff', :aggregate_failures do
+      cause = github_error(Octokit::UnprocessableEntity, 'was submitted too quickly')
       allow(client).to receive(:create_pull_request_comment)
-        .and_raise(github_error(Octokit::UnprocessableEntity, 'was submitted too quickly'))
+        .and_raise(Thingie::GitHub::Pacing::Throttled.new('POST .../comments', cause))
 
       expect { commenter.post_review(summary: 'S', report: report_for([build_issue('app.rb', 11)])) }
         .to raise_error(Thingie::GitHub::Pacing::Throttled)
