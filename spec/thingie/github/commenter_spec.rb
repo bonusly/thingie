@@ -75,11 +75,12 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
     # responsible for is covered below: that a Pacing::Throttled the client
     # raises can't be mistaken for an off-diff rejection, and that the client
     # is actually built with the pacing middleware in the first place.
-    it 'builds its client with the pacing middleware' do
+    it 'builds its client with the pacing retry middleware actually configured' do
       commenter
 
+      configures_retry = satisfy { |middleware| middleware.handlers.map(&:klass).include?(Faraday::Retry::Middleware) }
       expect(Octokit::Client).to have_received(:new)
-        .with(hash_including(middleware: an_instance_of(Faraday::RackBuilder))).at_least(:once)
+        .with(hash_including(middleware: configures_retry)).at_least(:once)
     end
 
     # The failure mode this guards: "was submitted too quickly" is a 422, the

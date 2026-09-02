@@ -166,7 +166,7 @@ module Thingie
         @commentable_lines = files.each_with_object({}) do |file, hash|
           hash[file.filename] = new_side_lines(file.patch) if file.patch
         end
-      rescue Octokit::Error => e
+      rescue Octokit::Error, Pacing::Throttled => e
         warn "Could not fetch PR diff to validate comment lines — #{e.message}"
         @commentable_lines = nil
       end
@@ -299,8 +299,10 @@ module Thingie
           next unless comment.body.include?(Context::SUMMARY_MARKER)
 
           @client.update_comment("#{@owner}/#{@repo}", comment.id, outdated_body(comment.body))
-        rescue Octokit::Forbidden => e
-          # Only the comment's author (our bot) can edit it; skip others.
+        rescue Octokit::Forbidden, Pacing::Throttled => e
+          # Forbidden: only the comment's author (our bot) can edit it, skip
+          # others. Throttled: one exhausted comment must not abort the rest
+          # of the loop — skip it and keep collapsing the others.
           warn "Could not collapse previous summary ##{comment.id} — #{e.message}"
         end
       end

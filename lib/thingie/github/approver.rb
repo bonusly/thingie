@@ -87,8 +87,7 @@ module Thingie
         pr = @client.pull_request(slug, @pr_number)
         decision = decide(pr, report)
         log(decision)
-        apply(pr, decision, report)
-        sync_status_comment(pr, decision, report)
+        apply_decision(pr, decision, report)
         decision
       rescue StandardError => e
         warn "Auto-approval skipped — #{e.message}"
@@ -96,6 +95,21 @@ module Thingie
       end
 
       private
+
+      # Applies the already-computed decision and syncs the status comment.
+      # A failure here must not discard `decision` itself: it's the caller's
+      # only route to the approval.decided stats event, and by this point the
+      # rule evaluation that produced it already succeeded. `apply`'s own
+      # dismiss paths read thingie_approvals / superseded_approvals directly
+      # (unprotected — they run before attempt_with_fallback's own rescue is
+      # even reached), so on the paced clients this class uses, a request
+      # here can still raise Pacing::Throttled straight through to here.
+      def apply_decision(pr, decision, report)
+        apply(pr, decision, report)
+        sync_status_comment(pr, decision, report)
+      rescue Octokit::Error, Pacing::Throttled => e
+        warn "Could not fully apply the #{decision.action} decision — #{e.message}"
+      end
 
       def slug
         "#{@owner}/#{@repo}"
@@ -225,7 +239,7 @@ module Thingie
           return client.get(path)[:state] == 'active'
         rescue Octokit::NotFound
           return false
-        rescue Octokit::Error
+        rescue Octokit::Error, Pacing::Throttled
           next
         end
         false
@@ -236,7 +250,7 @@ module Thingie
       # the backstop in that case.
       def approving_login
         @client.user.login
-      rescue Octokit::Error
+      rescue Octokit::Error, Pacing::Throttled
         nil
       end
 
@@ -481,7 +495,7 @@ module Thingie
 
           "--- #{file.filename}\n#{file.patch}"
         end.join("\n\n")
-      rescue Octokit::Error
+      rescue Octokit::Error, Pacing::Throttled
         ''
       end
 
@@ -537,7 +551,7 @@ module Thingie
       # fails safe (block), consistent with the other fail-safe gates.
       def human_requested_changes?
         latest_human_review_states.value?('CHANGES_REQUESTED')
-      rescue Octokit::Error
+      rescue Octokit::Error, Pacing::Throttled
         true
       end
 
@@ -578,7 +592,7 @@ module Thingie
         else
           upsert_status_comment(existing, status_body(decision))
         end
-      rescue Octokit::Error => e
+      rescue Octokit::Error, Pacing::Throttled => e
         warn "Could not post auto-approval status comment — #{e.message}"
       end
 
