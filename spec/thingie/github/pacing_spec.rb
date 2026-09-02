@@ -197,6 +197,25 @@ RSpec.describe Thingie::GitHub::Pacing do # rubocop:disable RSpec/SpecFilePathFo
       expect(calls).to eq(described_class::MAX_ATTEMPTS)
     end
 
+    # The blanket `before` stub above only proves attempts happen, not that
+    # they're paced correctly — interval: BASE_DELAY_SECONDS and
+    # backoff_factor: 2 could regress to 0 or 1 (no pacing at all) with every
+    # other example in this file still green.
+    it 'doubles the wait each retry per the configured backoff schedule' do
+      waited = []
+      allow_any_instance_of(Faraday::Retry::Middleware) # rubocop:disable RSpec/AnyInstance
+        .to receive(:sleep) { |_, seconds| waited << seconds }
+      calls = 0
+      stubs.post('/repos/o/r/pulls/1/comments') do
+        calls += 1
+        calls <= described_class::MAX_ATTEMPTS ? [422, {}, '{"message":"was submitted too quickly"}'] : [201, {}, '{}']
+      end
+
+      expect { build_client.post('/repos/o/r/pulls/1/comments', {}) }.to raise_error(described_class::Throttled)
+
+      expect(waited).to eq([1.0, 2.0, 4.0, 8.0])
+    end
+
     it 'retries a secondary rate limit through to success' do
       calls = 0
       stubs.post('/repos/o/r/pulls/1/comments') do
@@ -223,7 +242,13 @@ RSpec.describe Thingie::GitHub::Pacing do # rubocop:disable RSpec/SpecFilePathFo
 
     it 'honors a Retry-After header rather than its own backoff schedule' do
       waited = nil
-      allow_any_instance_of(Faraday::Retry::Middleware).to receive(:sleep) { |_, seconds| waited = seconds } # rubocop:disable RSpec/AnyInstance
+      # The block's leading `_` is the middleware instance, not a sleep
+      # argument — rspec-mocks prepends the receiver to any_instance_of
+      # implementation blocks by default. `.with(kind_of(Numeric))` states
+      # the actual call shape (`sleep(seconds)`) explicitly, so this doesn't
+      # rely on that default going unremarked.
+      allow_any_instance_of(Faraday::Retry::Middleware) # rubocop:disable RSpec/AnyInstance
+        .to receive(:sleep).with(kind_of(Numeric)) { |_, seconds| waited = seconds }
       calls = 0
       body = '{"message":"You have exceeded a secondary rate limit"}'
       stubs.post('/repos/o/r/pulls/1/comments') do
@@ -243,7 +268,13 @@ RSpec.describe Thingie::GitHub::Pacing do # rubocop:disable RSpec/SpecFilePathFo
     # attempt instead of capping at MAX_DELAY_SECONDS.
     it 'clamps a runaway Retry-After header rather than sleeping for it verbatim' do
       waited = nil
-      allow_any_instance_of(Faraday::Retry::Middleware).to receive(:sleep) { |_, seconds| waited = seconds } # rubocop:disable RSpec/AnyInstance
+      # The block's leading `_` is the middleware instance, not a sleep
+      # argument — rspec-mocks prepends the receiver to any_instance_of
+      # implementation blocks by default. `.with(kind_of(Numeric))` states
+      # the actual call shape (`sleep(seconds)`) explicitly, so this doesn't
+      # rely on that default going unremarked.
+      allow_any_instance_of(Faraday::Retry::Middleware) # rubocop:disable RSpec/AnyInstance
+        .to receive(:sleep).with(kind_of(Numeric)) { |_, seconds| waited = seconds }
       calls = 0
       stubs.post('/repos/o/r/pulls/1/comments') do
         calls += 1

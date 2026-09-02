@@ -51,10 +51,8 @@ RSpec.describe Thingie::Reviewer do
       allow(changeset).to receive_messages(files: %w[app.rb other.rb],
                                            changed_lines_for: Set.new([1]), all?: false,
                                            base_ref: 'main', head_ref: 'HEAD', head_sha: 'abc123')
-      allow(changeset).to receive(:diff_text_for) { |file| file == 'other.rb' ? "+ def other\n" : "+ def hello\n" }
-      allow(changeset).to receive(:full_content_for) { |file|
-        "#{file == 'other.rb' ? 'def other' : 'def hello'}\nend\n"
-      }
+      allow(changeset).to receive(:diff_text_for) { |file| "+ # #{file}\n" }
+      allow(changeset).to receive(:full_content_for) { |file| "# #{file}\nend\n" }
     end
   end
 
@@ -91,9 +89,13 @@ RSpec.describe Thingie::Reviewer do
   def two_file_llm_client(app_rb_response)
     instance_double(Thingie::LlmClient).tap do |client|
       allow(client).to receive(:complete_with_schema) do |prompt, schema, _tools|
+        # Routed by the literal filename two_file_changeset embeds in every
+        # prompt it renders — a marker tied to the file's identity, not to
+        # incidental content, so it can't collide if that fixture's stand-in
+        # code changes.
         next verdict_response if schema == Thingie::Schemas::VERDICT_SCHEMA
 
-        prompt.include?('def other') ? clean_response : app_rb_response
+        prompt.include?('other.rb') ? clean_response : app_rb_response
       end
     end
   end
@@ -177,7 +179,7 @@ RSpec.describe Thingie::Reviewer do
                                                    thinking: nil, thinking_tokens: nil)
       instance_double(Thingie::LlmClient).tap do |client|
         allow(client).to receive(:complete_with_schema) do |prompt, _schema, _tools|
-          raise connection_error, 'Rate limit exceeded' if prompt.include?('def other')
+          raise connection_error, 'Rate limit exceeded' if prompt.include?('other.rb')
 
           response
         end
