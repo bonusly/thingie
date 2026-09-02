@@ -108,12 +108,12 @@ RSpec.describe Thingie::GitHub::Pacing do # rubocop:disable RSpec/SpecFilePathFo
 
   describe 'backoff' do
     it 'doubles the wait between attempts' do
-      expect { host.attempt('a comment') { raise too_quickly } }.to raise_error(Octokit::UnprocessableEntity)
+      expect { host.attempt('a comment') { raise too_quickly } }.to raise_error(described_class::Throttled)
 
       expect(host.waits).to eq([1.0, 2.0, 4.0, 8.0])
     end
 
-    it 'gives up after MAX_ATTEMPTS and re-raises the last error' do
+    it 'gives up after MAX_ATTEMPTS' do
       calls = 0
 
       expect do
@@ -121,8 +121,21 @@ RSpec.describe Thingie::GitHub::Pacing do # rubocop:disable RSpec/SpecFilePathFo
           calls += 1
           raise too_quickly
         end
-      end.to raise_error(Octokit::UnprocessableEntity)
+      end.to raise_error(described_class::Throttled)
       expect(calls).to eq(described_class::MAX_ATTEMPTS)
+    end
+
+    # GitHub reports "submitted too quickly" as a 422, the same class it uses
+    # for a line outside the diff, and Commenter rescues that class to route
+    # off-diff findings. Re-raising the original would let a refused comment be
+    # filed as one that merely had nowhere to go.
+    it 'raises a distinct error so an off-diff rescue cannot swallow it', :aggregate_failures do
+      expect { host.attempt('a comment') { raise too_quickly } }
+        .to raise_error(described_class::Throttled) do |error|
+          expect(error).not_to be_a(Octokit::Error)
+          expect(error.cause_error).to be_a(Octokit::UnprocessableEntity)
+          expect(error.message).to include('after 5 attempts')
+        end
     end
 
     it 'honors a Retry-After header over its own backoff' do

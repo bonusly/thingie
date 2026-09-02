@@ -517,7 +517,7 @@ module Thingie
         last_error = nil
         [@client, @resolve_client].compact.each do |client|
           return with_pacing_retry(action) { yield(client) }
-        rescue Octokit::Error => e
+        rescue Octokit::Error, Pacing::Throttled => e
           last_error = e
         end
         warn "Could not #{action} — #{last_error&.message}"

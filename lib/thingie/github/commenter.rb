@@ -39,6 +39,7 @@ module Thingie
         @owner = owner
         @repo = repo
         @pr_number = pr_number
+        @comments_posted = 0
       end
 
       # Posts the review to the pull request: resolves stale Thingie threads,
@@ -60,9 +61,29 @@ module Thingie
           off_diff = post_inline_comments(report.issues, commit_id)
           post_off_diff_comment(off_diff)
         end
+        log_posting_tally(off_diff_count: off_diff.to_a.size)
       end
 
+      # Comments posted inline on this run.
+      #
+      # @return [Integer] comments posted inline on this run
+      attr_reader :comments_posted
+
       private
+
+      # One warning per rejected comment tells you nothing about scale, and
+      # scale is the signal: the run that broke special_sauce#26652 posted 53
+      # comments in a burst. Emit a single line the log can be searched for
+      # and a dashboard can eventually count.
+      #
+      # @param off_diff_count [Integer] findings that had no line in the diff
+      # @return [void]
+      def log_posting_tally(off_diff_count:)
+        return if @comments_posted.zero? && off_diff_count.zero?
+
+        warn "Thingie posted #{@comments_posted} inline comment(s); " \
+             "#{off_diff_count} finding(s) had no line in the diff."
+      end
 
       # Post one inline comment per affected line that falls inside the PR diff.
       # GitHub's review-comment API only accepts line-based comments on diff
@@ -117,6 +138,7 @@ module Thingie
             { side: 'RIGHT' }
           )
         end
+        @comments_posted += 1
       end
 
       def post_summary_comment(summary)

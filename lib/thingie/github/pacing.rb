@@ -17,6 +17,31 @@ module Thingie
     # Retries only signals that mean "slow down". A 422 for an unpostable line
     # (the common off-diff case) is not retried and still reaches its caller.
     module Pacing
+      # Raised when GitHub is still refusing after every attempt.
+      #
+      # Deliberately not an Octokit error. GitHub reports "was submitted too
+      # quickly" as a 422, the same class it uses for a line outside the diff,
+      # and `Commenter#post_issue_inline?` rescues that class to route off-diff
+      # findings to the summary. Re-raising the original there would file a
+      # comment GitHub refused as one that merely had nowhere to go, reporting
+      # a clean post that never happened.
+      class Throttled < StandardError
+        # The last error GitHub returned, kept so callers can inspect the
+        # status and headers behind the refusal.
+        #
+        # @return [Octokit::Error] the last error GitHub returned
+        attr_reader :cause_error
+
+        # Builds the error raised once every attempt has been refused.
+        #
+        # @param description [String] what was being posted
+        # @param cause_error [Octokit::Error] the last error GitHub returned
+        def initialize(description, cause_error)
+          @cause_error = cause_error
+          super("GitHub refused #{description} after #{MAX_ATTEMPTS} attempts: #{cause_error.message}")
+        end
+      end
+
       # Attempts per call, including the first.
       MAX_ATTEMPTS = 5
       # First backoff, doubled each retry.
@@ -41,7 +66,8 @@ module Thingie
         begin
           yield
         rescue Octokit::Error => e
-          raise unless pacing_error?(e) && attempt < MAX_ATTEMPTS
+          raise unless pacing_error?(e)
+          raise Throttled.new(description, e) if attempt >= MAX_ATTEMPTS
 
           delay = pacing_delay(e, attempt)
           warn "GitHub asked for a slower pace on #{description}; waiting #{delay}s " \

@@ -114,6 +114,31 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
       expect(calls).to eq(1)
     end
 
+    # The failure mode this guards: "was submitted too quickly" is a 422, the
+    # same class as an off-diff rejection, so re-raising it would land in the
+    # off-diff rescue and report a clean post that never happened.
+    it 'does not file a refused comment as merely off-diff', :aggregate_failures do
+      allow(client).to receive(:create_pull_request_comment)
+        .and_raise(github_error(Octokit::UnprocessableEntity, 'was submitted too quickly'))
+
+      expect { commenter.post_review(summary: 'S', report: report_for([build_issue('app.rb', 11)])) }
+        .to raise_error(Thingie::GitHub::Pacing::Throttled)
+      expect(client).not_to have_received(:add_comment)
+    end
+
+    it 'counts the comments it actually posted' do
+      commenter.post_review(summary: 'S', report: report_for([build_issue('app.rb', 11),
+                                                              build_issue('changed.rb', 6)]))
+
+      expect(commenter.comments_posted).to eq(2)
+    end
+
+    it 'logs a single tally rather than only per-comment noise' do
+      expect do
+        commenter.post_review(summary: 'S', report: report_for([build_issue('app.rb', 11)]))
+      end.to output(/posted 1 inline comment\(s\); 0 finding\(s\) had no line in the diff/).to_stderr
+    end
+
     it 'reports an off-diff rejection in the off-diff comment' do
       allow(client).to receive(:create_pull_request_comment)
         .and_raise(github_error(Octokit::UnprocessableEntity, 'line must be part of the diff'))
