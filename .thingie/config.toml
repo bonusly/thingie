@@ -9,7 +9,7 @@ exclude_files = [
 ]
 
 [lsp.ruby]
-command = ["bundle", "exec", "rake"]
+command = ["bundle", "exec", "ruby-lsp"]
 extensions = [".rb", ".rake"]
 
 # Critic pass: review runs on the model from the workflow (vars.LLM_MODEL via
