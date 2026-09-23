@@ -26,7 +26,10 @@ module Thingie
       def initialize(token:, owner:, repo:, pr_number:, resolve_token: nil)
         # auto_paginate so PRs with many files/comments aren't truncated to the
         # first page when validating diff lines or collapsing old summaries.
-        @client = Octokit::Client.new(access_token: token, auto_paginate: true)
+        # middleware: Pacing.middleware retries a write only when GitHub
+        # throttles it, and raises Pacing::Throttled — never an Octokit::Error
+        # — once every attempt is refused.
+        @client = Octokit::Client.new(access_token: token, auto_paginate: true, middleware: Pacing.middleware)
         # Resolving review threads (GraphQL resolveReviewThread) needs a
         # user-to-server token (a PAT). The Actions GITHUB_TOKEN and GitHub App
         # *installation* tokens can't and return "Resource not accessible by
@@ -37,6 +40,7 @@ module Thingie
         @owner = owner
         @repo = repo
         @pr_number = pr_number
+        @comments_posted = 0
       end
 
       # Posts the review to the pull request: resolves stale Thingie threads,
@@ -51,16 +55,38 @@ module Thingie
         commit_id = pr.head.sha
         resolve_previous_threads(report.issues)
         collapse_previous_summaries
+        off_diff_count = 0
         if report.issues.empty?
           # Only post the overview comment when there's nothing to flag inline.
           post_summary_comment(summary)
         else
           off_diff = post_inline_comments(report.issues, commit_id)
           post_off_diff_comment(off_diff)
+          off_diff_count = off_diff.size
         end
+        log_posting_tally(off_diff_count: off_diff_count)
       end
 
+      # Comments posted inline on this run.
+      #
+      # @return [Integer] comments posted inline on this run
+      attr_reader :comments_posted
+
       private
+
+      # One warning per rejected comment tells you nothing about scale, and
+      # scale is the signal: the run that broke special_sauce#26652 posted 53
+      # comments in a burst. Emit a single line the log can be searched for
+      # and a dashboard can eventually count.
+      #
+      # @param off_diff_count [Integer] findings that had no line in the diff
+      # @return [void]
+      def log_posting_tally(off_diff_count:)
+        return if @comments_posted.zero? && off_diff_count.zero?
+
+        warn "Thingie posted #{@comments_posted} inline comment(s); " \
+             "#{off_diff_count} finding(s) had no line in the diff."
+      end
 
       # Post one inline comment per affected line that falls inside the PR diff.
       # GitHub's review-comment API only accepts line-based comments on diff
@@ -111,6 +137,7 @@ module Thingie
           line, # Octokit 9: 6th positional is the new-side line number
           { side: 'RIGHT' }
         )
+        @comments_posted += 1
       end
 
       def post_summary_comment(summary)
@@ -139,7 +166,7 @@ module Thingie
         @commentable_lines = files.each_with_object({}) do |file, hash|
           hash[file.filename] = new_side_lines(file.patch) if file.patch
         end
-      rescue Octokit::Error => e
+      rescue Octokit::Error, Pacing::Throttled => e
         warn "Could not fetch PR diff to validate comment lines — #{e.message}"
         @commentable_lines = nil
       end
@@ -226,7 +253,7 @@ module Thingie
       def resolve_client
         return @client unless @resolve_token
 
-        Octokit::Client.new(access_token: @resolve_token, auto_paginate: true)
+        Octokit::Client.new(access_token: @resolve_token, auto_paginate: true, middleware: Pacing.middleware)
       end
 
       def fetch_review_threads
@@ -272,8 +299,10 @@ module Thingie
           next unless comment.body.include?(Context::SUMMARY_MARKER)
 
           @client.update_comment("#{@owner}/#{@repo}", comment.id, outdated_body(comment.body))
-        rescue Octokit::Forbidden => e
-          # Only the comment's author (our bot) can edit it; skip others.
+        rescue Octokit::Forbidden, Pacing::Throttled => e
+          # Forbidden: only the comment's author (our bot) can edit it, skip
+          # others. Throttled: one exhausted comment must not abort the rest
+          # of the loop — skip it and keep collapsing the others.
           warn "Could not collapse previous summary ##{comment.id} — #{e.message}"
         end
       end

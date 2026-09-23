@@ -44,21 +44,58 @@ module Thingie
     private
 
     def summary_line
-      if @report.total_issues.positive?
-        "⚠️  #{@report.total_issues} issue(s) found across " \
-          "#{@report.number_of_processed_files} file(s).\n"
-      else
-        "✅ No issues found across #{@report.number_of_processed_files} file(s).\n"
-      end
+      line = if @report.total_issues.positive?
+               "⚠️  #{@report.total_issues} issue(s) found across #{coverage_file_count}.\n"
+             else
+               "✅ No issues found across #{coverage_file_count}.\n"
+             end
+      line + unreviewed_files_line
     end
 
     def md_summary_line
-      if @report.total_issues.positive?
-        "**⚠️ #{@report.total_issues} issue(s) found** across " \
-          "#{@report.number_of_processed_files} file(s)."
-      else
-        "**✅ No issues found** across #{@report.number_of_processed_files} file(s)."
-      end
+      line = if @report.total_issues.positive?
+               "**⚠️ #{@report.total_issues} issue(s) found** across #{coverage_file_count}."
+             else
+               "**✅ No issues found** across #{coverage_file_count}."
+             end
+      line + md_unreviewed_files_line
+    end
+
+    # A bare "N issue(s)/No issues found across M file(s)" reads as a complete
+    # pass over every file, whether or not any issues were found. When some of
+    # those M were never reviewed, say so in the headline itself, not only in
+    # the disclosure line beneath it, so the headline can't be mistaken for
+    # full coverage on its own — number_of_processed_files is the whole
+    # changeset (see Reviewer#build_report) and unreviewed_files is a subset
+    # of it, in both the clean-pass and issues-found case alike.
+    def coverage_file_count
+      reviewed = @report.number_of_processed_files - @report.unreviewed_files.size
+      return "#{@report.number_of_processed_files} file(s)" if @report.unreviewed_files.empty?
+
+      "#{reviewed} of #{@report.number_of_processed_files} file(s)"
+    end
+
+    # A file with no findings and a file no verdict was ever produced for
+    # look identical in `total_issues` alone — this is the only thing that
+    # tells them apart in the human-facing summary. Without it, a run where a
+    # file's LLM call failed or came back blank reads as a clean pass in both
+    # the CLI output and the Markdown PR comment, even though the report
+    # covers less than the full changeset.
+    #
+    # @return [String] a disclosure line, or "" when every file got a verdict
+    def unreviewed_files_line
+      return '' if @report.unreviewed_files.empty?
+
+      "⚠️  #{@report.unreviewed_files.size} file(s) could not be reviewed: " \
+        "#{@report.unreviewed_files.join(', ')}\n"
+    end
+
+    # @return [String] a disclosure line, or "" when every file got a verdict
+    def md_unreviewed_files_line
+      return '' if @report.unreviewed_files.empty?
+
+      "\n\n**⚠️ #{@report.unreviewed_files.size} file(s) could not be reviewed:** " \
+        "#{@report.unreviewed_files.join(', ')}"
     end
 
     def render_issue(issue)

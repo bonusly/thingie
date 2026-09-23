@@ -61,6 +61,65 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
       .with('o/r', 1, a_string_including('[Critical]'), 'commit-sha', 'app.rb', 11, { side: 'RIGHT' })
   end
 
+  describe 'pacing' do
+    def github_error(klass, message)
+      klass.new(method: :post, url: 'https://api.github.com', status: 422,
+                body: JSON.generate({ message: message }),
+                response_headers: { content_type: 'application/json' })
+    end
+
+    # Retrying is now a Faraday::Retry concern configured once on the
+    # Octokit::Client (Thingie::GitHub::Pacing.middleware) — see pacing_spec.rb
+    # for the real end-to-end retry behavior, driven through the actual
+    # middleware stack rather than this double. What Commenter itself is still
+    # responsible for is covered below: that a Pacing::Throttled the client
+    # raises can't be mistaken for an off-diff rejection, and that the client
+    # is actually built with the pacing middleware in the first place.
+    it 'builds its client with the pacing retry middleware actually configured' do
+      commenter
+
+      configures_retry = satisfy { |middleware| middleware.handlers.map(&:klass).include?(Faraday::Retry::Middleware) }
+      expect(Octokit::Client).to have_received(:new)
+        .with(hash_including(middleware: configures_retry)).at_least(:once)
+    end
+
+    # The failure mode this guards: "was submitted too quickly" is a 422, the
+    # same class as an off-diff rejection, so treating Pacing::Throttled as
+    # just another Octokit::UnprocessableEntity would file a comment GitHub
+    # refused as one that merely had nowhere to go.
+    it 'does not file a refused comment as merely off-diff', :aggregate_failures do
+      cause = github_error(Octokit::UnprocessableEntity, 'was submitted too quickly')
+      allow(client).to receive(:create_pull_request_comment)
+        .and_raise(Thingie::GitHub::Pacing::Throttled.new('POST .../comments', cause))
+
+      expect { commenter.post_review(summary: 'S', report: report_for([build_issue('app.rb', 11)])) }
+        .to raise_error(Thingie::GitHub::Pacing::Throttled)
+      expect(client).not_to have_received(:add_comment)
+    end
+
+    it 'counts the comments it actually posted' do
+      commenter.post_review(summary: 'S', report: report_for([build_issue('app.rb', 11),
+                                                              build_issue('changed.rb', 6)]))
+
+      expect(commenter.comments_posted).to eq(2)
+    end
+
+    it 'logs a single tally rather than only per-comment noise' do
+      expect do
+        commenter.post_review(summary: 'S', report: report_for([build_issue('app.rb', 11)]))
+      end.to output(/posted 1 inline comment\(s\); 0 finding\(s\) had no line in the diff/).to_stderr
+    end
+
+    it 'reports an off-diff rejection in the off-diff comment' do
+      allow(client).to receive(:create_pull_request_comment)
+        .and_raise(github_error(Octokit::UnprocessableEntity, 'line must be part of the diff'))
+
+      commenter.post_review(summary: 'S', report: report_for([build_issue('app.rb', 11)]))
+
+      expect(client).to have_received(:add_comment).with('o/r', 1, a_string_including('outside this diff'))
+    end
+  end
+
   it 'posts the summary comment only when there are no issues', :aggregate_failures do
     commenter.post_review(summary: 'All good', report: report_for([]))
 

@@ -29,6 +29,11 @@ module Thingie
       # file with a warning; failures on every file abort the run (see
       # #raise_if_total_failure). Same cooperative-single-thread guarantee.
       @file_failures = []
+      # Files the run produced no verdict for, whether the call failed or its
+      # response could not be parsed. A report listing any of these covers less
+      # than the changeset, so finding nothing in them means nothing, and the
+      # approver refuses to approve on it.
+      @unreviewed_files = []
       @debug_output = DebugOutput.new(config: config, changeset: changeset, enabled: debug)
       @usage = Stats::Usage.new
     end
@@ -67,7 +72,8 @@ module Thingie
         model: @config['model'],
         issues: issues,
         processing_warnings: @warnings,
-        number_of_processed_files: @changeset.files.size
+        number_of_processed_files: @changeset.files.size,
+        unreviewed_files: @unreviewed_files
       )
     end
 
@@ -125,13 +131,22 @@ module Thingie
       @debug_output.review_call(file: file, response: response, issues: issues)
       only_changed_lines(issues, file)
     rescue JSON::ParserError => e
-      @warnings << "Could not parse LLM response for #{file}: #{e.message}"
-      @debug_output.review_error(file: file, error: e)
-      []
+      record_file_failure(file, e, "Could not parse LLM response for #{file}: #{e.message}")
     rescue StandardError => e
-      @warnings << "Failed to review #{file}: #{e.class}: #{e.message}"
-      @file_failures << [file, e]
-      @debug_output.review_error(file: file, error: e)
+      record_file_failure(file, e, "Failed to review #{file}: #{e.class}: #{e.message}")
+    end
+
+    # Shared by both review_file rescues: an unparseable response and any
+    # other failure mean the same thing to the rest of the pipeline — no
+    # verdict was produced for this file. Both count toward
+    # raise_if_total_failure, so a provider that returns blank or malformed
+    # content for every file aborts the run instead of "succeeding" with an
+    # empty report.
+    def record_file_failure(file, error, warning)
+      @warnings << warning
+      @file_failures << [file, error]
+      @unreviewed_files << file
+      @debug_output.review_error(file: file, error: error)
       []
     end
 
@@ -153,7 +168,11 @@ module Thingie
 
     def parse_response(response, file)
       content = response&.content
-      return [] if content.nil? || (content.is_a?(String) && content.strip.empty?)
+      # A blank response is not "the LLM found nothing" (that comes back as
+      # valid JSON with an empty issues array) — it's no verdict at all, so it
+      # must flow into the same rescue that unparseable JSON does, or this
+      # file silently reads as clean with nothing in unreviewed_files.
+      raise JSON::ParserError, 'empty LLM response' if content.to_s.strip.empty?
 
       parsed = content.is_a?(String) ? JsonExtractor.parse(content) : content
       raise JSON::ParserError, 'no valid JSON found in response' if parsed.nil?

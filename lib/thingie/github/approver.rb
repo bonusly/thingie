@@ -46,8 +46,9 @@ module Thingie
         # Reads and the first approval attempt use the main token; the PAT is the
         # fallback when that attempt errors. An empty env var is treated as unset.
         resolve_token = nil if resolve_token.to_s.strip.empty?
-        @client = Octokit::Client.new(access_token: token, auto_paginate: true)
-        @resolve_client = resolve_token && Octokit::Client.new(access_token: resolve_token, auto_paginate: true)
+        @client = Octokit::Client.new(access_token: token, auto_paginate: true, middleware: Pacing.middleware)
+        @resolve_client = resolve_token && Octokit::Client.new(access_token: resolve_token, auto_paginate: true,
+                                                               middleware: Pacing.middleware)
         @owner = owner
         @repo = repo
         @pr_number = pr_number
@@ -78,13 +79,15 @@ module Thingie
       # when an error short-circuited the evaluation.
       #
       # @param report [Thingie::Report] the completed review report
+      # @param review_posted [Boolean] whether the review reached the PR. False blocks:
+      #   findings a reviewer cannot see must not be approved past.
       # @return [Thingie::GitHub::Approver::Decision, nil] the decision, or nil on failure
-      def run(report)
+      def run(report, review_posted: true)
+        @review_posted = review_posted
         pr = @client.pull_request(slug, @pr_number)
         decision = decide(pr, report)
         log(decision)
-        apply(pr, decision, report)
-        sync_status_comment(pr, decision, report)
+        apply_decision(pr, decision, report)
         decision
       rescue StandardError => e
         warn "Auto-approval skipped — #{e.message}"
@@ -92,6 +95,21 @@ module Thingie
       end
 
       private
+
+      # Applies the already-computed decision and syncs the status comment.
+      # A failure here must not discard `decision` itself: it's the caller's
+      # only route to the approval.decided stats event, and by this point the
+      # rule evaluation that produced it already succeeded. `apply`'s own
+      # dismiss paths read thingie_approvals / superseded_approvals directly
+      # (unprotected — they run before attempt_with_fallback's own rescue is
+      # even reached), so on the paced clients this class uses, a request
+      # here can still raise Pacing::Throttled straight through to here.
+      def apply_decision(pr, decision, report)
+        apply(pr, decision, report)
+        sync_status_comment(pr, decision, report)
+      rescue Octokit::Error, Pacing::Throttled => e
+        warn "Could not fully apply the #{decision.action} decision — #{e.message}"
+      end
 
       def slug
         "#{@owner}/#{@repo}"
@@ -134,6 +152,8 @@ module Thingie
       def block_reasons(pr, report)
         threads = thingie_threads
         reasons = []
+        reasons << incomplete_review_reason(report) if report.unreviewed_files.to_a.any?
+        reasons << 'the review could not be posted to this PR' unless @review_posted
         reasons << "#{CONFIG_PATH} was changed in this PR" if config_changed?
         reasons << 'a protected path was changed in this PR' if protected_path_changed?
         reasons << change_size_reason(pr) if too_many_changes?(pr)
@@ -142,7 +162,34 @@ module Thingie
         reasons << 'unresolved Thingie findings remain' if unresolved?(threads)
         reasons << 'Thingie findings were resolved by the author or a contributor' if self_resolved?(threads, pr)
         reasons << 'a human reviewer requested changes' if human_requested_changes?
-        reasons
+        reasons.concat(undetermined_reasons)
+      end
+
+      # Reasons for state decide() could not read at all, as opposed to state
+      # it read and evaluated. changed_files, thingie_threads and
+      # insider_logins have no local rescue of their own — a Pacing::Throttled
+      # from any of them would otherwise reach run's outer rescue and discard
+      # the whole decision, the same "no decision anywhere" failure the rest
+      # of this PR closes. Failing safe here can't reuse config_changed?'s or
+      # protected_path_changed?'s own true/false, since returning [] from
+      # changed_files would make both silently read as "nothing changed" —
+      # the opposite of fail-safe — so each gets its own flag and reason
+      # instead of forcing a specific rule's message to lie about what it
+      # found.
+      def undetermined_reasons
+        [
+          ('could not determine which files changed in this PR' if @changed_files_undetermined),
+          ('could not determine Thingie review thread state' if @threads_undetermined),
+          ('could not determine who authored or committed to this PR' if @insiders_undetermined)
+        ].compact
+      end
+
+      # A run that could not read a verdict for every changed file has not
+      # cleared those files; it only failed to look at them. Approving on it
+      # would treat "we did not see anything" as "there is nothing there".
+      def incomplete_review_reason(report)
+        files = report.unreviewed_files.to_a
+        "the review did not cover #{files.size} changed file(s): #{files.join(', ')}"
       end
 
       # Obfuscation findings are a hard block regardless of [approve] max_severity:
@@ -211,7 +258,7 @@ module Thingie
           return client.get(path)[:state] == 'active'
         rescue Octokit::NotFound
           return false
-        rescue Octokit::Error
+        rescue Octokit::Error, Pacing::Throttled
           next
         end
         false
@@ -222,7 +269,7 @@ module Thingie
       # the backstop in that case.
       def approving_login
         @client.user.login
-      rescue Octokit::Error
+      rescue Octokit::Error, Pacing::Throttled
         nil
       end
 
@@ -242,7 +289,12 @@ module Thingie
       end
 
       def changed_files
-        @changed_files ||= @client.pull_request_files(slug, @pr_number).map(&:filename)
+        return @changed_files if defined?(@changed_files)
+
+        @changed_files = @client.pull_request_files(slug, @pr_number).map(&:filename)
+      rescue Octokit::Error, Pacing::Throttled
+        @changed_files_undetermined = true
+        @changed_files = []
       end
 
       # Fail safe: an unknown size (nil) blocks approval so a PR whose size
@@ -299,6 +351,9 @@ module Thingie
           logins << commit.committer&.login
         end
         logins.compact.uniq
+      rescue Octokit::Error, Pacing::Throttled
+        @insiders_undetermined = true
+        [pr.user&.login].compact
       end
 
       # Treat unknown severity as qualifying so an unparseable thread fails safe.
@@ -314,6 +369,9 @@ module Thingie
         GraphqlClient.new(@client)
                      .review_threads(owner: @owner, repo: @repo, pr_number: @pr_number)
                      .select { |thread| thingie_thread?(thread) }
+      rescue Octokit::Error, Pacing::Throttled
+        @threads_undetermined = true
+        []
       end
 
       def thingie_thread?(thread)
@@ -337,6 +395,15 @@ module Thingie
           dismiss(superseded_approvals(pr.head.sha))
           ensure_approved(pr, report)
         when :block
+          # Including a B10 block (the review itself could not be posted):
+          # dismissing rather than leaving a possibly-stale approval in place
+          # matches the fail-safe stance the rest of this rule set already
+          # takes, and §8 of the control document names dismissal as the
+          # first corrective action on any doubt. In the normal case this is
+          # a no-op read, not new throttled traffic: the workflow's separate
+          # `dismiss-approvals` step already clears every Thingie approval on
+          # this PR before the review that produces `decision` even begins,
+          # so thingie_approvals is typically already empty here.
           dismiss(thingie_approvals)
         end
       end
@@ -467,7 +534,7 @@ module Thingie
 
           "--- #{file.filename}\n#{file.patch}"
         end.join("\n\n")
-      rescue Octokit::Error
+      rescue Octokit::Error, Pacing::Throttled
         ''
       end
 
@@ -502,7 +569,7 @@ module Thingie
         last_error = nil
         [@client, @resolve_client].compact.each do |client|
           return yield(client)
-        rescue Octokit::Error => e
+        rescue Octokit::Error, Pacing::Throttled => e
           last_error = e
         end
         warn "Could not #{action} — #{last_error&.message}"
@@ -523,7 +590,7 @@ module Thingie
       # fails safe (block), consistent with the other fail-safe gates.
       def human_requested_changes?
         latest_human_review_states.value?('CHANGES_REQUESTED')
-      rescue Octokit::Error
+      rescue Octokit::Error, Pacing::Throttled
         true
       end
 
@@ -564,7 +631,7 @@ module Thingie
         else
           upsert_status_comment(existing, status_body(decision))
         end
-      rescue Octokit::Error => e
+      rescue Octokit::Error, Pacing::Throttled => e
         warn "Could not post auto-approval status comment — #{e.message}"
       end
 
