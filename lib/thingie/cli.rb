@@ -212,7 +212,7 @@ module Thingie
       Thingie::LlmClient.apply_provider_config!(RubyLLM.config, config)
 
       puts 'Refreshing models from configured providers and models.dev...'
-      RubyLLM.models.refresh!
+      LlmCompat.refresh_models
       RubyLLM.models.save_to_json(expanded)
       puts "Saved #{RubyLLM.models.count} models to #{expanded}"
     rescue StandardError => e

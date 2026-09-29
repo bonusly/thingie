@@ -58,10 +58,10 @@ module Thingie
       private
 
       def add_input(response)
-        @input_tokens = add_numeric(@input_tokens, response.input_tokens)
-        @output_tokens = add_numeric(@output_tokens, response.output_tokens)
-        @cache_read_tokens = add_numeric(@cache_read_tokens, response.cache_read_tokens)
-        @cache_write_tokens = add_numeric(@cache_write_tokens, response.cache_write_tokens)
+        @input_tokens = add_numeric(@input_tokens, LlmCompat.tokens(response, :input_tokens))
+        @output_tokens = add_numeric(@output_tokens, LlmCompat.tokens(response, :output_tokens))
+        @cache_read_tokens = add_numeric(@cache_read_tokens, LlmCompat.tokens(response, :cache_read_tokens))
+        @cache_write_tokens = add_numeric(@cache_write_tokens, LlmCompat.tokens(response, :cache_write_tokens))
       end
 
       def add_cost(response)

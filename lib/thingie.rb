@@ -7,6 +7,7 @@ end
 
 require_relative 'thingie/errors'
 require_relative 'thingie/version'
+require_relative 'thingie/llm_compat'
 require_relative 'thingie/env'
 require_relative 'thingie/threshold'
 require_relative 'thingie/configuration'

@@ -33,10 +33,12 @@ Gem::Specification.new do |spec|
   # CLI
   spec.add_dependency 'thor', '~> 1.3'
 
-  # LLM abstraction
-  spec.add_dependency 'ruby_llm', '~> 1.16'
-  spec.add_dependency 'ruby_llm-mcp', '~> 1.0'
-  spec.add_dependency 'ruby_llm-skills', '~> 0.3.0'
+  # LLM abstraction. Runs on ruby_llm 1.16 or 2.x (see Thingie::LlmCompat). A
+  # 2.x bundle also needs ruby_llm-skills 0.5.0.pre1 and a 2.x-compatible
+  # ruby_llm-mcp (patvice/ruby_llm-mcp#161 until it is released).
+  spec.add_dependency 'ruby_llm', '>= 1.16', '< 3'
+  spec.add_dependency 'ruby_llm-mcp', '>= 1.0', '< 2'
+  spec.add_dependency 'ruby_llm-skills', '>= 0.3.0', '< 1'
 
   # Git access
   spec.add_dependency 'rugged', '~> 1.9'

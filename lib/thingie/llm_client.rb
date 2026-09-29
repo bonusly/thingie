@@ -63,7 +63,7 @@ module Thingie
     # Applies the configured provider's API key/base to a RubyLLM config
     # object. Accepts either a per-context config (from `RubyLLM.context`) or
     # the global `RubyLLM.config`, so the `models` command can reuse it to make
-    # provider credentials visible to `RubyLLM.models.refresh!`.
+    # provider credentials visible to the model registry refresh.
     #
     # @param llm_config [Object] a `RubyLLM` config object (per-context or global)
     # @param config [Thingie::Configuration] the resolved run configuration
@@ -102,7 +102,7 @@ module Thingie
       return unless File.exist?(expanded)
 
       RubyLLM.config.model_registry_file = expanded
-      RubyLLM.models.load_from_json!(expanded)
+      LlmCompat.load_models_from_json(expanded)
     end
 
     def build_context
