@@ -23,6 +23,12 @@ RSpec.describe Thingie::LlmCompat do
       expect(described_class.tokens(response, :thinking_tokens)).to eq(3)
     end
 
+    it 'prefers the 1.16 readers over the 1.16 #tokens shape' do
+      response = Struct.new(:input_tokens, :tokens).new(10, Object.new)
+
+      expect(described_class.tokens(response, :input_tokens)).to eq(10)
+    end
+
     it 'reads 1.16 counts from the message readers' do
       response = Struct.new(:input_tokens, :output_tokens).new(10, 5)
 

@@ -16,7 +16,7 @@ module LlmDoubles
   #
   #   message_double(content: 'hi', input_tokens: 100, output_tokens: 50)
   def message_double(**attrs)
-    return instance_double(RubyLLM::Message, **attrs) unless RubyLLM::Message.method_defined?(:tokens)
+    return instance_double(RubyLLM::Message, **attrs) if RubyLLM::Message.method_defined?(:input_tokens)
 
     counts = attrs.slice(*TOKEN_KEYS.keys).transform_keys(TOKEN_KEYS)
     instance_double(RubyLLM::Message, tokens: RubyLLM::Tokens.new(**counts), **attrs.except(*TOKEN_KEYS.keys))

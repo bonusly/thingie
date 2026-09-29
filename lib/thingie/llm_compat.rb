@@ -35,17 +35,17 @@ module Thingie
       end
     end
 
+    # Reads a token count off a response. 1.16 has both the readers and a
+    # differently shaped #tokens, so the readers win when they exist.
+    #
     # @param response [Object, nil] a RubyLLM::Message
     # @param kind [Symbol] one of TOKEN_KINDS' keys, e.g. :input_tokens
     # @return [Integer, nil] the count, or nil when the provider didn't report it
     def tokens(response, kind)
       return nil if response.nil?
+      return response.public_send(kind) if response.respond_to?(kind)
 
-      if response.respond_to?(:tokens)
-        response.tokens&.public_send(TOKEN_KINDS.fetch(kind))
-      elsif response.respond_to?(kind)
-        response.public_send(kind)
-      end
+      response.tokens&.public_send(TOKEN_KINDS.fetch(kind)) if response.respond_to?(:tokens)
     end
 
     # Refreshes the model registry from the configured providers.
