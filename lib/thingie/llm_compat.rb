@@ -49,11 +49,16 @@ module Thingie
     end
 
     # Refreshes the model registry from the configured providers.
+    #
+    # @param models [RubyLLM::Models] the registry to refresh
     def refresh_models(models = RubyLLM.models)
       models.respond_to?(:refresh!) ? models.refresh! : models.refresh
     end
 
     # Loads the model registry from a JSON file.
+    #
+    # @param path [String] the registry JSON file
+    # @param models [RubyLLM::Models] the registry to load into
     def load_models_from_json(path, models = RubyLLM.models)
       models.respond_to?(:load_from_json!) ? models.load_from_json!(path) : models.load_from_json(path)
     end

@@ -242,7 +242,7 @@ RSpec.describe Thingie::LlmClient do
 
     it 'can resolve a model from the local registry' do
       described_class.new(config)
-      model = RubyLLM.models.find('thingie-test-model', 'openai')
+      model = RubyLLM.models.find('thingie-test-model')
       expect(model.name).to eq('Thingie Test')
     end
   end

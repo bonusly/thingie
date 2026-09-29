@@ -11,12 +11,12 @@ RSpec.describe Thingie::DebugOutput do
   let(:changeset) { instance_double(Thingie::Changeset, files: ['app.rb']) }
 
   def response(input:, output:, context_window: nil, thinking: nil, thinking_tokens: nil, content: nil)
-    model_info = context_window ? instance_double(RubyLLM::Model::Info, context_window: context_window) : nil
+    model_info = context_window ? instance_double(model_info_class, context_window: context_window) : nil
     cost = instance_double(RubyLLM::Cost, total: 0.0001)
-    instance_double(RubyLLM::Message, input_tokens: input, output_tokens: output, tool_calls: {},
-                                      cache_read_tokens: nil, cache_write_tokens: nil, cost: cost,
-                                      model_info: model_info, thinking: thinking,
-                                      thinking_tokens: thinking_tokens, content: content)
+    message_double(input_tokens: input, output_tokens: output, tool_calls: {},
+                   cache_read_tokens: nil, cache_write_tokens: nil, cost: cost,
+                   model_info: model_info, thinking: thinking,
+                   thinking_tokens: thinking_tokens, content: content)
   end
 
   def issue(title: 'Test issue', severity: 2, confidence: 1, tags: ['bug'], file: 'app.rb')

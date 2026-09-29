@@ -67,9 +67,9 @@ RSpec.describe Thingie::Stats::Emitter do
       it 'writes the full schema with usage, severity, and tag breakdowns' do
         emitter = described_class.new(config('stats' => stats_config))
         usage = Thingie::Stats::Usage.new
-        usage.record(instance_double(RubyLLM::Message, input_tokens: 100, output_tokens: 50,
-                                                       cache_read_tokens: nil, cache_write_tokens: nil,
-                                                       cost: instance_double(RubyLLM::Cost, total: 0.001)))
+        usage.record(message_double(input_tokens: 100, output_tokens: 50,
+                                    cache_read_tokens: nil, cache_write_tokens: nil,
+                                    cost: instance_double(RubyLLM::Cost, total: 0.001)))
         issues = [issue(severity: 1, tags: ['bug']), issue(severity: 2, tags: %w[bug security])]
 
         emitter.emit_review_completed(report: report(issues: issues), duration_ms: 1234, usage: usage)
