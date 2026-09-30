@@ -40,7 +40,7 @@ RSpec.describe Thingie::Verifier do
   end
 
   def verdict(value, severity_override: nil, confidence_override: nil)
-    instance_double(RubyLLM::Message,
+    message_double(
                     content: {
                       'verdict' => value, 'reasoning' => 'r',
                       'severity_override' => severity_override,
@@ -168,11 +168,11 @@ RSpec.describe Thingie::Verifier do
 
     let(:usage) { Thingie::Stats::Usage.new }
     let(:token_llm_client) do
-      response = instance_double(RubyLLM::Message, content: { 'verdict' => 'uphold' },
-                                                   input_tokens: 30, output_tokens: 10, tool_calls: {},
-                                                   cache_read_tokens: nil, cache_write_tokens: nil,
-                                                   cost: instance_double(RubyLLM::Cost, total: 0.0002),
-                                                   thinking: nil, thinking_tokens: nil)
+      response = message_double(content: { 'verdict' => 'uphold' },
+                                input_tokens: 30, output_tokens: 10, tool_calls: {},
+                                cache_read_tokens: nil, cache_write_tokens: nil,
+                                cost: instance_double(RubyLLM::Cost, total: 0.0002),
+                                thinking: nil, thinking_tokens: nil)
       instance_double(Thingie::LlmClient, complete_with_schema: response)
     end
 

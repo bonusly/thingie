@@ -6,7 +6,7 @@ require 'json'
 RSpec.describe Thingie::Stats::Usage do
   def response(input: nil, output: nil, cache_read: nil, cache_write: nil, cost_total: nil)
     cost = instance_double(RubyLLM::Cost, total: cost_total) if cost_total
-    instance_double(RubyLLM::Message,
+    message_double(
                     input_tokens: input, output_tokens: output,
                     cache_read_tokens: cache_read, cache_write_tokens: cache_write,
                     cost: cost)
@@ -41,9 +41,9 @@ RSpec.describe Thingie::Stats::Usage do
   it 'keeps token data even when the cost accessor raises' do
     raising_cost = Object.new
     allow(raising_cost).to receive(:total).and_raise(StandardError, 'boom')
-    bad_response = instance_double(RubyLLM::Message, input_tokens: 100, output_tokens: 50,
-                                                     cache_read_tokens: nil, cache_write_tokens: nil,
-                                                     cost: raising_cost)
+    bad_response = message_double(input_tokens: 100, output_tokens: 50,
+                                  cache_read_tokens: nil, cache_write_tokens: nil,
+                                  cost: raising_cost)
 
     usage = described_class.new
     usage.record(bad_response)

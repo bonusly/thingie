@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'ruby_llm'
+require_relative 'llm_compat'
 
 module Thingie
   # RubyLLM tool that lets the model check whether a path relative to the working
@@ -20,7 +21,7 @@ module Thingie
       rejected. Use this to inspect existing files for context during a review.
     DESC
 
-    param :path, desc: 'Path relative to the working directory to inspect', required: true
+    LlmCompat.parameter(self, :path, description: 'Path relative to the working directory to inspect', required: true)
 
     # Builds a file tool constrained to reads under `root`.
     #
