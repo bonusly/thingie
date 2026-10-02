@@ -477,8 +477,9 @@ module Thingie
         "<details><summary>Thingie details</summary>\n\n#{rows.join("\n")}\n\n</details>"
       end
 
-      def version_line
-        "_Thingie v#{Thingie::VERSION}_"
+      def version_line(report)
+        model = report.model.to_s.strip
+        model.empty? ? "_Thingie v#{Thingie::VERSION}_" : "_Thingie v#{Thingie::VERSION} · #{model}_"
       end
 
       # Prior Thingie approvals granted for a commit other than the current head.
@@ -562,7 +563,7 @@ module Thingie
         elsif decision.action == :approve
           remove_status_comment(existing) if existing
         else
-          upsert_status_comment(existing, status_body(decision))
+          upsert_status_comment(existing, status_body(decision, report))
         end
       rescue Octokit::Error => e
         warn "Could not post auto-approval status comment — #{e.message}"
@@ -572,7 +573,7 @@ module Thingie
         @client.issue_comments(slug, @pr_number).find { |comment| comment.body.to_s.include?(STATUS_MARKER) }
       end
 
-      def status_body(decision)
+      def status_body(decision, report)
         blocked = decision.action == :block
         headline = blocked ? 'Thingie did not auto-approve this PR:' : 'Thingie auto-approval skipped:'
         reasons = decision.reasons.map { |reason| "- #{reason}" }.join("\n")
@@ -580,7 +581,7 @@ module Thingie
         parts << '_Dry run — no approval action was taken._' if dry_run?
         parts << "**#{headline}**"
         parts << reasons
-        parts << version_line
+        parts << version_line(report)
         parts.join("\n\n")
       end
 
