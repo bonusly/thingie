@@ -58,7 +58,7 @@ module Thingie
         "**⚠️ #{@report.total_issues} issue(s) found** across " \
           "#{@report.number_of_processed_files} file(s)."
       else
-        "**✅ No issues found** across #{@report.number_of_processed_files} file(s)."
+        '**✅ No changes recommended**'
       end
     end
 

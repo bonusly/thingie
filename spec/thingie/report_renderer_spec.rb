@@ -86,8 +86,10 @@ RSpec.describe Thingie::ReportRenderer do
       expect(renderer.to_cli).to include('No issues found across 5 file(s)')
     end
 
-    it 'reports the number of processed files in Markdown output' do
-      expect(renderer.to_md).to include('**✅ No issues found** across 5 file(s)')
+    it 'says no changes are recommended in Markdown output, leaving the file list to say how many were reviewed',
+       :aggregate_failures do
+      expect(renderer.to_md).to include('**✅ No changes recommended**')
+      expect(renderer.to_md).not_to include('across')
     end
   end
 end
