@@ -62,7 +62,7 @@ RSpec.describe Thingie::PrContext do
     end
 
     it 'renders the file list for the prompt', :aggregate_failures do
-      expect(context.to_s).to start_with("Files this PR touches:\n")
+      expect(context.to_s).to start_with('Files this PR touches')
       expect(context.to_s).to include('- added app/models/granola_gated.rb', '- deleted app/gone.rb',
                                       '- added config/locales/en.yml')
     end
@@ -79,7 +79,25 @@ RSpec.describe Thingie::PrContext do
     end
 
     it 'lists just that file' do
-      expect(context.to_s).to eq("Files this PR touches:\n- added README.md")
+      expect(context.to_s).to end_with("\n- added README.md")
+    end
+  end
+
+  context 'when several files share a directory and status' do
+    before do
+      %w[cs de en].each { |locale| git_write(repo, "config/locales/#{locale}.yml", "#{locale}:\n") }
+      git_write(repo, 'app/views/_a.html.erb', "a\n")
+      git_write(repo, 'app/views/_b.html.erb', "b\n")
+      git_write(repo, 'Gemfile', "source 'x'\n")
+      git_write(repo, 'Gemfile.lock', "GEM\n")
+      git_commit(repo, 'head')
+    end
+
+    it 'collapses them into one brace line, keeping a shared extension outside', :aggregate_failures do
+      expect(context.to_s.lines(chomp: true)).to include('- added config/locales/{cs,de,en}.yml',
+                                                         '- added app/views/{_a,_b}.html.erb',
+                                                         '- added {Gemfile,Gemfile.lock}')
+      expect(context.to_s).to start_with("Files this PR touches (`dir/{a,b}.rb` means dir/a.rb and dir/b.rb):\n")
     end
   end
 
