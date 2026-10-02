@@ -89,6 +89,19 @@ RSpec.describe Thingie::ClaudeCodeSource do
     expect(saved['session_id']).to eq('sess-1')
   end
 
+  context 'when the project leaves the model and turn cap at their TOML defaults' do
+    before do
+      FileUtils.mkdir_p(File.join(tmp_dir, '.thingie'))
+      File.write(File.join(tmp_dir, '.thingie/config.toml'), "[claude_code]\nmodel = \"\"\nmax_turns = 0\n")
+    end
+
+    it 'lets the CLI pick, rather than passing empty flags', :aggregate_failures do
+      source.call
+      expect(calls.first[:argv]).not_to include('--model', '--max-turns')
+      expect(source.model).to eq('claude-sonnet-5-5')
+    end
+  end
+
   context 'when the project overrides the settings' do
     before do
       FileUtils.mkdir_p(File.join(tmp_dir, '.thingie'))

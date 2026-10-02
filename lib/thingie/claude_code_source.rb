@@ -66,6 +66,9 @@ module Thingie
     #   defaults to running the command with Open3, injectable so specs never spawn the CLI
     def initialize(config:, changeset:, prompt_builder:, usage:, runner: nil)
       @settings = DEFAULT_SETTINGS.merge((config['claude_code'] || {}).transform_keys(&:to_s))
+      # TOML has no nil, so an unset model or turn cap arrives as "" / 0.
+      @settings['model'] = nil if @settings['model'].to_s.strip.empty?
+      @settings['max_turns'] = nil unless @settings['max_turns'].to_i.positive?
       @changeset = changeset
       @prompt_builder = prompt_builder
       @usage = usage
