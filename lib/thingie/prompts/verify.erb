@@ -15,6 +15,14 @@ hallucinated issues are expensive, so the bar for upholding a finding is high.
 --------
 <%- end -%>
 
+<%- unless pr_context.to_s.empty? -%>
+----OTHER CHANGES IN THIS PR----
+This file is reviewed on its own, but it belongs to a larger PR. Anything
+listed here exists at the reviewed commit even though it is not shown above.
+<%= pr_context %>
+--------
+
+<%- end -%>
 ----FINDING TO CHALLENGE----
 <%= finding %>
 --------
@@ -42,6 +50,9 @@ show-line above.
 ----HOW TO DECIDE----
 - Uphold the finding ONLY if you can point to the specific lines that make it true AND it is materially valuable to a maintainer (a real bug, security flaw, or clear maintainability concern).
 - Reject it if the claim is not grounded in the actual code shown, is vague, restates style preference as a defect, or is about software versions / unreleased details.
+- Reject a finding that claims something is missing or undefined (a method,
+  class, constant, file, partial, factory, or translation key) when the other
+  changes in this PR listed above add it, or when a lookup finds it.
 - When you are uncertain, reject. A dropped real issue is cheaper than a stream of false positives that trains maintainers to ignore the tool.
 <%- if symbol_lookup -%>
 - If the finding claims a method, class, or constant is undefined/misspelled, or
