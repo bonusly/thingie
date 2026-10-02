@@ -36,7 +36,8 @@ module Thingie
     #
     # @return [String] Markdown-formatted report
     def to_md
-      lines = [Thingie::GitHub::Context::SUMMARY_MARKER, md_summary_line]
+      lines = [Thingie::GitHub::Context::SUMMARY_MARKER, md_heading, md_summary_line,
+               md_files_reviewed, md_run_info].compact
       lines += @report.issues.map { |issue| md_issue(issue) }
       lines.join("\n\n")
     end
@@ -59,6 +60,29 @@ module Thingie
       else
         "**✅ No issues found** across #{@report.number_of_processed_files} file(s)."
       end
+    end
+
+    # Names the reviewed commit so a later, collapsed copy of this comment
+    # still says which push it covered.
+    def md_heading
+      sha = @report.target.commit_sha
+      sha ? "### Review of `#{sha.to_s[0, 7]}`" : '### Review'
+    end
+
+    def md_files_reviewed
+      files = @report.processed_files
+      return if files.empty?
+
+      "<details><summary>Files reviewed (#{files.size})</summary>\n\n" \
+        "#{files.map { |file| "- `#{file}`" }.join("\n")}\n\n</details>"
+    end
+
+    def md_run_info
+      target = @report.target
+      parts = ["Model `#{@report.model}`"]
+      parts << "base `#{target.base_ref}`" if target.base_ref
+      parts << Time.parse(@report.created_at).utc.strftime('%Y-%m-%d %H:%M UTC')
+      "<sub>#{parts.join(' · ')}</sub>"
     end
 
     def render_issue(issue)

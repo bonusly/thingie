@@ -46,6 +46,28 @@ RSpec.describe Thingie::ReportRenderer do
     expect(output).to include('[High]')
   end
 
+  context 'with a commit and a list of reviewed files' do
+    let(:report) do
+      Thingie::Report.new(
+        target: Thingie::ReviewTarget.new(
+          platform: 'github', repo_url: nil, pr_number: 1, commit_sha: 'abc1234def',
+          branch: nil, base_ref: 'main', head_ref: 'HEAD', merge_base: false
+        ),
+        model: 'gpt-4o',
+        issues: [],
+        processed_files: %w[app.rb lib/foo.rb]
+      )
+    end
+
+    it 'names the commit, lists the files and records the run', :aggregate_failures do
+      output = renderer.to_md
+      expect(output).to include('### Review of `abc1234`')
+      expect(output).to include('Files reviewed (2)', '- `app.rb`', '- `lib/foo.rb`')
+      expect(output).to include('Model `gpt-4o`', 'base `main`', 'UTC')
+      expect(output).not_to include('Thingie')
+    end
+  end
+
   context 'with no issues but processed files' do
     let(:report) do
       Thingie::Report.new(
