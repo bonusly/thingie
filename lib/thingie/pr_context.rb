@@ -30,8 +30,8 @@ module Thingie
       end
     end
 
-    # The prompt section listing every touched file, rendered once and shared
-    # by every prompt in the run.
+    # The prompt section listing the touched files (up to MAX_FILES), rendered
+    # once and shared by every prompt in the run.
     #
     # @return [String] the rendered section, or '' when there is no diff (`all` mode)
     def to_s

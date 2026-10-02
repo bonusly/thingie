@@ -17,9 +17,9 @@ hallucinated issues are expensive, so the bar for upholding a finding is high.
 
 <%- unless pr_context.to_s.empty? -%>
 ----OTHER CHANGES IN THIS PR----
-This file is reviewed on its own, but it belongs to a larger PR. These files
-exist at the reviewed commit; read one only when you need its contents to
-confirm or reject the finding.
+This file is reviewed on its own, but it belongs to a larger PR. Files not
+marked deleted exist at the reviewed commit; read one only when you need its
+contents to confirm or reject the finding.
 <%= pr_context %>
 --------
 

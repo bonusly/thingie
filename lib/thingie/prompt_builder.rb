@@ -33,7 +33,7 @@ module Thingie
     # @param diff [String, nil] the diff text (or full content in `all` mode) to review
     # @param file_lines [String, nil] the full file content, given as extra context to the LLM
     # @param symbol_lookup [Boolean] whether the LSP symbol-lookup tool is available to the LLM
-    # @param pr_context [String] the PR-wide file and definition list (see PrContext)
+    # @param pr_context [String] the list of files the PR touches (see PrContext)
     # @param whole_file [Boolean] whether this is a whole-file review (`--all` mode, no diff);
     #   switches the prompt guideline from "only changed lines" to "every line"
     # @return [String] the rendered prompt text
@@ -52,7 +52,7 @@ module Thingie
     # @param diff [String, nil] the diff text (or full content in `all` mode) the finding was raised against
     # @param file_lines [String, nil] the full file content, given as extra context to the LLM
     # @param symbol_lookup [Boolean] whether the LSP symbol-lookup tool is available to the LLM
-    # @param pr_context [String] the PR-wide file and definition list (see PrContext)
+    # @param pr_context [String] the list of files the PR touches (see PrContext)
     # @return [String] the rendered prompt text
     def verify(issue:, diff:, file_lines: nil, symbol_lookup: false, pr_context: '')
       render_template(VERIFY_TEMPLATE, 'input' => diff, 'file_lines' => file_lines, 'pr_context' => pr_context,

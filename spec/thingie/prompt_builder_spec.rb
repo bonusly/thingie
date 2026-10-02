@@ -131,6 +131,12 @@ RSpec.describe Thingie::PromptBuilder do
                                'affected_lines' => [{ 'start_line' => 1 }])
     end
 
+    it 'shows the PR-wide changes only when there are some', :aggregate_failures do
+      expect(builder.verify(issue: issue, diff: 'x', pr_context: "Files this PR touches:\n- added a.rb"))
+        .to include('----OTHER CHANGES IN THIS PR----', '- added a.rb')
+      expect(builder.verify(issue: issue, diff: 'x')).not_to include('OTHER CHANGES IN THIS PR')
+    end
+
     it 'includes the finding\'s current severity and confidence', :aggregate_failures do
       prompt = builder.verify(issue: issue, diff: '')
       expect(prompt).to include('Severity: 1 (Critical)')
