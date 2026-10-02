@@ -7,6 +7,7 @@ module Thingie
   # model reports it as undefined.
   class PrContext
     CONTAINER = /\A\s*(?:class|module)\s+([A-Z][\w:]*)/
+    YAML_EXTENSIONS = %w[.yml .yaml].freeze
     # Lines on the added side of a diff that define a name, by file extension.
     DEFINITION_PATTERNS = {
       %w[.rb .rake] => [
@@ -15,7 +16,7 @@ module Thingie
         /\A\s*([A-Z][A-Z0-9_]*)\s*=(?![=~])/,
         /\A\s*(?:factory|trait|scope)\s+:(\w+)/
       ],
-      %w[.yml .yaml] => [/\A\s*["']?([\w-]+)["']?:/]
+      YAML_EXTENSIONS => [/\A\s*["']?([\w-]+)["']?:/]
     }.freeze
 
     # Caps keep a sweeping PR (a rename across hundreds of files) from
@@ -58,6 +59,7 @@ module Thingie
     end
 
     # The section text, rendered once and shared by every prompt in the run.
+    # Lists every touched file and the non-YAML definitions.
     #
     # @return [String] the rendered section, or '' when there is no diff (`all` mode)
     def to_s
@@ -99,11 +101,19 @@ module Thingie
     end
 
     def definitions_section
-      return nil if definitions.empty?
+      shown = prompt_definitions
+      return nil if shown.empty?
 
-      lines = definitions.first(MAX_DEFINITIONS).map { |d| "- #{d[:name]} (#{d[:path]}:#{d[:line]})" }
-      lines << "- ...and #{definitions.size - MAX_DEFINITIONS} more" if definitions.size > MAX_DEFINITIONS
+      lines = shown.first(MAX_DEFINITIONS).map { |d| "- #{d[:name]} (#{d[:path]}:#{d[:line]})" }
+      lines << "- ...and #{shown.size - MAX_DEFINITIONS} more" if shown.size > MAX_DEFINITIONS
       "Names this PR defines on added lines:\n#{lines.join("\n")}"
+    end
+
+    # YAML keys stay out of the prompt: a locale change repeats every key per
+    # language (192 of 210 names on one PR, doubling its prompt tokens), and
+    # AbsenceCheck still uses them, so the locale file paths above are enough.
+    def prompt_definitions
+      definitions.reject { |d| YAML_EXTENSIONS.include?(File.extname(d[:path])) }
     end
   end
 end

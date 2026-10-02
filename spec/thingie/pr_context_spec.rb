@@ -87,6 +87,11 @@ RSpec.describe Thingie::PrContext do
       expect(context.to_s).to include('- deleted app/gone.rb', "Names this PR defines on added lines:\n",
                                       '- GranolaGated (app/models/granola_gated.rb:2)')
     end
+
+    it 'lists the locale file but keeps its keys out of the prompt', :aggregate_failures do
+      expect(context.to_s).to include('- added config/locales/en.yml')
+      expect(context.to_s).not_to include('unavailable')
+    end
   end
 
   context 'when the PR defines nothing' do
