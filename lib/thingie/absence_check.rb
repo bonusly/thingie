@@ -8,9 +8,11 @@ module Thingie
   # ObfuscationDetector: the model was already told to look these up and
   # often didn't, so the check cannot be left to its discretion.
   #
-  # A finding is dropped only when it makes an absence claim AND a name in
-  # it matches something the PR adds, so "missing nil
-  # check on `user`" survives unless the PR defines `user`.
+  # A finding is dropped only when it makes an absence claim AND its subject,
+  # the first name in its title (or details, if the title names nothing),
+  # matches something the PR adds. So "`Gates::Farewell` is undefined; Gates
+  # only defines `Greeting`" survives a PR that adds `Greeting`, and "missing
+  # nil check on `user`" survives unless the PR defines `user`.
   class AbsenceCheck
     ABSENCE_CLAIM = /\b(?:undefined|not\s+defined|never\s+defined|(?:does|do)\s*n[o']t\s+exist|not\s+exist|
                        non-?existent|not\s+found|no\s+such|missing|uninitialized|(?:not\s+|un)resolvable|
@@ -20,6 +22,7 @@ module Thingie
     # resolvable": multi-word CamelCase, namespaced constants, and file names.
     # Bare lowercase words are skipped; "user" in prose is too common to trust.
     BARE_NAME = %r{\b(?:[A-Z][a-z0-9]+){2,}\w*(?:::[A-Z]\w*)*|\b[A-Z]\w*(?:::[A-Z]\w*)+|[\w/]+\.(?:rb|erb|rake|ya?ml)\b}
+    NAME = /#{BACKTICKED}|#{BARE_NAME}/
     MIN_NAME_LENGTH = 3
 
     # Builds a check against one PR.
@@ -47,13 +50,20 @@ module Thingie
     private
 
     def disproving_name(issue)
-      text = "#{issue.title}\n#{issue.details}"
-      return nil unless text.match?(ABSENCE_CLAIM)
+      return nil unless "#{issue.title}\n#{issue.details}".match?(ABSENCE_CLAIM)
 
-      (text.scan(BACKTICKED).flatten + text.scan(BARE_NAME)).find do |token|
-        defined_names.intersect?(name_candidates(token)) ||
-          (path_like?(token) && added_file_names.include?(file_name(token)))
-      end
+      subject = first_name(issue.title) || first_name(issue.details)
+      subject if subject && added?(subject)
+    end
+
+    def first_name(text)
+      match = text.to_s.match(NAME)
+      match && (match[1] || match[0])
+    end
+
+    def added?(token)
+      defined_names.intersect?(name_candidates(token)) ||
+        (path_like?(token) && added_file_names.include?(file_name(token)))
     end
 
     # `Foo::Bar#baz` -> baz, `:checkout_visit` -> checkout_visit,

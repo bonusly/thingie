@@ -78,6 +78,10 @@ RSpec.describe Thingie::PrContext do
       expect(context.definitions.map { |d| d[:name] }).not_to include('Old')
     end
 
+    it 'leaves out namespace wrappers, which a new file only reopens' do
+      expect(context.definitions.map { |d| d[:name] }).not_to include('Concerns')
+    end
+
     it 'renders the files and definitions for the prompt', :aggregate_failures do
       expect(context.to_s).to start_with("Files this PR touches:\n")
       expect(context.to_s).to include('- deleted app/gone.rb', "Names this PR defines on added lines:\n",

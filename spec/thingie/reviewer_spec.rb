@@ -111,6 +111,31 @@ RSpec.describe Thingie::Reviewer do
       expect(prompts.size).to eq(1)
       expect(prompts.first).to include('----OTHER CHANGES IN THIS PR----', '- GranolaGated (app/granola_gated.rb:1)')
     end
+
+    context 'when the missing name sits in a namespace the PR adds' do
+      let(:fake_changeset) do
+        git(repo, 'init', '-q', '-b', 'main')
+        git_commit(repo, 'base')
+        git(repo, 'tag', 'base')
+        git_write(repo, 'app/e2e/greeting_gate.rb', "module ThingieE2e\n  class GreetingGate\n  end\nend\n")
+        git_write(repo, 'app.rb', "ThingieE2e::FarewellGate.new\n")
+        git_commit(repo, 'head')
+        Thingie::Changeset.new(repo_path: repo, base_ref: 'base', filters: ['app.rb'])
+      end
+      let(:fake_llm_client) do
+        issues = [{ 'title' => '`ThingieE2e::FarewellGate` is not defined',
+                    'details' => 'ThingieE2e only defines GreetingGate.', 'severity' => 1, 'confidence' => 1,
+                    'tags' => ['bug'], 'affected_lines' => [{ 'start_line' => 1 }] }]
+        response = message_double(content: { 'issues' => issues }, input_tokens: 1, output_tokens: 1, tool_calls: {},
+                                  cache_read_tokens: nil, cache_write_tokens: nil, cost: nil, model_info: nil,
+                                  thinking: nil, thinking_tokens: nil)
+        instance_double(Thingie::LlmClient, complete_with_schema: response)
+      end
+
+      it 'keeps the finding' do
+        expect(reviewer.review.issues.map(&:title)).to include('`ThingieE2e::FarewellGate` is not defined')
+      end
+    end
   end
 
   context 'when the LLM client raises a connection error' do

@@ -6,10 +6,11 @@ module Thingie
   # `GranolaGated` cannot know the same PR adds it in another file, and the
   # model reports it as undefined.
   class PrContext
+    CONTAINER = /\A\s*(?:class|module)\s+([A-Z][\w:]*)/
     # Lines on the added side of a diff that define a name, by file extension.
     DEFINITION_PATTERNS = {
       %w[.rb .rake] => [
-        /\A\s*(?:class|module)\s+([A-Z][\w:]*)/,
+        CONTAINER,
         /\A\s*def\s+(?:self\.)?([a-z_]\w*[?!=]?)/,
         /\A\s*([A-Z][A-Z0-9_]*)\s*=(?![=~])/,
         /\A\s*(?:factory|trait|scope)\s+:(\w+)/
@@ -43,17 +44,16 @@ module Thingie
 
     # Ruby classes, modules, methods, constants, and FactoryBot factories,
     # traits, and scopes, plus YAML keys, defined on the PR's added lines.
+    # Namespace wrappers (`module Bizy` around `class GranolaGated`) are left
+    # out: a new file reopens them, so they say nothing about what the PR adds,
+    # and counting them would let AbsenceCheck drop a real "`Bizy::Missing` is
+    # undefined" finding.
     #
     # @return [Array<Hash>] `{ name:, path:, line: }`
     def definitions
       @definitions ||= patches.reject { |patch| patch.delta.binary }.flat_map do |patch|
         path = patch.delta.new_file[:path]
-        patterns = DEFINITION_PATTERNS.select { |extensions, _| extensions.include?(File.extname(path)) }
-                                      .values.flatten
-        added_lines(patch).filter_map do |line|
-          name = patterns.lazy.filter_map { |pattern| line.content[pattern, 1] }.first
-          { name: name, path: path, line: line.new_lineno } if name
-        end
+        without_wrappers(added_definitions(patch, path)).map { |d| d.slice(:name, :path, :line) }
       end
     end
 
@@ -68,6 +68,24 @@ module Thingie
 
     def patches
       @changeset.all? ? [] : @changeset.patches
+    end
+
+    def added_definitions(patch, path)
+      patterns = DEFINITION_PATTERNS.select { |extensions, _| extensions.include?(File.extname(path)) }.values.flatten
+      added_lines(patch).filter_map do |line|
+        pattern = patterns.find { |candidate| line.content.match?(candidate) }
+        next unless pattern
+
+        { name: line.content[pattern, 1], path: path, line: line.new_lineno,
+          indent: line.content[/\A */].size, container: pattern == CONTAINER }
+      end
+    end
+
+    def without_wrappers(definitions)
+      definitions.reject.with_index do |definition, index|
+        following = definitions[index + 1]
+        definition[:container] && following&.dig(:container) && following[:indent] > definition[:indent]
+      end
     end
 
     def added_lines(patch)
