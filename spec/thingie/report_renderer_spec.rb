@@ -51,7 +51,7 @@ RSpec.describe Thingie::ReportRenderer do
       Thingie::Report.new(
         target: Thingie::ReviewTarget.new(
           platform: 'github', repo_url: nil, pr_number: 1, commit_sha: 'abc1234def',
-          branch: nil, base_ref: 'main', head_ref: 'HEAD', merge_base: false
+          branch: nil, base_ref: 'c3d89f54ef47b0392c53f6e44bb50610a03785a9', head_ref: 'HEAD', merge_base: false
         ),
         model: 'gpt-4o',
         issues: [],
@@ -63,7 +63,8 @@ RSpec.describe Thingie::ReportRenderer do
       output = renderer.to_md
       expect(output).to include('### Review of `abc1234`')
       expect(output).to include('Files reviewed (2)', '- `app.rb`', '- `lib/foo.rb`')
-      expect(output).to include('Model `gpt-4o`', 'base `main`', 'UTC')
+      expect(output).to include('Model `gpt-4o`', 'base `c3d89f5`', 'UTC')
+      expect(output).not_to include('c3d89f54ef47')
       expect(output).not_to include('Thingie')
     end
   end

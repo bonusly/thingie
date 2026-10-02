@@ -275,10 +275,19 @@ module Thingie
           next if comment.body.start_with?(OUTDATED_PREFIX)
 
           @client.update_comment("#{@owner}/#{@repo}", comment.id, outdated_body(comment.body))
+          minimize_comment(comment)
         rescue Octokit::Forbidden => e
           # Only the comment's author (our bot) can edit it; skip others.
           warn "Could not collapse previous summary ##{comment.id} — #{e.message}"
         end
+      end
+
+      # Collapsing alone still leaves a stack of "Outdated review" rows in the
+      # thread; minimizing tucks each one behind GitHub's "Show comment" toggle.
+      def minimize_comment(comment)
+        graphql_client.minimize_comment(comment.node_id)
+      rescue StandardError => e
+        warn "Could not hide previous summary ##{comment.id} — #{e.message}"
       end
 
       def outdated_body(body)

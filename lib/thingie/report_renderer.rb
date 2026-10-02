@@ -80,9 +80,13 @@ module Thingie
     def md_run_info
       target = @report.target
       parts = ["Model `#{@report.model}`"]
-      parts << "base `#{target.base_ref}`" if target.base_ref
+      parts << "base `#{short_ref(target.base_ref)}`" if target.base_ref
       parts << Time.parse(@report.created_at).utc.strftime('%Y-%m-%d %H:%M UTC')
       "<sub>#{parts.join(' · ')}</sub>"
+    end
+
+    def short_ref(ref)
+      ref.match?(/\A\h{40}\z/) ? ref[0, 7] : ref
     end
 
     def render_issue(issue)
