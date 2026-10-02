@@ -41,6 +41,18 @@ module Thingie
       lines.join("\n\n")
     end
 
+    # The one-line Markdown headline, e.g. "**✅ No issues found** across 6 file(s)."
+    #
+    # @return [String] the headline
+    def md_summary_line
+      if @report.total_issues.positive?
+        "**⚠️ #{@report.total_issues} issue(s) found** across " \
+          "#{@report.number_of_processed_files} file(s)."
+      else
+        "**✅ No issues found** across #{@report.number_of_processed_files} file(s)."
+      end
+    end
+
     private
 
     def summary_line
@@ -49,15 +61,6 @@ module Thingie
           "#{@report.number_of_processed_files} file(s).\n"
       else
         "✅ No issues found across #{@report.number_of_processed_files} file(s).\n"
-      end
-    end
-
-    def md_summary_line
-      if @report.total_issues.positive?
-        "**⚠️ #{@report.total_issues} issue(s) found** across " \
-          "#{@report.number_of_processed_files} file(s)."
-      else
-        "**✅ No issues found** across #{@report.number_of_processed_files} file(s)."
       end
     end
 

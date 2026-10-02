@@ -45,19 +45,29 @@ module Thingie
       #
       # @param summary [String] the human-readable review summary text
       # @param report [Thingie::Report] the completed review report
+      # @param clean_summary [Boolean] whether to post the summary comment when
+      #   there are no issues; false when the approver will say so instead
       # @return [void]
-      def post_review(summary:, report:)
+      def post_review(summary:, report:, clean_summary: true)
         pr = @client.pull_request("#{@owner}/#{@repo}", @pr_number)
         commit_id = pr.head.sha
         resolve_previous_threads(report.issues)
         collapse_previous_summaries
         if report.issues.empty?
           # Only post the overview comment when there's nothing to flag inline.
-          post_summary_comment(summary)
+          post_clean_summary(summary) if clean_summary
         else
           off_diff = post_inline_comments(report.issues, commit_id)
           post_off_diff_comment(off_diff)
         end
+      end
+
+      # Posts the no-issues summary as a PR comment.
+      #
+      # @param summary [String] the human-readable review summary text
+      # @return [void]
+      def post_clean_summary(summary)
+        @client.add_comment("#{@owner}/#{@repo}", @pr_number, "#{summary}\n\n#{Context::SUMMARY_MARKER}")
       end
 
       private
@@ -111,10 +121,6 @@ module Thingie
           line, # Octokit 9: 6th positional is the new-side line number
           { side: 'RIGHT' }
         )
-      end
-
-      def post_summary_comment(summary)
-        @client.add_comment("#{@owner}/#{@repo}", @pr_number, "#{summary}\n\n#{Context::SUMMARY_MARKER}")
       end
 
       def severity_label(severity)
