@@ -40,7 +40,7 @@ module Thingie
       lines = [Thingie::GitHub::Context::SUMMARY_MARKER, "#{md_summary_line}\n_#{source_line}_"]
       lines += @report.issues.map { |issue| md_issue(issue) }
       lines << md_details
-      lines.join("\n\n")
+      lines.compact.join("\n\n")
     end
 
     private
@@ -56,13 +56,17 @@ module Thingie
     end
 
     # Run metadata, collapsed: what ran, how long, what it cost, and for a
-    # Claude Code run its own written review, for "why did it say this?".
+    # Claude Code run its own written review, for "why did it say this?". The
+    # notes are model text steered by the PR, so they go in a fence: no
+    # @mentions, links or markup reach the reader as if Thingie wrote them.
     def md_details
       details = @report.details || {}
+      return nil if details.empty?
+
       rows = details.except('notes').map { |key, value| "- **#{key}:** #{value}" }
       notes = details['notes'].to_s.strip
       body = rows.join("\n")
-      body += "\n\n**Reviewer notes**\n\n#{notes}" unless notes.empty?
+      body += "\n\n**Reviewer notes**\n\n~~~~text\n#{notes.gsub('~~~~', '~~~')}\n~~~~" unless notes.empty?
       "<details><summary>Review details</summary>\n\n#{body}\n\n</details>"
     end
 

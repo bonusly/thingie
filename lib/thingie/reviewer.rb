@@ -16,8 +16,8 @@ module Thingie
     # @param llm_client [Thingie::LlmClient] wraps the LLM used for review calls
     # @param tools [Array, nil] `ruby_llm` tools (e.g. LSP symbol lookup) made available to the LLM
     # @param debug [Boolean] enable verbose debug output during the pipeline
-    # @param source [#call, nil] alternative first-pass finding source (see {ClaudeCodeSource});
-    #   nil runs Thingie's own per-file LLM review
+    # @param source [Thingie::ClaudeCodeSource, nil] alternative first-pass finding source, responding
+    #   to `#call`, `#model`, `#details` and `#warnings`; nil runs Thingie's own per-file LLM review
     # @param usage [Thingie::Stats::Usage, nil] usage accumulator, shared with `source` so one
     #   total covers the first pass and the critic; a fresh one when nil
     def initialize(config:, changeset:, prompt_builder:, llm_client:, tools: [], debug: false, source: nil,
@@ -76,14 +76,17 @@ module Thingie
 
     def run_details
       critic = @config.dig('verify', 'model').to_s
-      base = { 'source' => 'llm', 'model' => @config['model'], 'critic_model' => (critic unless critic.empty?) }
+      base = { 'source' => 'llm', 'model' => @source ? @source.model : @config['model'],
+               'critic_model' => (critic unless critic.empty?) }
       base.compact.merge(@source&.details || {})
     end
 
     # One run covers the whole changeset, so apply the changed-line filter per
     # file afterwards instead of inside the per-file loop.
     def gather_source_issues
-      @source.call.group_by(&:file).flat_map { |file, issues| only_changed_lines(issues, file) }
+      issues = @source.call.group_by(&:file).flat_map { |file, found| only_changed_lines(found, file) }
+      @warnings.concat(@source.warnings)
+      issues
     end
 
     def verify(issues)

@@ -98,6 +98,19 @@ RSpec.describe Thingie::CLI do
       Thingie::CLI.start(['review'])
     end
 
+    it 'runs the per-file LLM review unless a source is selected' do
+      run_review
+      expect(Thingie::Reviewer).to have_received(:new)
+        .with(hash_including(source: nil, usage: an_instance_of(Thingie::Stats::Usage)))
+    end
+
+    it 'hands the Reviewer a Claude Code source and the shared usage when REVIEW_SOURCE selects it' do
+      Thingie::Env['REVIEW_SOURCE'] = 'claude_code'
+      run_review
+      expect(Thingie::Reviewer).to have_received(:new)
+        .with(hash_including(source: an_instance_of(Thingie::ClaudeCodeSource), usage: an_instance_of(Thingie::Stats::Usage)))
+    end
+
     it 'emits a review.completed stats line to the configured sink', :aggregate_failures do
       run_review
 

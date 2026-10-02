@@ -80,6 +80,7 @@ RSpec.describe Thingie::Reviewer do
     end
     let(:source) do
       instance_double(Thingie::ClaudeCodeSource, call: source_issue, model: 'claude-sonnet-5-5',
+                                                 warnings: ['Dropped a malformed Claude Code finding for app.rb'],
                                                  details: { 'source' => 'claude_code', 'skill' => '/code-review',
                                                             'turns' => 3 })
     end
@@ -89,7 +90,9 @@ RSpec.describe Thingie::Reviewer do
       report = reviewer.review
       expect(report.issues.map(&:title)).to eq(['From Claude'])
       expect(report.model).to eq('claude-sonnet-5-5')
-      expect(report.details).to include('source' => 'claude_code', 'skill' => '/code-review', 'turns' => 3)
+      expect(report.details).to include('source' => 'claude_code', 'skill' => '/code-review', 'turns' => 3,
+                                        'model' => 'claude-sonnet-5-5')
+      expect(report.processing_warnings).to include(a_string_including('malformed Claude Code finding'))
       # Only the critic recorded a response; the source records into the shared usage itself.
       expect(usage.input_tokens).to eq(100)
     end
