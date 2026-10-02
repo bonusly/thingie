@@ -44,27 +44,10 @@ module Thingie
       @changeset.all? ? [] : @changeset.patches
     end
 
-    # Files sharing a status and directory collapse into one brace line, e.g.
-    # "- modified config/locales/{cs,de,en}.yml" for three locale files.
     def files_section
-      groups = files.first(MAX_FILES).group_by { |file| [file[:status], File.dirname(file[:path])] }
-      lines = groups.map do |(status, dir), group|
-        "- #{status} #{condensed(dir, group.map { |file| File.basename(file[:path]) })}"
-      end
+      lines = files.first(MAX_FILES).map { |file| "- #{file[:status]} #{file[:path]}" }
       lines << "- ...and #{files.size - MAX_FILES} more" if files.size > MAX_FILES
-      "Files this PR touches (`dir/{a,b}.rb` means dir/a.rb and dir/b.rb):\n#{lines.join("\n")}"
-    end
-
-    def condensed(dir, names)
-      prefix = dir == '.' ? '' : "#{dir}/"
-      return "#{prefix}#{names.first}" if names.one?
-
-      extension = names.first[/\..*\z/]
-      if extension && names.all? { |name| name.end_with?(extension) && name.size > extension.size }
-        "#{prefix}{#{names.map { |name| name.delete_suffix(extension) }.join(',')}}#{extension}"
-      else
-        "#{prefix}{#{names.join(',')}}"
-      end
+      "Files this PR touches:\n#{lines.join("\n")}"
     end
   end
 end
