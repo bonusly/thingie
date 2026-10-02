@@ -63,9 +63,9 @@ RSpec.describe Thingie::ReportRenderer do
       output = renderer.to_md
       expect(output).to include('### Review of `abc1234`')
       expect(output).to include('Files reviewed (2)', '- `app.rb`', '- `lib/foo.rb`')
-      expect(output).to include('Model `gpt-4o`', 'base `c3d89f5`', 'UTC')
+      expect(output).to include('Thingie details', "Thingie version: #{Thingie::VERSION}",
+                                'Review model: gpt-4o', 'Base: `c3d89f5`', 'UTC')
       expect(output).not_to include('c3d89f54ef47')
-      expect(output).not_to include('Thingie')
     end
   end
 

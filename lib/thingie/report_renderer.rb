@@ -77,12 +77,14 @@ module Thingie
         "#{files.map { |file| "- `#{file}`" }.join("\n")}\n\n</details>"
     end
 
+    # Same shape as the approval comment's details block.
     def md_run_info
       target = @report.target
-      parts = ["Model `#{@report.model}`"]
-      parts << "base `#{short_ref(target.base_ref)}`" if target.base_ref
-      parts << Time.parse(@report.created_at).utc.strftime('%Y-%m-%d %H:%M UTC')
-      "<sub>#{parts.join(' · ')}</sub>"
+      rows = ["- Thingie version: #{Thingie::VERSION}"]
+      rows << "- Review model: #{@report.model}" unless @report.model.to_s.strip.empty?
+      rows << "- Base: `#{short_ref(target.base_ref)}`" if target.base_ref
+      rows << "- Reviewed at: #{Time.parse(@report.created_at).utc.strftime('%Y-%m-%d %H:%M UTC')}"
+      "<details><summary>Thingie details</summary>\n\n#{rows.join("\n")}\n\n</details>"
     end
 
     def short_ref(ref)
