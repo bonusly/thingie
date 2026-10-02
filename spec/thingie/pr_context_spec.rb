@@ -61,46 +61,24 @@ RSpec.describe Thingie::PrContext do
       )
     end
 
-    it 'collects names defined on added lines, with their location' do
-      expect(context.definitions.map { |d| [d[:name], d[:path], d[:line]] }).to include(
-        ['GranolaGated', 'app/models/granola_gated.rb', 2],
-        ['REASONS', 'app/models/granola_gated.rb', 3],
-        ['call', 'app/models/granola_gated.rb', 5],
-        ['eligible?', 'app/models/granola_gated.rb', 8],
-        ['checkout_visit', 'spec/factories/checkout_visits.rb', 2],
-        ['completed', 'spec/factories/checkout_visits.rb', 3],
-        ['unavailable', 'config/locales/en.yml', 3],
-        ['uses_it', 'app/old.rb', 2]
-      )
-    end
-
-    it 'ignores definitions that were already there' do
-      expect(context.definitions.map { |d| d[:name] }).not_to include('Old')
-    end
-
-    it 'leaves out namespace wrappers, which a new file only reopens' do
-      expect(context.definitions.map { |d| d[:name] }).not_to include('Concerns')
-    end
-
-    it 'renders the files and definitions for the prompt', :aggregate_failures do
+    it 'renders the file list for the prompt', :aggregate_failures do
       expect(context.to_s).to start_with("Files this PR touches:\n")
-      expect(context.to_s).to include('- deleted app/gone.rb', "Names this PR defines on added lines:\n",
-                                      '- GranolaGated (app/models/granola_gated.rb:2)')
+      expect(context.to_s).to include('- added app/models/granola_gated.rb', '- deleted app/gone.rb',
+                                      '- added config/locales/en.yml')
     end
 
-    it 'lists the locale file but keeps its keys out of the prompt', :aggregate_failures do
-      expect(context.to_s).to include('- added config/locales/en.yml')
-      expect(context.to_s).not_to include('unavailable')
+    it 'lists paths only, not what the files define' do
+      expect(context.to_s).not_to include('GranolaGated', 'unavailable')
     end
   end
 
-  context 'when the PR defines nothing' do
+  context 'when the PR touches a single file' do
     before do
       git_write(repo, 'README.md', "hi\n")
       git_commit(repo, 'head')
     end
 
-    it 'lists only the files' do
+    it 'lists just that file' do
       expect(context.to_s).to eq("Files this PR touches:\n- added README.md")
     end
   end
@@ -120,7 +98,7 @@ RSpec.describe Thingie::PrContext do
     let(:changeset) { Thingie::Changeset.new(repo_path: repo, all: true) }
 
     it 'has no PR to describe', :aggregate_failures do
-      expect([context.files, context.definitions]).to eq([[], []])
+      expect(context.files).to eq([])
       expect(context.to_s).to eq('')
     end
   end

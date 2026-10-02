@@ -79,7 +79,7 @@ RSpec.describe Thingie::Reviewer do
     end
   end
 
-  context 'when the PR adds a name the model claims is missing' do
+  context 'when the PR touches other files' do
     include GitRepo
 
     let(:repo) { Dir.mktmpdir }
@@ -94,9 +94,7 @@ RSpec.describe Thingie::Reviewer do
     end
     let(:prompts) { [] }
     let(:fake_llm_client) do
-      issues = [{ 'title' => '`GranolaGated` is not defined', 'details' => 'Undefined constant', 'severity' => 1,
-                  'confidence' => 1, 'tags' => ['bug'], 'affected_lines' => [{ 'start_line' => 1 }] }]
-      response = message_double(content: { 'issues' => issues }, input_tokens: 1, output_tokens: 1, tool_calls: {},
+      response = message_double(content: { 'issues' => [] }, input_tokens: 1, output_tokens: 1, tool_calls: {},
                                 cache_read_tokens: nil, cache_write_tokens: nil, cost: nil, model_info: nil,
                                 thinking: nil, thinking_tokens: nil)
       instance_double(Thingie::LlmClient).tap do |client|
@@ -106,35 +104,9 @@ RSpec.describe Thingie::Reviewer do
 
     after { FileUtils.rm_rf(repo) }
 
-    it 'tells the model about the other changes and drops the claim before the critic sees it', :aggregate_failures do
-      expect(reviewer.review.total_issues).to eq(0)
-      expect(prompts.size).to eq(1)
-      expect(prompts.first).to include('----OTHER CHANGES IN THIS PR----', '- GranolaGated (app/granola_gated.rb:1)')
-    end
-
-    context 'when the missing name sits in a namespace the PR adds' do
-      let(:fake_changeset) do
-        git(repo, 'init', '-q', '-b', 'main')
-        git_commit(repo, 'base')
-        git(repo, 'tag', 'base')
-        git_write(repo, 'app/e2e/greeting_gate.rb', "module ThingieE2e\n  class GreetingGate\n  end\nend\n")
-        git_write(repo, 'app.rb', "ThingieE2e::FarewellGate.new\n")
-        git_commit(repo, 'head')
-        Thingie::Changeset.new(repo_path: repo, base_ref: 'base', filters: ['app.rb'])
-      end
-      let(:fake_llm_client) do
-        issues = [{ 'title' => '`ThingieE2e::FarewellGate` is not defined',
-                    'details' => 'ThingieE2e only defines GreetingGate.', 'severity' => 1, 'confidence' => 1,
-                    'tags' => ['bug'], 'affected_lines' => [{ 'start_line' => 1 }] }]
-        response = message_double(content: { 'issues' => issues }, input_tokens: 1, output_tokens: 1, tool_calls: {},
-                                  cache_read_tokens: nil, cache_write_tokens: nil, cost: nil, model_info: nil,
-                                  thinking: nil, thinking_tokens: nil)
-        instance_double(Thingie::LlmClient, complete_with_schema: response)
-      end
-
-      it 'keeps the finding' do
-        expect(reviewer.review.issues.map(&:title)).to include('`ThingieE2e::FarewellGate` is not defined')
-      end
+    it 'lists them in the review prompt' do
+      reviewer.review
+      expect(prompts.first).to include('----OTHER CHANGES IN THIS PR----', '- added app/granola_gated.rb')
     end
   end
 

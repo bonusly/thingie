@@ -315,19 +315,6 @@ module Thingie
       warn "[DEBUG] Post-process: #{before} -> #{after} findings (dropped #{dropped} by threshold)"
     end
 
-    # Prints each finding AbsenceCheck dropped and the PR-added name that disproved it.
-    #
-    # @param dropped [Array<Array(Thingie::Issue, String)>] dropped findings with the disproving name
-    # @return [void]
-    def absence_check(dropped)
-      return unless @enabled
-
-      warn "[DEBUG] Absence check: dropped #{dropped.size} findings that claim a PR-added name is missing"
-      dropped.each do |issue, name|
-        warn "[DEBUG]   #{issue.file}: #{issue.title} (PR adds `#{name}`)"
-      end
-    end
-
     # Prints the header line marking the start of the critic pass.
     #
     # @return [void]

@@ -1,28 +1,15 @@
 # frozen_string_literal: true
 
 module Thingie
-  # The PR as a whole, for prompts that each see a single file: every touched
-  # path and the names the PR defines on added lines. Without it a file using
-  # `GranolaGated` cannot know the same PR adds it in another file, and the
-  # model reports it as undefined.
+  # The files a PR touches, for prompts that each see a single file. Without
+  # it a file using `GranolaGated` cannot know the same PR adds
+  # `granola_gated.rb`, and the model reports the constant as undefined. Paths
+  # only, not contents or definitions, so the model can look a file up when
+  # it needs to without the prompt growing with the PR.
   class PrContext
-    CONTAINER = /\A\s*(?:class|module)\s+([A-Z][\w:]*)/
-    YAML_EXTENSIONS = %w[.yml .yaml].freeze
-    # Lines on the added side of a diff that define a name, by file extension.
-    DEFINITION_PATTERNS = {
-      %w[.rb .rake] => [
-        CONTAINER,
-        /\A\s*def\s+(?:self\.)?([a-z_]\w*[?!=]?)/,
-        /\A\s*([A-Z][A-Z0-9_]*)\s*=(?![=~])/,
-        /\A\s*(?:factory|trait|scope)\s+:(\w+)/
-      ],
-      YAML_EXTENSIONS => [/\A\s*["']?([\w-]+)["']?:/]
-    }.freeze
-
-    # Caps keep a sweeping PR (a rename across hundreds of files) from
+    # Cap keeps a sweeping PR (a rename across hundreds of files) from
     # crowding the diff out of the prompt.
     MAX_FILES = 200
-    MAX_DEFINITIONS = 300
 
     # Builds the context for one changeset.
     #
@@ -43,27 +30,12 @@ module Thingie
       end
     end
 
-    # Ruby classes, modules, methods, constants, and FactoryBot factories,
-    # traits, and scopes, plus YAML keys, defined on the PR's added lines.
-    # Namespace wrappers (`module Bizy` around `class GranolaGated`) are left
-    # out: a new file reopens them, so they say nothing about what the PR adds,
-    # and counting them would let AbsenceCheck drop a real "`Bizy::Missing` is
-    # undefined" finding.
-    #
-    # @return [Array<Hash>] `{ name:, path:, line: }`
-    def definitions
-      @definitions ||= patches.reject { |patch| patch.delta.binary }.flat_map do |patch|
-        path = patch.delta.new_file[:path]
-        without_wrappers(added_definitions(patch, path)).map { |d| d.slice(:name, :path, :line) }
-      end
-    end
-
-    # The section text, rendered once and shared by every prompt in the run.
-    # Lists every touched file and the non-YAML definitions.
+    # The prompt section listing every touched file, rendered once and shared
+    # by every prompt in the run.
     #
     # @return [String] the rendered section, or '' when there is no diff (`all` mode)
     def to_s
-      @to_s ||= files.empty? ? '' : [files_section, definitions_section].compact.join("\n\n")
+      @to_s ||= files.empty? ? '' : files_section
     end
 
     private
@@ -72,48 +44,10 @@ module Thingie
       @changeset.all? ? [] : @changeset.patches
     end
 
-    def added_definitions(patch, path)
-      patterns = DEFINITION_PATTERNS.select { |extensions, _| extensions.include?(File.extname(path)) }.values.flatten
-      added_lines(patch).filter_map do |line|
-        pattern = patterns.find { |candidate| line.content.match?(candidate) }
-        next unless pattern
-
-        { name: line.content[pattern, 1], path: path, line: line.new_lineno,
-          indent: line.content[/\A */].size, container: pattern == CONTAINER }
-      end
-    end
-
-    def without_wrappers(definitions)
-      definitions.reject.with_index do |definition, index|
-        following = definitions[index + 1]
-        definition[:container] && following&.dig(:container) && following[:indent] > definition[:indent]
-      end
-    end
-
-    def added_lines(patch)
-      patch.each_hunk.flat_map { |hunk| hunk.each_line.select(&:addition?) }
-    end
-
     def files_section
       lines = files.first(MAX_FILES).map { |file| "- #{file[:status]} #{file[:path]}" }
       lines << "- ...and #{files.size - MAX_FILES} more" if files.size > MAX_FILES
       "Files this PR touches:\n#{lines.join("\n")}"
-    end
-
-    def definitions_section
-      shown = prompt_definitions
-      return nil if shown.empty?
-
-      lines = shown.first(MAX_DEFINITIONS).map { |d| "- #{d[:name]} (#{d[:path]}:#{d[:line]})" }
-      lines << "- ...and #{shown.size - MAX_DEFINITIONS} more" if shown.size > MAX_DEFINITIONS
-      "Names this PR defines on added lines:\n#{lines.join("\n")}"
-    end
-
-    # YAML keys stay out of the prompt: a locale change repeats every key per
-    # language (192 of 210 names on one PR, doubling its prompt tokens), and
-    # AbsenceCheck still uses them, so the locale file paths above are enough.
-    def prompt_definitions
-      definitions.reject { |d| YAML_EXTENSIONS.include?(File.extname(d[:path])) }
     end
   end
 end

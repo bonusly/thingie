@@ -16,8 +16,8 @@ issues which are relevant to any code context.
 
 <%- unless pr_context.to_s.empty? -%>
 ----OTHER CHANGES IN THIS PR----
-This file is reviewed on its own, but it belongs to a larger PR. Anything
-listed here exists at the reviewed commit even though it is not shown above.
+This file is reviewed on its own, but it belongs to a larger PR. These files
+exist at the reviewed commit; read one when this file depends on it.
 <%= pr_context %>
 --------
 
@@ -36,10 +36,9 @@ listed here exists at the reviewed commit even though it is not shown above.
   bugs, security flaws, or clear maintainability concerns).
 - Do not report vague, theoretical, or overly generic advice.
 - Before reporting that something is missing or undefined (a method, class,
-  constant, file, partial, factory, or translation key), check the other
-  changes in this PR listed above and look it up with the available tools.
-  Report an absence only when a lookup confirmed it, and put the missing name
-  in backticks.
+  constant, file, partial, factory, or translation key), check whether one of
+  the files this PR touches adds it, and look it up with the available tools.
+  Report an absence only when a lookup confirmed it.
 <%- if symbol_lookup -%>
 - Before reporting that a method, class, or constant is undefined, misspelled,
   or that a third-party library API is used incorrectly, confirm it with the

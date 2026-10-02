@@ -50,9 +50,7 @@ module Thingie
       issues = gather_llm_issues
       filtered = PostProcessor.new(@config['post_process']).call(issues)
       @debug_output.post_process(before: issues.size, after: filtered.size)
-      present, disproved = AbsenceCheck.new(@pr_context).call(filtered)
-      @debug_output.absence_check(disproved)
-      enriched = CodeEnricher.new(@changeset).call(present)
+      enriched = CodeEnricher.new(@changeset).call(filtered)
       @debug_output.first_pass(enriched)
       verified = verify(enriched)
       obfuscated = ObfuscationDetector.new(@changeset).call
