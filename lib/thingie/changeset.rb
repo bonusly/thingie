@@ -104,6 +104,14 @@ module Thingie
       blob.content.dup.force_encoding('UTF-8')
     end
 
+    # Every patch between the refs, unfiltered: excluded files (locale files,
+    # migrations) are still part of the PR a reviewed file depends on.
+    #
+    # @return [Array<Rugged::Patch>] one patch per touched path
+    def patches
+      @patches ||= diff.patches.to_a
+    end
+
     private
 
     # Look up the blob for a path in the head commit's tree. Returns nil when
@@ -154,10 +162,6 @@ module Thingie
 
     # Index patches by both old and new path once, so per-file lookups during
     # review are O(1) instead of re-scanning every patch.
-    def patches
-      @patches ||= diff.patches.to_a
-    end
-
     def patches_by_path
       @patches_by_path ||= patches.each_with_object({}) do |patch, map|
         [patch.delta.old_file[:path], patch.delta.new_file[:path]].compact.each do |path|

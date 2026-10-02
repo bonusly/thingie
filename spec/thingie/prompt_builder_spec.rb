@@ -20,6 +20,12 @@ RSpec.describe Thingie::PromptBuilder do
       expect(prompt).to include('class Foo')
     end
 
+    it 'shows the PR-wide changes only when there are some', :aggregate_failures do
+      expect(builder.review(diff: 'x', pr_context: "Files this PR touches:\n- added a.rb"))
+        .to include('----OTHER CHANGES IN THIS PR----', '- added a.rb')
+      expect(builder.review(diff: 'x')).not_to include('OTHER CHANGES IN THIS PR')
+    end
+
     it 'includes prompt_vars requirements' do
       prompt = builder.review(diff: '')
       expect(prompt).to include('Lack of DRY principle enforcement')
@@ -123,6 +129,12 @@ RSpec.describe Thingie::PromptBuilder do
       Thingie::Issue.from_hash('title' => 'Leaky query', 'details' => 'd', 'severity' => 1,
                                'confidence' => 2, 'tags' => [], 'file' => 'app.rb',
                                'affected_lines' => [{ 'start_line' => 1 }])
+    end
+
+    it 'shows the PR-wide changes only when there are some', :aggregate_failures do
+      expect(builder.verify(issue: issue, diff: 'x', pr_context: "Files this PR touches:\n- added a.rb"))
+        .to include('----OTHER CHANGES IN THIS PR----', '- added a.rb')
+      expect(builder.verify(issue: issue, diff: 'x')).not_to include('OTHER CHANGES IN THIS PR')
     end
 
     it 'includes the finding\'s current severity and confidence', :aggregate_failures do

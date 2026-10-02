@@ -20,7 +20,8 @@ RSpec.describe Thingie::Verifier do
                                                            'max_concurrent_tasks' => 4 })
   end
   let(:fake_changeset) do
-    instance_double(Thingie::Changeset, diff_text_for: "+ x\n", full_content_for: "x\n")
+    instance_double(Thingie::Changeset, diff_text_for: "+ x\n", full_content_for: "x\n", all?: false,
+                                        patches: [])
   end
   let(:issues) { [issue('keep-me'), issue('reject-me')] }
   # Branch on the rendered prompt (which embeds the finding title) so the result

@@ -25,7 +25,9 @@ module Thingie
     # @param tools [Array, nil] `ruby_llm` tools (e.g. LSP symbol lookup) made available to the critic LLM
     # @param debug_output [Thingie::DebugOutput, nil] optional debug output sink
     # @param usage [Thingie::Stats::Usage, nil] optional accumulator fed each critic response
-    def initialize(config:, changeset:, prompt_builder:, llm_client:, tools: [], debug_output: nil, usage: nil)
+    # @param pr_context [Thingie::PrContext, nil] PR-wide file and definition list for the critic prompt
+    def initialize(config:, changeset:, prompt_builder:, llm_client:, tools: [], debug_output: nil, usage: nil,
+                   pr_context: nil)
       @config = config
       @changeset = changeset
       @prompt_builder = prompt_builder
@@ -33,6 +35,7 @@ module Thingie
       @llm_client = verify_client(config, llm_client)
       @debug_output = debug_output
       @usage = usage
+      @pr_context = pr_context || PrContext.new(changeset)
       @warnings = []
     end
 
@@ -90,7 +93,8 @@ module Thingie
         issue: issue,
         diff: @changeset.diff_text_for(issue.file),
         file_lines: @changeset.full_content_for(issue.file),
-        symbol_lookup: @tools.any?
+        symbol_lookup: @tools.any?,
+        pr_context: @pr_context.to_s
       )
       response = @llm_client.complete_with_schema(prompt, Schemas::VERDICT_SCHEMA, tools: @tools)
       @usage&.record(response)

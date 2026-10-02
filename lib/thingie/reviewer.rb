@@ -31,6 +31,7 @@ module Thingie
       @file_failures = []
       @debug_output = DebugOutput.new(config: config, changeset: changeset, enabled: debug)
       @usage = Stats::Usage.new
+      @pr_context = PrContext.new(changeset)
     end
 
     # Accumulated LLM token/cost usage for the run, fed each review and critic
@@ -75,7 +76,8 @@ module Thingie
       @debug_output.critic_section_start
       verifier = Verifier.new(
         config: @config, changeset: @changeset, prompt_builder: @prompt_builder,
-        llm_client: @llm_client, tools: @tools, debug_output: @debug_output, usage: @usage
+        llm_client: @llm_client, tools: @tools, debug_output: @debug_output, usage: @usage,
+        pr_context: @pr_context
       )
       kept = verifier.call(issues)
       @warnings.concat(verifier.warnings)
@@ -118,7 +120,7 @@ module Thingie
       diff = @changeset.diff_text_for(file)
       full = whole_file ? nil : @changeset.full_content_for(file)
       prompt = @prompt_builder.review(diff: diff, file_lines: full, symbol_lookup: @tools.any?,
-                                      whole_file: whole_file)
+                                      whole_file: whole_file, pr_context: @pr_context.to_s)
       response = @llm_client.complete_with_schema(prompt, Schemas::ISSUE_SCHEMA, tools: @tools)
       @usage.record(response)
       issues = parse_response(response, file)

@@ -17,15 +17,15 @@ RSpec.describe Thingie::Reviewer do
   let(:tmp_dir) { Dir.mktmpdir }
   let(:config) { Thingie::Configuration.new(root: tmp_dir) }
   let(:fake_changeset) do
-    instance_double(Thingie::Changeset,
-                    files: ['app.rb'],
-                    diff_text_for: "+ def hello\n",
-                    full_content_for: "def hello\nend\n",
-                    changed_lines_for: Set.new([1]),
-                    all?: false,
-                    base_ref: 'main',
-                    head_ref: 'HEAD',
-                    head_sha: 'abc123')
+    instance_double(Thingie::Changeset, patches: [],
+                                        files: ['app.rb'],
+                                        diff_text_for: "+ def hello\n",
+                                        full_content_for: "def hello\nend\n",
+                                        changed_lines_for: Set.new([1]),
+                                        all?: false,
+                                        base_ref: 'main',
+                                        head_ref: 'HEAD',
+                                        head_sha: 'abc123')
   end
   let(:fake_llm_client) do
     issues = [{ 'title' => 'Missing return', 'details' => 'No return value', 'severity' => 2,
@@ -63,19 +63,50 @@ RSpec.describe Thingie::Reviewer do
 
   context 'when an issue falls on an unchanged line' do
     let(:fake_changeset) do
-      instance_double(Thingie::Changeset,
-                      files: ['app.rb'],
-                      diff_text_for: "+ def hello\n",
-                      full_content_for: "def hello\nend\n",
-                      changed_lines_for: Set.new([5]), # issue is on line 1, not changed
-                      all?: false,
-                      base_ref: 'main',
-                      head_ref: 'HEAD',
-                      head_sha: 'abc123')
+      instance_double(Thingie::Changeset, patches: [],
+                                          files: ['app.rb'],
+                                          diff_text_for: "+ def hello\n",
+                                          full_content_for: "def hello\nend\n",
+                                          changed_lines_for: Set.new([5]), # issue is on line 1, not changed
+                                          all?: false,
+                                          base_ref: 'main',
+                                          head_ref: 'HEAD',
+                                          head_sha: 'abc123')
     end
 
     it 'drops findings outside the changed lines' do
       expect(reviewer.review.total_issues).to eq(0)
+    end
+  end
+
+  context 'when the PR touches other files' do
+    include GitRepo
+
+    let(:repo) { Dir.mktmpdir }
+    let(:fake_changeset) do
+      git(repo, 'init', '-q', '-b', 'main')
+      git_commit(repo, 'base')
+      git(repo, 'tag', 'base')
+      git_write(repo, 'app/granola_gated.rb', "class GranolaGated\nend\n")
+      git_write(repo, 'app.rb', "GranolaGated.new\n")
+      git_commit(repo, 'head')
+      Thingie::Changeset.new(repo_path: repo, base_ref: 'base', filters: ['app.rb'])
+    end
+    let(:prompts) { [] }
+    let(:fake_llm_client) do
+      response = message_double(content: { 'issues' => [] }, input_tokens: 1, output_tokens: 1, tool_calls: {},
+                                cache_read_tokens: nil, cache_write_tokens: nil, cost: nil, model_info: nil,
+                                thinking: nil, thinking_tokens: nil)
+      instance_double(Thingie::LlmClient).tap do |client|
+        allow(client).to receive(:complete_with_schema) { |prompt, *| (prompts << prompt) && response }
+      end
+    end
+
+    after { FileUtils.rm_rf(repo) }
+
+    it 'lists them in the review prompt' do
+      reviewer.review
+      expect(prompts.first).to include('----OTHER CHANGES IN THIS PR----', '- added app/granola_gated.rb')
     end
   end
 
@@ -98,7 +129,7 @@ RSpec.describe Thingie::Reviewer do
   context 'when the LLM client fails on only some files' do
     let(:fake_changeset) do
       instance_double(Thingie::Changeset).tap do |changeset|
-        allow(changeset).to receive_messages(files: ['app.rb', 'other.rb'],
+        allow(changeset).to receive_messages(files: ['app.rb', 'other.rb'], patches: [],
                                              changed_lines_for: Set.new([1]), all?: false,
                                              base_ref: 'main', head_ref: 'HEAD', head_sha: 'abc123')
         allow(changeset).to receive(:diff_text_for) { |file| file == 'other.rb' ? "+ def other\n" : "+ def hello\n" }
@@ -135,15 +166,15 @@ RSpec.describe Thingie::Reviewer do
 
   context 'when reviewing the whole codebase' do
     let(:fake_changeset) do
-      instance_double(Thingie::Changeset,
-                      files: ['app.rb'],
-                      diff_text_for: "def hello\nend\n",
-                      full_content_for: "def hello\nend\n",
-                      changed_lines_for: nil,
-                      all?: true,
-                      base_ref: 'main',
-                      head_ref: 'HEAD',
-                      head_sha: 'abc123')
+      instance_double(Thingie::Changeset, patches: [],
+                                          files: ['app.rb'],
+                                          diff_text_for: "def hello\nend\n",
+                                          full_content_for: "def hello\nend\n",
+                                          changed_lines_for: nil,
+                                          all?: true,
+                                          base_ref: 'main',
+                                          head_ref: 'HEAD',
+                                          head_sha: 'abc123')
     end
     let(:prompt_builder) do
       builder = Thingie::PromptBuilder.new(config)
@@ -158,7 +189,7 @@ RSpec.describe Thingie::Reviewer do
     it 'marks the prompt as whole-file and does not duplicate the content' do
       reviewer.review
       expect(prompt_builder).to have_received(:review)
-        .with(diff: "def hello\nend\n", file_lines: nil, symbol_lookup: false, whole_file: true)
+        .with(diff: "def hello\nend\n", file_lines: nil, symbol_lookup: false, whole_file: true, pr_context: '')
     end
   end
 
@@ -167,15 +198,15 @@ RSpec.describe Thingie::Reviewer do
       '4142434445464748494a4b4c4d4e4f505152535455565758595a6162636465666768696a6b6c6d6e6f70'
     end
     let(:fake_changeset) do
-      instance_double(Thingie::Changeset,
-                      files: ['app.rb'],
-                      diff_text_for: "+ def hello\n",
-                      full_content_for: "def hello\nend\npayload = '#{hex_blob}'\n",
-                      changed_lines_for: Set.new([1]),
-                      all?: false,
-                      base_ref: 'main',
-                      head_ref: 'HEAD',
-                      head_sha: 'abc123')
+      instance_double(Thingie::Changeset, patches: [],
+                                          files: ['app.rb'],
+                                          diff_text_for: "+ def hello\n",
+                                          full_content_for: "def hello\nend\npayload = '#{hex_blob}'\n",
+                                          changed_lines_for: Set.new([1]),
+                                          all?: false,
+                                          base_ref: 'main',
+                                          head_ref: 'HEAD',
+                                          head_sha: 'abc123')
     end
 
     it 'adds the obfuscation finding alongside the LLM findings', :aggregate_failures do
