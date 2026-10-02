@@ -269,14 +269,34 @@ module Thingie
       # @param tools [Array] RubyLLM tools to make available to the LLM
       # @return [Thingie::Reviewer] the configured reviewer
       def build_reviewer(config, changeset, tools = [])
+        prompt_builder = Thingie::PromptBuilder.new(config)
+        usage = Thingie::Stats::Usage.new
+        source = build_source(config, changeset, prompt_builder, usage)
         Thingie::Reviewer.new(
           config: config,
           changeset: changeset,
-          prompt_builder: Thingie::PromptBuilder.new(config),
+          prompt_builder: prompt_builder,
           llm_client: Thingie::LlmClient.new(config),
           tools: tools,
-          debug: debug_enabled?
+          debug: debug_enabled?,
+          source: source,
+          usage: usage
         )
+      end
+
+      # The first-pass finding source: a headless Claude Code run when the
+      # config (or REVIEW_SOURCE) selects it, else nil for the per-file LLM review.
+      #
+      # @param config [Thingie::Configuration] the loaded configuration
+      # @param changeset [Thingie::Changeset] the changeset to review
+      # @param prompt_builder [Thingie::PromptBuilder] renders the run's instruction
+      # @param usage [Thingie::Stats::Usage] the run-wide usage accumulator
+      # @return [Thingie::ClaudeCodeSource, nil] the source, or nil for the default review
+      def build_source(config, changeset, prompt_builder, usage)
+        return nil unless Thingie::ClaudeCodeSource.selected?(config)
+
+        Thingie::ClaudeCodeSource.new(config: config, changeset: changeset, prompt_builder: prompt_builder,
+                                      usage: usage)
       end
 
       # One LSP client per configured language whose extensions match a changed

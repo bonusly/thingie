@@ -28,6 +28,7 @@ module Thingie
     # @return [String] CLI-formatted report
     def to_cli
       output = summary_line
+      output += "#{source_line}\n"
       output += @report.issues.map { |issue| render_issue(issue) }.join
       output
     end
@@ -36,12 +37,34 @@ module Thingie
     #
     # @return [String] Markdown-formatted report
     def to_md
-      lines = [Thingie::GitHub::Context::SUMMARY_MARKER, md_summary_line]
+      lines = [Thingie::GitHub::Context::SUMMARY_MARKER, "#{md_summary_line}\n_#{source_line}_"]
       lines += @report.issues.map { |issue| md_issue(issue) }
+      lines << md_details
       lines.join("\n\n")
     end
 
     private
+
+    # Says which review ran so a reader can tell a deep run from the default.
+    def source_line
+      details = @report.details || {}
+      if details['source'] == ClaudeCodeSource::SOURCE_NAME
+        "Reviewed with Claude Code `#{details['skill']}` (#{@report.model})"
+      else
+        "Reviewed with #{@report.model}"
+      end
+    end
+
+    # Run metadata, collapsed: what ran, how long, what it cost, and for a
+    # Claude Code run its own written review, for "why did it say this?".
+    def md_details
+      details = @report.details || {}
+      rows = details.except('notes').map { |key, value| "- **#{key}:** #{value}" }
+      notes = details['notes'].to_s.strip
+      body = rows.join("\n")
+      body += "\n\n**Reviewer notes**\n\n#{notes}" unless notes.empty?
+      "<details><summary>Review details</summary>\n\n#{body}\n\n</details>"
+    end
 
     def summary_line
       if @report.total_issues.positive?

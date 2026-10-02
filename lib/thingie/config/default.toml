@@ -153,6 +153,35 @@ json_requirements = """
   format.
 """
 
+[review]
+# Where first-pass findings come from. "llm" (default) is Thingie's own
+# per-file review with the model above. "claude_code" runs the Claude Code CLI
+# headless over the whole changeset with a project skill (see [claude_code]);
+# its findings then go through the same thresholds, critic pass and PR
+# comments. Override per run with REVIEW_SOURCE=claude_code, e.g. from a
+# workflow that only escalates labelled PRs.
+source = "llm"
+
+[claude_code]
+# Settings for source = "claude_code". The CLI must be installed on PATH and
+# authenticated (ANTHROPIC_API_KEY); it reads the reviewed project's own
+# .claude/ skills and rules.
+command = "claude"
+# Slash command run over the changeset; it must exist in the reviewed project.
+skill = "/code-review"
+# Model for the run; empty uses the CLI's default.
+model = ""
+# Hard spend cap per run, in USD (the CLI stops when reached).
+max_budget_usd = 5.0
+# Tools the run may use without prompting. Keep it read-only plus git reads:
+# Thingie posts the findings, the run must not.
+allowed_tools = ["Read", "Grep", "Glob", "Task", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)"]
+# Seconds before the run is killed.
+timeout = 1800
+# Where to save the CLI's full JSON result (relative to the project root) for
+# debugging; empty disables. Upload it as a CI artifact next to the report.
+raw_output_file = "log/thingie-claude-code.json"
+
 [post_process]
 # This is the SHOW line: thresholds applied to issues after the LLM returns
 # them, controlling whether a finding is surfaced to maintainers at all (as a

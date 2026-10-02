@@ -16,12 +16,18 @@ module Thingie
     # @param llm_client [Thingie::LlmClient] wraps the LLM used for review calls
     # @param tools [Array, nil] `ruby_llm` tools (e.g. LSP symbol lookup) made available to the LLM
     # @param debug [Boolean] enable verbose debug output during the pipeline
-    def initialize(config:, changeset:, prompt_builder:, llm_client:, tools: [], debug: false)
+    # @param source [#call, nil] alternative first-pass finding source (see {ClaudeCodeSource});
+    #   nil runs Thingie's own per-file LLM review
+    # @param usage [Thingie::Stats::Usage, nil] usage accumulator, shared with `source` so one
+    #   total covers the first pass and the critic; a fresh one when nil
+    def initialize(config:, changeset:, prompt_builder:, llm_client:, tools: [], debug: false, source: nil,
+                   usage: nil)
       @config = config
       @changeset = changeset
       @prompt_builder = prompt_builder
       @llm_client = llm_client
       @tools = tools || []
+      @source = source
       # Plain array: Async runs fibers cooperatively on a single thread, so
       # appends between scheduler yields do not race. No lock needed.
       @warnings = []
@@ -30,7 +36,7 @@ module Thingie
       # #raise_if_total_failure). Same cooperative-single-thread guarantee.
       @file_failures = []
       @debug_output = DebugOutput.new(config: config, changeset: changeset, enabled: debug)
-      @usage = Stats::Usage.new
+      @usage = usage || Stats::Usage.new
       @pr_context = PrContext.new(changeset)
     end
 
@@ -47,7 +53,7 @@ module Thingie
     def review
       @debug_output.banner
       @debug_output.review_section_start
-      issues = gather_llm_issues
+      issues = @source ? gather_source_issues : gather_llm_issues
       filtered = PostProcessor.new(@config['post_process']).call(issues)
       @debug_output.post_process(before: issues.size, after: filtered.size)
       enriched = CodeEnricher.new(@changeset).call(filtered)
@@ -63,13 +69,21 @@ module Thingie
     private
 
     def build_report(issues)
-      Report.new(
-        target: build_target,
-        model: @config['model'],
-        issues: issues,
-        processing_warnings: @warnings,
-        number_of_processed_files: @changeset.files.size
-      )
+      Report.new(target: build_target, model: @source ? @source.model : @config['model'], issues: issues,
+                 processing_warnings: @warnings, number_of_processed_files: @changeset.files.size,
+                 details: run_details)
+    end
+
+    def run_details
+      critic = @config.dig('verify', 'model').to_s
+      base = { 'source' => 'llm', 'model' => @config['model'], 'critic_model' => (critic unless critic.empty?) }
+      base.compact.merge(@source&.details || {})
+    end
+
+    # One run covers the whole changeset, so apply the changed-line filter per
+    # file afterwards instead of inside the per-file loop.
+    def gather_source_issues
+      @source.call.group_by(&:file).flat_map { |file, issues| only_changed_lines(issues, file) }
     end
 
     def verify(issues)
@@ -165,16 +179,8 @@ module Thingie
     end
 
     def build_target
-      ReviewTarget.new(
-        platform: 'local',
-        repo_url: nil,
-        pr_number: nil,
-        commit_sha: @changeset.head_sha,
-        branch: nil,
-        base_ref: @changeset.base_ref,
-        head_ref: @changeset.head_ref,
-        merge_base: false
-      )
+      ReviewTarget.new(platform: 'local', repo_url: nil, pr_number: nil, commit_sha: @changeset.head_sha,
+                       branch: nil, base_ref: @changeset.base_ref, head_ref: @changeset.head_ref, merge_base: false)
     end
   end
 end

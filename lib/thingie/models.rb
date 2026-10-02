@@ -154,7 +154,7 @@ module Thingie
   # Collection of issues and metadata produced by a review run.
   class Report
     attr_reader :target, :issues, :processing_warnings, :created_at, :model,
-                :number_of_processed_files
+                :number_of_processed_files, :details
 
     # Loads a `Report` from a saved JSON file.
     #
@@ -186,7 +186,8 @@ module Thingie
         model: data['model'],
         issues: issues,
         processing_warnings: data['processing_warnings'] || [],
-        number_of_processed_files: data['number_of_processed_files']
+        number_of_processed_files: data['number_of_processed_files'],
+        details: data['details'] || {}
       )
     end
 
@@ -198,13 +199,16 @@ module Thingie
     # @param processing_warnings [Array<String>] non-fatal warnings from the review pipeline
     # @param number_of_processed_files [Integer, nil] files processed; defaults to the
     #   unique file count across `issues`
+    # @param details [Hash{String=>Object}] how the review ran (source, turns, cost, notes),
+    #   shown collapsed under the PR summary so a reader can tell why a finding appeared
     def initialize(target:, model:, issues: [], processing_warnings: [],
-                   number_of_processed_files: nil)
+                   number_of_processed_files: nil, details: {})
       @target = target
       @model = model
       @issues = Array(issues)
       @processing_warnings = Array(processing_warnings)
       @number_of_processed_files = number_of_processed_files || @issues.map(&:file).compact.uniq.size
+      @details = (details || {}).transform_keys(&:to_s)
       @created_at = Time.now.iso8601
     end
 
@@ -226,6 +230,7 @@ module Thingie
         'number_of_processed_files' => number_of_processed_files,
         'total_issues' => total_issues,
         'processing_warnings' => @processing_warnings,
+        'details' => @details,
         'created_at' => @created_at
       }
     end

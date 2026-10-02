@@ -66,5 +66,37 @@ RSpec.describe Thingie::ReportRenderer do
     it 'reports the number of processed files in Markdown output' do
       expect(renderer.to_md).to include('**✅ No issues found** across 5 file(s)')
     end
+
+    it 'says which model reviewed, so a reader can tell the tier' do
+      expect(renderer.to_md).to include('_Reviewed with gpt-4o_')
+    end
+  end
+
+  context 'when a Claude Code run produced the findings' do
+    let(:report) do
+      Thingie::Report.new(
+        target: Thingie::ReviewTarget.new(
+          platform: 'local', repo_url: nil, pr_number: nil, commit_sha: nil,
+          branch: nil, base_ref: 'main', head_ref: 'HEAD', merge_base: false
+        ),
+        model: 'claude-sonnet-5-5',
+        issues: [],
+        number_of_processed_files: 2,
+        details: { 'source' => 'claude_code', 'skill' => '/code-review', 'turns' => 17, 'cost_usd' => 0.42,
+                   'notes' => "## Summary\nThe N+1 was confirmed against the loader." }
+      )
+    end
+
+    it 'names the skill and model in the summary line' do
+      expect(renderer.to_md).to include('_Reviewed with Claude Code `/code-review` (claude-sonnet-5-5)_')
+    end
+
+    it 'collapses the run details and reviewer notes under the summary', :aggregate_failures do
+      output = renderer.to_md
+      expect(output).to include('<details><summary>Review details</summary>')
+      expect(output).to include('- **turns:** 17', '- **cost_usd:** 0.42')
+      expect(output).to include("**Reviewer notes**\n\n## Summary\nThe N+1 was confirmed")
+      expect(output).not_to include('- **notes:**')
+    end
   end
 end

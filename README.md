@@ -317,6 +317,35 @@ path = "log/thingie-stats.jsonl"
 
 Thingie automatically discovers markdown files (`.md`) in skill directories and injects them as additional rules in every review prompt. By default it scans `.agents/`, `.claude/`, and `.cursor/` in the project root. Override this with the `skill_directories` config key.
 
+### Deep reviews with Claude Code (`review.source = "claude_code"`)
+
+Thingie can take its first-pass findings from a headless [Claude Code](https://code.claude.com) run instead of its own per-file review. Claude Code runs a project skill (by default `/code-review`) over the whole changeset, exploring the repository with its own tools and reading the project's `.claude/` skills and rules, and returns findings as structured output on Thingie's severity and confidence scales. Everything after that is unchanged: thresholds, the critic pass, inline comments, stale-thread resolution, and stats, so a deep review is directly comparable to a default one.
+
+```toml
+[review]
+source = "claude_code"      # or REVIEW_SOURCE=claude_code for one run
+
+[claude_code]
+skill = "/code-review"      # must exist in the reviewed project
+model = ""                  # empty: the CLI's default
+max_budget_usd = 5.0        # the run stops when reached
+allowed_tools = ["Read", "Grep", "Glob", "Task", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)"]
+timeout = 1800
+raw_output_file = "log/thingie-claude-code.json"
+```
+
+The runner needs the CLI on `PATH` (`npm install -g @anthropic-ai/claude-code`) and `ANTHROPIC_API_KEY` in the environment; the critic pass still uses `LLM_API_KEY`. A run that exits non-zero or ends without structured output (budget or turn cap) fails the review rather than posting a clean "no issues". The run's cost is recorded in the usage stats like any LLM call.
+
+A typical setup keeps the default review on every push and switches to `claude_code` only when a PR carries a label, by setting `REVIEW_SOURCE` from the workflow:
+
+```yaml
+env:
+  REVIEW_SOURCE: ${{ contains(github.event.pull_request.labels.*.name, 'review:high') && 'claude_code' || '' }}
+  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+```
+
+The summary comment says which review ran ("Reviewed with Claude Code `/code-review` (model)") and carries a collapsed **Review details** block with the turns, duration, cost and the run's own written review, so a reader can see why a finding was raised. The full CLI result is saved to `raw_output_file` for uploading as a CI artifact.
+
 ### The critic pass (reducing false positives)
 
 The biggest source of noise in AI review is confident-but-wrong findings —

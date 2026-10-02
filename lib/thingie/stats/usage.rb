@@ -41,6 +41,25 @@ module Thingie
         nil
       end
 
+      # Adds already-summed totals, for a source that reports usage as plain
+      # numbers (a CLI's JSON result) rather than a `ruby_llm` response. Each
+      # value is added only when `Numeric`, like `#record`.
+      #
+      # @param input_tokens [Numeric, nil] prompt tokens
+      # @param output_tokens [Numeric, nil] completion tokens
+      # @param cache_read_tokens [Numeric, nil] prompt tokens served from cache
+      # @param cache_write_tokens [Numeric, nil] prompt tokens written to cache
+      # @param cost [Numeric, nil] total cost in USD
+      # @return [void]
+      def record_totals(input_tokens: nil, output_tokens: nil, cache_read_tokens: nil, cache_write_tokens: nil,
+                        cost: nil)
+        @input_tokens = add_numeric(@input_tokens, input_tokens)
+        @output_tokens = add_numeric(@output_tokens, output_tokens)
+        @cache_read_tokens = add_numeric(@cache_read_tokens, cache_read_tokens)
+        @cache_write_tokens = add_numeric(@cache_write_tokens, cache_write_tokens)
+        @cost = add_numeric(@cost, cost)
+      end
+
       # Serializes the accumulated totals into a string-keyed Hash with nils
       # intact (so an unused counter serializes as JSON `null`, not `0`).
       #

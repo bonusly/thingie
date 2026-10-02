@@ -10,6 +10,7 @@ module Thingie
   class PromptBuilder
     REVIEW_TEMPLATE = File.expand_path('prompts/review.erb', __dir__)
     VERIFY_TEMPLATE = File.expand_path('prompts/verify.erb', __dir__)
+    CLAUDE_CODE_TEMPLATE = File.expand_path('prompts/claude_code.erb', __dir__)
 
     # ERB's result_with_hash raises NameError for any var referenced in a
     # template but absent from the hash, so these (used unconditionally in
@@ -62,6 +63,23 @@ module Thingie
                                        'confidence_scale' => format_scale(@config.confidence_scale),
                                        'show_threshold_text' => show_threshold_text,
                                        'block_threshold_text' => block_threshold_text)
+    end
+
+    # Render the instruction (`claude_code.erb`) handed to a headless Claude Code
+    # run: invoke the skill over the whole changeset and return findings on
+    # Thingie's severity/confidence scales.
+    #
+    # @param skill [String] the slash command to run, e.g. `/code-review`
+    # @param base_ref [String] ref the changes are compared against
+    # @param head_ref [String] ref under review
+    # @param files [Array<String>] repo-relative paths in the changeset
+    # @return [String] the rendered prompt text
+    def claude_code(skill:, base_ref:, head_ref:, files:)
+      render_template(CLAUDE_CODE_TEMPLATE, 'skill' => skill, 'base_ref' => base_ref, 'head_ref' => head_ref,
+                                            'files' => files,
+                                            'severity_scale' => format_scale(@config.severity_scale),
+                                            'confidence_scale' => format_scale(@config.confidence_scale),
+                                            'show_threshold_text' => show_threshold_text)
     end
 
     private

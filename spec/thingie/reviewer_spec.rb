@@ -61,6 +61,46 @@ RSpec.describe Thingie::Reviewer do
     expect(report.target.commit_sha).to eq('abc123')
   end
 
+  context 'with a Claude Code finding source' do
+    subject(:reviewer) do
+      described_class.new(
+        config: config, changeset: fake_changeset, prompt_builder: Thingie::PromptBuilder.new(config),
+        llm_client: fake_llm_client, source: source, usage: usage
+      )
+    end
+
+    let(:usage) { Thingie::Stats::Usage.new }
+    let(:source_issue) do
+      Thingie::IssueParser.new.parse(
+        [{ 'title' => 'From Claude', 'details' => 'd', 'severity' => 2, 'confidence' => 1, 'tags' => [],
+           'affected_lines' => [{ 'start_line' => 1 }] },
+         { 'title' => 'Unchanged line', 'details' => 'd', 'severity' => 2, 'confidence' => 1, 'tags' => [],
+           'affected_lines' => [{ 'start_line' => 2 }] }], 'app.rb'
+      )
+    end
+    let(:source) do
+      instance_double(Thingie::ClaudeCodeSource, call: source_issue, model: 'claude-sonnet-5-5',
+                                                 details: { 'source' => 'claude_code', 'skill' => '/code-review',
+                                                            'turns' => 3 })
+    end
+
+    it 'takes the first pass from the source, filtered to changed lines, and still runs the critic',
+       :aggregate_failures do
+      report = reviewer.review
+      expect(report.issues.map(&:title)).to eq(['From Claude'])
+      expect(report.model).to eq('claude-sonnet-5-5')
+      expect(report.details).to include('source' => 'claude_code', 'skill' => '/code-review', 'turns' => 3)
+      # Only the critic recorded a response; the source records into the shared usage itself.
+      expect(usage.input_tokens).to eq(100)
+    end
+  end
+
+  it 'records the default source in the report details', :aggregate_failures do
+    details = reviewer.review.details
+    expect(details['source']).to eq('llm')
+    expect(details['model']).to eq(config['model'])
+  end
+
   context 'when an issue falls on an unchanged line' do
     let(:fake_changeset) do
       instance_double(Thingie::Changeset, patches: [],
