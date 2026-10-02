@@ -453,6 +453,26 @@ RSpec.describe Thingie::GitHub::Approver do # rubocop:disable RSpec/SpecFilePath
     expect(client).to have_received(:add_comment).with('o/r', 1, a_string_including("Thingie v#{Thingie::VERSION}"))
   end
 
+  it 'says there were no issues in the status comment on a clean run' do
+    allow(pr).to receive_messages(additions: 600, deletions: 0)
+    approver.run(report_for([]))
+
+    expect(client).to have_received(:add_comment).with('o/r', 1, a_string_including('No issues found'))
+  end
+
+  it 'says there were no issues in the approval review body on a clean run' do
+    approver.run(report_for([]))
+
+    expect(client).to have_received(:create_pull_request_review)
+      .with('o/r', 1, hash_including(body: a_string_including('No issues found')))
+  end
+
+  it 'leaves the no-issues line out of the status comment when there are findings' do
+    approver.run(report_for([build_issue(1)]))
+
+    expect(client).to have_received(:add_comment).with('o/r', 1, satisfy { |body| !body.include?('No issues found') })
+  end
+
   it 'includes the Thingie version in the approval review body' do
     approver.run(report_for([]))
 

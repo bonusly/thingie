@@ -186,8 +186,12 @@ module Thingie
       summary = File.read(options[:md_report_file] || 'code-review-report.md')
       report = Thingie::Report.from_file(json_path_for(options[:md_report_file]))
       debug_approve_state
-      commenter.post_review(summary: summary, report: report)
-      maybe_approve(context, report, summary)
+      approving = approval_config.is_a?(Hash) && approval_config['enabled']
+      # With approval on, the approval review or status comment carries the
+      # "No issues found" line; fall back to a comment if the approver failed.
+      commenter.post_review(summary: summary, report: report, clean_summary: !approving)
+      decision = maybe_approve(context, report, summary)
+      commenter.post_clean_summary(summary) if approving && decision.nil? && report.issues.empty?
     rescue StandardError => e
       warn "GitHub comment failed: #{e.message}"
       exit 1
@@ -369,20 +373,33 @@ module Thingie
         )
       end
 
-      # Auto-approve the PR when the [approve] config block is enabled. Loads
-      # config here because github-comment otherwise runs without it.
+      # Auto-approve the PR when the [approve] config block is enabled.
       #
       # @param context [Thingie::GitHub::Context, nil] the resolved GitHub Action context
       # @param report [Thingie::Report] the review report
       # @param summary [String] the Markdown review summary
-      # @return [void]
+      # @return [Thingie::GitHub::Approver::Decision, nil] the decision, or nil when
+      #   approval is disabled or the approver failed
       def maybe_approve(context, report, summary)
-        config = Thingie::Configuration.new
-        approve = config['approve']
+        approve = approval_config
         return unless approve.is_a?(Hash) && approve['enabled']
 
-        decision = build_approver(context, approve, summary, approval_llm_client(config)).run(report)
-        emit_approval_stats(config, context, approve, decision) if decision
+        decision = build_approver(context, approve, summary, approval_llm_client(config_for_approval)).run(report)
+        emit_approval_stats(config_for_approval, context, approve, decision) if decision
+        decision
+      end
+
+      # The `[approve]` config section. Loaded here because github-comment
+      # otherwise runs without config.
+      #
+      # @return [Hash, nil] the section, or nil when absent
+      def approval_config
+        config_for_approval['approve']
+      end
+
+      # @return [Thingie::Configuration] the configuration, loaded once
+      def config_for_approval
+        @config_for_approval ||= Thingie::Configuration.new
       end
 
       # Emits the `approval.decided` stats event for an approver decision.

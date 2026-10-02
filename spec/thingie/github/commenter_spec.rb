@@ -61,6 +61,12 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
       .with('o/r', 1, a_string_including('[Critical]'), 'commit-sha', 'app.rb', 11, { side: 'RIGHT' })
   end
 
+  it 'leaves the no-issues summary to the approver when asked' do
+    commenter.post_review(summary: 'All good', report: report_for([]), clean_summary: false)
+
+    expect(client).not_to have_received(:add_comment)
+  end
+
   it 'posts the summary comment only when there are no issues', :aggregate_failures do
     commenter.post_review(summary: 'All good', report: report_for([]))
 

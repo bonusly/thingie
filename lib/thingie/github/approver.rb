@@ -354,6 +354,7 @@ module Thingie
       def approval_body(pr, report)
         [
           APPROVAL_MARKER,
+          clean_headline(report),
           'Approved automatically by Thingie: all auto-approval rules passed.',
           *approval_details(pr, report)
         ].compact.join("\n\n")
@@ -363,6 +364,7 @@ module Thingie
         [
           STATUS_MARKER,
           '_Dry run — no approval action was taken._',
+          clean_headline(report),
           'Thingie would automatically approve this PR: all auto-approval rules passed.',
           *approval_details(pr, report)
         ].compact.join("\n\n")
@@ -477,6 +479,12 @@ module Thingie
         "<details><summary>Thingie details</summary>\n\n#{rows.join("\n")}\n\n</details>"
       end
 
+      # The review's "No issues found" line. On a clean run Thingie posts no
+      # separate summary comment, so the approval or status comment carries it.
+      def clean_headline(report)
+        ReportRenderer.new(report).md_summary_line if report.issues.empty?
+      end
+
       def version_line
         "_Thingie v#{Thingie::VERSION}_"
       end
@@ -562,7 +570,7 @@ module Thingie
         elsif decision.action == :approve
           remove_status_comment(existing) if existing
         else
-          upsert_status_comment(existing, status_body(decision))
+          upsert_status_comment(existing, status_body(decision, report))
         end
       rescue Octokit::Error => e
         warn "Could not post auto-approval status comment — #{e.message}"
@@ -572,12 +580,13 @@ module Thingie
         @client.issue_comments(slug, @pr_number).find { |comment| comment.body.to_s.include?(STATUS_MARKER) }
       end
 
-      def status_body(decision)
+      def status_body(decision, report)
         blocked = decision.action == :block
         headline = blocked ? 'Thingie did not auto-approve this PR:' : 'Thingie auto-approval skipped:'
         reasons = decision.reasons.map { |reason| "- #{reason}" }.join("\n")
         parts = [STATUS_MARKER]
         parts << '_Dry run — no approval action was taken._' if dry_run?
+        parts << clean_headline(report) if report.issues.empty?
         parts << "**#{headline}**"
         parts << reasons
         parts << version_line

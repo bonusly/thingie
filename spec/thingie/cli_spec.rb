@@ -128,7 +128,7 @@ RSpec.describe Thingie::CLI do
                                          branch: 'feat', base_ref: 'main', head_ref: 'HEAD', merge_base: false)
       Thingie::Report.new(target: target, model: 'm', issues: [], number_of_processed_files: 1)
     end
-    let(:fake_commenter) { instance_double(Thingie::GitHub::Commenter, post_review: nil) }
+    let(:fake_commenter) { instance_double(Thingie::GitHub::Commenter, post_review: nil, post_clean_summary: nil) }
     let(:fake_approver) { instance_double(Thingie::GitHub::Approver) }
 
     before do
@@ -159,6 +159,21 @@ RSpec.describe Thingie::CLI do
       expect(event['repo']).to eq('o/r')
       expect(event['pr_number']).to eq(42)
       expect(event['dry_run']).to be(false)
+    end
+
+    it 'leaves the no-issues line to the approver', :aggregate_failures do
+      run_github_comment
+
+      expect(fake_commenter).to have_received(:post_review)
+        .with(summary: 'summary', report: anything, clean_summary: false)
+      expect(fake_commenter).not_to have_received(:post_clean_summary)
+    end
+
+    it 'posts the no-issues comment itself when the approver fails' do
+      allow(fake_approver).to receive(:run).and_return(nil)
+      run_github_comment
+
+      expect(fake_commenter).to have_received(:post_clean_summary).with('summary')
     end
   end
 
