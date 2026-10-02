@@ -1,0 +1,29 @@
+<%= skill %>
+
+Review the changes between `<%= base_ref %>` and `<%= head_ref %>` in this
+repository (`git diff <%= base_ref %>...<%= head_ref %>`). The changed files are:
+<%- files.each do |file| -%>
+- <%= file %>
+<%- end -%>
+
+Run the review as the skill describes, then report every finding that
+survived your own verification as structured output. Do not post comments,
+push, or modify files.
+
+For each finding:
+- `file` is the repo-relative path exactly as listed above.
+- `affected_lines` use new-side line numbers at `<%= head_ref %>`; only report
+  lines added or modified in the diff.
+- `severity` and `confidence` use these integer scales (1 is most severe /
+  most confident):
+
+Issue severity scale:
+<%= severity_scale %>
+
+Confidence scale:
+<%= confidence_scale %>
+
+<%= show_threshold_text %>
+<%= severity_rubric %>
+If you are unsure whether a finding clears the "shown at all" bar above, lean
+toward NOT reporting it. If nothing qualifies, return an empty `issues` list.

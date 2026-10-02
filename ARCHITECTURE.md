@@ -40,11 +40,16 @@ review command
  build changeset .............. rugged diff between refs, merge-base, filters
       |
       v
- for each changed file:
+ first pass, one of:
+   [review] source = "llm" (default), for each changed file:
       assemble context ........... diff + whole file snapshot
       prompt LLM ................. ruby_llm with system prompt + JSON schema
                                    (model may call LSP tools for extra context)
       parse JSON issues .......... validate against Issue schema
+   [review] source = "claude_code", once for the whole changeset:
+      run `claude -p <skill>` .... ClaudeCodeSource; headless, read-only tools,
+                                   --json-schema (Issue schema + file), budget cap
+      parse structured output .... same IssueParser, grouped per file
       |
       v
  post-process .................. default filter: confidence == 1, severity <= 3

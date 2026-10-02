@@ -124,6 +124,31 @@ RSpec.describe Thingie::PromptBuilder do
     end
   end
 
+  describe '#claude_code' do
+    subject(:prompt) { builder.claude_code(skill: '/code-review', base_ref: 'main', head_ref: 'HEAD', files: files) }
+
+    let(:files) { ['app.rb', 'lib/b.rb'] }
+
+    it 'opens with the skill and names the diff range and files', :aggregate_failures do
+      expect(prompt).to start_with('/code-review')
+      expect(prompt).to include('git diff main...HEAD', "- app.rb\n- lib/b.rb\n")
+    end
+
+    it 'includes the scales, show-line threshold and severity rubric', :aggregate_failures do
+      expect(prompt).to include('1 — Critical', '1 — Highest, 100% confidence')
+      expect(prompt).to include('Grade severity by real-world consequence')
+      expect(prompt).to include('severity 4 (Low) or better')
+    end
+
+    context 'when prompt_vars omits severity_rubric' do
+      let(:config) { Thingie::Configuration.new(root: tmp_dir, overrides: { 'prompt_vars' => {} }) }
+
+      it 'renders without raising' do
+        expect { prompt }.not_to raise_error
+      end
+    end
+  end
+
   describe '#verify' do
     let(:issue) do
       Thingie::Issue.from_hash('title' => 'Leaky query', 'details' => 'd', 'severity' => 1,

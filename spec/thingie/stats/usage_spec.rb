@@ -31,6 +31,18 @@ RSpec.describe Thingie::Stats::Usage do
     expect(usage.cost).to be_within(1e-9).of(0.0003)
   end
 
+  it 'adds plain totals on top of recorded responses', :aggregate_failures do
+    usage = described_class.new
+    usage.record(response(input: 100, output: 50, cost_total: 0.0001))
+    usage.record_totals(input_tokens: 1000, output_tokens: 200, cache_write_tokens: 10, cost: 0.42)
+
+    expect(usage.input_tokens).to eq(1100)
+    expect(usage.output_tokens).to eq(250)
+    expect(usage.cache_read_tokens).to be_nil
+    expect(usage.cache_write_tokens).to eq(10)
+    expect(usage.cost).to be_within(1e-9).of(0.4201)
+  end
+
   it 'is a no-op on a nil response' do
     usage = described_class.new
     usage.record(nil)
