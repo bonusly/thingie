@@ -49,8 +49,7 @@ module Thingie
       @settings['model'] = nil if @settings['model'].to_s.strip.empty?
       # `--json-schema` only works with models the CLI knows; for anything else
       # the JSON is asked for in the prompt and read back out of the result text.
-      @provider = config['provider']
-      @models_file = config['models_file']
+      @provider, @models_file = config.values_at('provider', 'models_file')
       @changeset = changeset
       @prompt_builder = prompt_builder
       @usage = usage
