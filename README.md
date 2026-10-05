@@ -340,7 +340,7 @@ A typical setup keeps the default review on every push and switches to `claude_c
 
 ```yaml
 env:
-  REVIEW_SOURCE: ${{ contains(github.event.pull_request.labels.*.name, 'review:high') && 'claude_code' || '' }}
+  REVIEW_SOURCE: ${{ contains(github.event.pull_request.labels.*.name, 'thingie-review-high') && 'claude_code' || '' }}
   ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 ```
 
