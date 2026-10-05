@@ -15,7 +15,7 @@ RSpec.describe Thingie::ClaudeCodeSource do
   let(:usage) { Thingie::Stats::Usage.new }
   let(:changeset) do
     instance_double(Thingie::Changeset, files: ['app.rb', 'lib/b.rb'], base_ref: 'main', head_ref: 'HEAD',
-                                        workdir: tmp_dir)
+                                        workdir: tmp_dir, patch_text: "diff --git a/app.rb b/app.rb\n+def hello\n")
   end
   let(:status) { instance_double(Process::Status, success?: true, exitstatus: 0) }
   let(:findings) do
@@ -68,6 +68,12 @@ RSpec.describe Thingie::ClaudeCodeSource do
     expect(call[:argv]).not_to include('--disallowedTools')
     expect(call[:stdin]).to start_with('/code-review')
     expect(call[:stdin]).to include('`main`', '- app.rb', '- lib/b.rb', '1 — Critical')
+  end
+
+  it 'hands the run the diff as a file and points the prompt at it', :aggregate_failures do
+    source.call
+    expect(File.read(File.join(tmp_dir, 'log/thingie-changeset.diff'))).to start_with('diff --git a/app.rb')
+    expect(calls.first[:stdin]).to include('is in `log/thingie-changeset.diff`')
   end
 
   it 'records the run cost and tokens into the shared usage', :aggregate_failures do
@@ -235,7 +241,7 @@ RSpec.describe Thingie::ClaudeCodeSource do
     end
 
     it 'refuses to write it' do
-      expect { source.call }.to raise_error(RuntimeError, /must be inside the project/)
+      expect { source.call }.to raise_error(RuntimeError, /outside the project/)
     end
   end
 

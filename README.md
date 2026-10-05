@@ -330,8 +330,9 @@ skill = "/code-review"      # must exist in the reviewed project
 model = ""                  # empty: the CLI's default
 structured_output = true    # --json-schema; only for models the CLI recognises
 max_budget_usd = 5.0        # the run stops when reached (CLI estimate, Claude prices only)
-allowed_tools = ["Read", "Grep", "Glob", "Task", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)"]
+allowed_tools = ["Read", "Grep", "Glob", "Task"]   # read-only; the diff is handed over as a file
 timeout = 1800              # seconds before the run is killed
+diff_file = "log/thingie-changeset.diff"
 raw_output_file = "log/thingie-claude-code.json"
 ```
 

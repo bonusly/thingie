@@ -14,9 +14,10 @@ module Thingie
     # @param result [Hash] the CLI's result event (`usage`, `total_cost_usd`)
     # @param model [String, nil] the model the run used
     # @param provider [String, nil] the ruby_llm provider the model is listed under
+    # @param models_file [String, nil] the project's `models_file`, loaded into the registry first
     # @return [Array(Numeric, String)] the cost and where it came from (`registry` or `cli`)
-    def cost(result, model:, provider:)
-      rates = registry_rates(model, provider)
+    def cost(result, model:, provider:, models_file: nil)
+      rates = registry_rates(model, provider, models_file)
       return [result['total_cost_usd'], 'cli'] unless rates
 
       usage = result['usage'] || {}
@@ -32,10 +33,13 @@ module Thingie
     #
     # @param model [String, nil] model id
     # @param provider [String, nil] provider slug
+    # @param models_file [String, nil] local registry JSON to load first, when it exists
     # @return [Hash{Symbol=>Float}, nil] `input`, `output`, and optional `cache_read`/`cache_write`
-    def registry_rates(model, provider)
+    def registry_rates(model, provider, models_file = nil)
       return if model.to_s.empty?
 
+      path = models_file.to_s.strip.empty? ? nil : File.expand_path(models_file)
+      LlmCompat.load_models_from_json(path) if path && File.exist?(path)
       info = RubyLLM.models.find(model, provider)
       tier = info.pricing.text_tokens.standard
       input = tier.input_per_million

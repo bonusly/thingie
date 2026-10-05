@@ -50,6 +50,7 @@ module Thingie
       # `--json-schema` only works with models the CLI knows; for anything else
       # the JSON is asked for in the prompt and read back out of the result text.
       @provider = config['provider']
+      @models_file = config['models_file']
       @changeset = changeset
       @prompt_builder = prompt_builder
       @usage = usage
@@ -85,9 +86,10 @@ module Thingie
     # @raise [RuntimeError] when the CLI exits non-zero, times out, prints no JSON,
     #   returns no structured output, or echoes a secret from its environment
     def call
-      stdout, stderr, status = @runner.call(argv, chdir: @changeset.workdir, stdin: prompt,
+      diff_path = write_project_file(@settings['diff_file'], @changeset.patch_text)
+      stdout, stderr, status = @runner.call(argv, chdir: @changeset.workdir, stdin: prompt(diff_path),
                                                   timeout: @settings['timeout'])
-      raw_path = save_raw_output(stdout)
+      raw_path = write_project_file(@settings['raw_output_file'], stdout)
       transcript = ClaudeCodeTranscript.parse(stdout)
       result = transcript.result
       raise "#{command} exited #{status.exitstatus}: #{transcript.failure_reason(stderr)}" unless status.success?
@@ -117,30 +119,30 @@ module Thingie
       tools.empty? ? args : args.push('--allowedTools', tools.join(','))
     end
 
-    def prompt
+    # The diff is a file so the run needs no shell (an agent's `git diff` rarely matches an allow rule).
+    def prompt(diff_path)
       @prompt_builder.claude_code(skill: @settings['skill'], base_ref: @changeset.base_ref,
                                   head_ref: @changeset.head_ref, files: @changeset.files,
+                                  diff_path: diff_path&.delete_prefix(File.join(@changeset.workdir, '')),
                                   inline_json: !structured_output?)
     end
 
-    def structured_output?
-      @settings.fetch('structured_output', true)
-    end
+    def structured_output? = @settings.fetch('structured_output', true)
 
-    # The full transcript is the "why did it say this" artifact: keep it on
-    # disk (the CI workflow uploads it) rather than in the PR comment.
+    # Writes a run file (the diff handed to the agent, the transcript kept as
+    # the "why did it say this" artifact) inside the project.
     #
-    # @return [String, nil] the path written, or nil when disabled or it failed
-    def save_raw_output(stdout)
-      path = @settings['raw_output_file'].to_s
-      return if path.empty? || stdout.to_s.empty?
+    # @return [String, nil] the absolute path written, or nil when disabled or it failed
+    def write_project_file(setting, content)
+      path = setting.to_s
+      return if path.empty? || content.to_s.empty?
 
       root = File.join(@changeset.workdir, '')
       path = File.expand_path(path, root)
-      raise "raw_output_file must be inside the project: #{path}" unless path.start_with?(root)
+      raise "#{path} is outside the project; run files must be inside it" unless path.start_with?(root)
 
       FileUtils.mkdir_p(File.dirname(path))
-      File.write(path, stdout)
+      File.write(path, content)
       path
     rescue SystemCallError => e
       warn "[thingie] could not write #{path}: #{e.message}"
@@ -174,7 +176,7 @@ module Thingie
     def record_usage(result)
       usage = result['usage'] || {}
       @cost, @cost_source = ClaudeCodePricing.cost(result, model: reported_model(result) || @settings['model'],
-                                                           provider: @provider)
+                                                           provider: @provider, models_file: @models_file)
       @usage.record_totals(input_tokens: usage['input_tokens'], output_tokens: usage['output_tokens'],
                            cache_read_tokens: usage['cache_read_input_tokens'],
                            cache_write_tokens: usage['cache_creation_input_tokens'], cost: @cost)

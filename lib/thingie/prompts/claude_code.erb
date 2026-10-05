@@ -1,9 +1,14 @@
 <%= skill %>
 
 Review the changes between `<%= base_ref %>` and `<%= head_ref %>` in this
-repository (`git diff <%= base_ref %>...<%= head_ref %>`). The changed files are:
+repository. The changed files are:
 <%- files.each do |file| -%>
 - <%= file %>
+<%- end -%>
+<%- if diff_path -%>
+
+The unified diff of these changes is in `<%= diff_path %>`; read it with the
+Read tool rather than running git. The working tree is at `<%= head_ref %>`.
 <%- end -%>
 
 Run the review as the skill describes, then report every finding that

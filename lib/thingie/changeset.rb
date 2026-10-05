@@ -59,6 +59,16 @@ module Thingie
       patch.to_s.force_encoding('UTF-8')
     end
 
+    # The whole changeset as one unified diff, for a reviewer that works on the
+    # PR rather than file by file.
+    #
+    # @return [String] unified diff text (empty in `all` mode, where there is no diff)
+    def patch_text
+      return '' if @all
+
+      diff.patch.to_s.force_encoding('UTF-8')
+    end
+
     # Absolute path to the repository working directory, used to launch tools
     # (e.g. a language server) against the code being reviewed.
     def workdir

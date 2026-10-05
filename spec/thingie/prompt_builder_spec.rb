@@ -125,14 +125,23 @@ RSpec.describe Thingie::PromptBuilder do
   end
 
   describe '#claude_code' do
-    subject(:prompt) { builder.claude_code(skill: '/code-review', base_ref: 'main', head_ref: 'HEAD', files: files) }
+    subject(:prompt) do
+      builder.claude_code(skill: '/code-review', base_ref: 'main', head_ref: 'HEAD', files: files,
+                          diff_path: 'log/thingie-changeset.diff')
+    end
 
     let(:files) { ['app.rb', 'lib/b.rb'] }
 
-    it 'opens with the skill and names the diff range and files', :aggregate_failures do
+    it 'opens with the skill and names the refs, files and diff file', :aggregate_failures do
       expect(prompt).to start_with('/code-review')
-      expect(prompt).to include('git diff main...HEAD', "- app.rb\n- lib/b.rb\n")
+      expect(prompt).to include('between `main` and `HEAD`', "- app.rb\n- lib/b.rb\n")
+      expect(prompt).to include('is in `log/thingie-changeset.diff`; read it with the')
       expect(prompt).to include('`pass:<name>`')
+    end
+
+    it 'leaves the run to find the diff when no file was written' do
+      prompt = builder.claude_code(skill: '/code-review', base_ref: 'main', head_ref: 'HEAD', files: files)
+      expect(prompt).not_to include('read it with the')
     end
 
     it 'includes the scales, show-line threshold and severity rubric', :aggregate_failures do

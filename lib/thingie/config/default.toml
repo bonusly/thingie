@@ -183,15 +183,19 @@ structured_output = true
 # 0 disables the flag).
 max_budget_usd = 5.0
 # Optional cap on agentic turns, e.g. max_turns = 60; unset means none.
-# Tools the run may use without prompting. Keep it read-only plus git reads:
-# Thingie posts the findings, the run must not.
-allowed_tools = ["Read", "Grep", "Glob", "Task", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)"]
+# Tools the run may use without prompting. Read-only: Thingie hands the run
+# the diff as a file (diff_file) so it needs no shell, and Thingie posts the
+# findings, the run must not.
+allowed_tools = ["Read", "Grep", "Glob", "Task"]
 # Optional deny list on top of the allowlist (same rule syntax), e.g.
 # ["Read(./.git/**)"]; empty by default.
 disallowed_tools = []
 # Seconds before the run is killed.
 timeout = 1800
-# Where to save the CLI's full JSON result (relative to the project root) for
+# Where to write the changeset's unified diff for the run to read (relative to
+# the project root); empty makes the run find the diff itself.
+diff_file = "log/thingie-changeset.diff"
+# Where to save the CLI's full transcript (relative to the project root) for
 # debugging; empty disables. Upload it as a CI artifact next to the report.
 raw_output_file = "log/thingie-claude-code.json"
 
