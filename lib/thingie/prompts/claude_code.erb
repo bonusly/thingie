@@ -14,6 +14,8 @@ For each finding:
 - `file` is the repo-relative path exactly as listed above.
 - `affected_lines` use new-side line numbers at `<%= head_ref %>`; only report
   lines added or modified in the diff.
+- `tags` include the review pass that raised the finding as `pass:<name>`
+  (for example `pass:security`, `pass:edge-cases`), plus any topical tags.
 - `severity` and `confidence` use these integer scales (1 is most severe /
   most confident):
 

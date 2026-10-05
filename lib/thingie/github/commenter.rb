@@ -49,6 +49,7 @@ module Thingie
       def post_review(summary:, report:)
         pr = @client.pull_request("#{@owner}/#{@repo}", @pr_number)
         commit_id = pr.head.sha
+        @source_line = ReportRenderer.new(report).source_line
         resolve_previous_threads(report.issues)
         collapse_previous_summaries
         if report.issues.empty?
@@ -169,7 +170,8 @@ module Thingie
           REVIEW_COMMENT_MARKER,
           "**[#{severity_label(issue.severity)}] #{issue.title}**",
           issue.details,
-          tags
+          tags,
+          ("_#{@source_line}_" if @source_line)
         ].compact.join("\n\n")
       end
 

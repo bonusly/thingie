@@ -132,6 +132,7 @@ RSpec.describe Thingie::PromptBuilder do
     it 'opens with the skill and names the diff range and files', :aggregate_failures do
       expect(prompt).to start_with('/code-review')
       expect(prompt).to include('git diff main...HEAD', "- app.rb\n- lib/b.rb\n")
+      expect(prompt).to include('`pass:<name>`')
     end
 
     it 'includes the scales, show-line threshold and severity rubric', :aggregate_failures do

@@ -54,11 +54,12 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
       .with('o/r', 1, anything, 'commit-sha', 'app.rb', 11, { side: 'RIGHT' })
   end
 
-  it 'includes the severity label in the inline comment body' do
+  it 'includes the severity label and the review source in the inline comment body' do
     commenter.post_review(summary: 'S', report: report_for([build_issue('app.rb', 11)]))
 
     expect(client).to have_received(:create_pull_request_comment)
-      .with('o/r', 1, a_string_including('[Critical]'), 'commit-sha', 'app.rb', 11, { side: 'RIGHT' })
+      .with('o/r', 1, a_string_including('[Critical]', '_Reviewed with m_'), 'commit-sha', 'app.rb', 11,
+            { side: 'RIGHT' })
   end
 
   it 'posts the summary comment only when there are no issues', :aggregate_failures do

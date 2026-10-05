@@ -43,9 +43,10 @@ module Thingie
       lines.compact.join("\n\n")
     end
 
-    private
-
-    # Says which review ran so a reader can tell a deep run from the default.
+    # Says which review ran so a reader can tell a deep run from the default;
+    # the summary and each inline comment carry it.
+    #
+    # @return [String] e.g. "Reviewed with Claude Code `/code-review` (model)"
     def source_line
       details = @report.details || {}
       if details['source'] == ClaudeCodeSource::SOURCE_NAME
@@ -54,6 +55,8 @@ module Thingie
         "Reviewed with #{@report.model}"
       end
     end
+
+    private
 
     # Run metadata, collapsed: what ran, how long, what it cost, and for a
     # Claude Code run its own written review, for "why did it say this?". The
