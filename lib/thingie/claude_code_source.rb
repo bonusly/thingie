@@ -91,7 +91,7 @@ module Thingie
       ClaudeCodeRunner.reject_leaked_secrets!(stdout, command)
       record_usage(result)
       record_details(result, transcript)
-      parse_issues(@structured_output ? result['structured_output'] : JsonExtractor.parse(result['result'].to_s))
+      parse_issues(@structured_output ? transcript.structured_output : JsonExtractor.parse(result['result'].to_s))
     end
 
     private

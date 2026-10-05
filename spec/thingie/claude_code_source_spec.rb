@@ -174,6 +174,20 @@ RSpec.describe Thingie::ClaudeCodeSource do
     end
   end
 
+  context 'when the findings arrive only as a StructuredOutput tool call' do
+    let(:stdout) do
+      call = { 'type' => 'assistant',
+               'message' => { 'content' => [{ 'type' => 'tool_use', 'name' => 'StructuredOutput',
+                                              'input' => { 'issues' => findings } }] } }
+      result = cli_result.except('structured_output').merge('type' => 'result', 'result' => 'Command completed')
+      [call, result].map { |event| JSON.generate(event) }.join("\n")
+    end
+
+    it 'takes them from the tool call' do
+      expect(source.call.map(&:title)).to eq(['Missing return', 'N+1'])
+    end
+  end
+
   context 'when the result names no model' do
     let(:cli_result) { super().except('modelUsage') }
 

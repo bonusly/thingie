@@ -58,6 +58,21 @@ module Thingie
       counts.map { |name, blocks| "#{name} ×#{blocks.size}" }.join(', ')
     end
 
+    # The findings the run returned through `--json-schema`: the result event's
+    # `structured_output`, or else the input of the last `StructuredOutput` tool
+    # call, which some runs report without copying it onto the result.
+    #
+    # @return [Hash, nil] the structured output, nil when the run gave none
+    def structured_output
+      from_result = result&.dig('structured_output')
+      return from_result if from_result
+
+      @events.select { |event| event['type'] == 'assistant' }
+             .flat_map { |event| Array(event.dig('message', 'content')) }
+             .select { |block| block.is_a?(Hash) && block['type'] == 'tool_use' && block['name'] == 'StructuredOutput' }
+             .last&.dig('input')
+    end
+
     # How many subagents the run spawned, when the CLI reports it.
     #
     # @return [Integer, nil] spawned subagents
