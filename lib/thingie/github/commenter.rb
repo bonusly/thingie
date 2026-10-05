@@ -9,6 +9,7 @@ module Thingie
     # posting new feedback.
     class Commenter # rubocop:disable Metrics/ClassLength
       REVIEW_COMMENT_MARKER = '<!-- thingie-review-comment -->'
+      OUTDATED_PREFIX = '<details><summary>Outdated review'
 
       # Mirrors the default severity_scale in config/default.toml — used only
       # for human-facing labels in comments.
@@ -75,7 +76,7 @@ module Thingie
         return if issues.empty?
 
         rows = issues.map { |issue| off_diff_row(issue) }
-        body = "<details><summary>#{issues.size} Thingie finding(s) outside this diff</summary>\n\n" \
+        body = "<details><summary>#{issues.size} finding(s) outside this diff</summary>\n\n" \
                "#{rows.join("\n")}\n\n</details>\n\n#{Context::SUMMARY_MARKER}"
         @client.add_comment("#{@owner}/#{@repo}", @pr_number, body)
       end
@@ -114,7 +115,8 @@ module Thingie
       end
 
       def post_summary_comment(summary)
-        @client.add_comment("#{@owner}/#{@repo}", @pr_number, "#{summary}\n\n#{Context::SUMMARY_MARKER}")
+        body = summary.include?(Context::SUMMARY_MARKER) ? summary : "#{summary}\n\n#{Context::SUMMARY_MARKER}"
+        @client.add_comment("#{@owner}/#{@repo}", @pr_number, body)
       end
 
       def severity_label(severity)
@@ -270,17 +272,29 @@ module Thingie
         comments = @client.issue_comments("#{@owner}/#{@repo}", @pr_number)
         comments.each do |comment|
           next unless comment.body.include?(Context::SUMMARY_MARKER)
+          next if comment.body.start_with?(OUTDATED_PREFIX)
 
           @client.update_comment("#{@owner}/#{@repo}", comment.id, outdated_body(comment.body))
+          minimize_comment(comment)
         rescue Octokit::Forbidden => e
           # Only the comment's author (our bot) can edit it; skip others.
           warn "Could not collapse previous summary ##{comment.id} — #{e.message}"
         end
       end
 
+      # Collapsing alone still leaves a stack of "Outdated review" rows in the
+      # thread; minimizing tucks each one behind GitHub's "Show comment" toggle.
+      def minimize_comment(comment)
+        graphql_client.minimize_comment(comment.node_id)
+      rescue StandardError => e
+        warn "Could not hide previous summary ##{comment.id} — #{e.message}"
+      end
+
       def outdated_body(body)
-        stripped = body.sub(Context::SUMMARY_MARKER, '')
-        "<details><summary>Outdated Thingie summary</summary>\n\n#{stripped}\n\n</details>"
+        stripped = body.gsub(Context::SUMMARY_MARKER, '').strip
+        sha = stripped[/Review of `(\h+)`/, 1]
+        label = sha ? " of `#{sha}`" : ''
+        "#{OUTDATED_PREFIX}#{label}</summary>\n\n#{stripped}\n\n</details>"
       end
     end
   end

@@ -82,6 +82,46 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
       .with('o/r', 1, a_string_including('<details>', 'outside this diff', 'app.rb:999'))
   end
 
+  it 'posts the marker once when the summary already carries it' do
+    marker = Thingie::GitHub::Context::SUMMARY_MARKER
+    commenter.post_review(summary: "#{marker}\n\nAll good", report: report_for([]))
+
+    expect(client).to have_received(:add_comment) { |_repo, _pr, body| expect(body.scan(marker).size).to eq(1) }
+  end
+
+  context 'with previous summary comments' do
+    let(:marker) { Thingie::GitHub::Context::SUMMARY_MARKER }
+    let(:old) { double('comment', id: 7, node_id: 'NODE7', body: "#{marker}\n\n### Review of `abc1234`\n\nAll good") } # rubocop:disable RSpec/VerifiedDoubles
+    let(:collapsed) { double('comment', id: 8, node_id: 'NODE8', body: '<details><summary>Outdated review</summary>') } # rubocop:disable RSpec/VerifiedDoubles
+
+    before do
+      allow(client).to receive(:issue_comments).and_return([old, collapsed])
+      allow(client).to receive(:update_comment)
+    end
+
+    it 'collapses the old summary under a label naming its commit, without mentioning Thingie', :aggregate_failures do
+      commenter.post_review(summary: 'S', report: report_for([]))
+
+      expect(client).to have_received(:update_comment)
+        .with('o/r', 7, a_string_starting_with('<details><summary>Outdated review of `abc1234`</summary>'))
+      expect(client).not_to have_received(:update_comment).with('o/r', 8, anything)
+    end
+
+    it 'hides the collapsed summary, and only that one', :aggregate_failures do
+      commenter.post_review(summary: 'S', report: report_for([]))
+
+      expect(client).to have_received(:post)
+        .with('/graphql', a_string_including('minimizeComment', 'NODE7', 'OUTDATED'))
+      expect(client).not_to have_received(:post).with('/graphql', a_string_including('NODE8'))
+    end
+
+    it 'leaves no marker behind, so the next run cannot collapse it again' do
+      commenter.post_review(summary: 'S', report: report_for([]))
+
+      expect(client).to have_received(:update_comment).with('o/r', 7, satisfy { |body| !body.include?(marker) })
+    end
+  end
+
   context 'when resolving stale review threads' do
     let(:stale_thread) do
       {

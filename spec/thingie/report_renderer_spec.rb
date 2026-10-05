@@ -46,6 +46,29 @@ RSpec.describe Thingie::ReportRenderer do
     expect(output).to include('[High]')
   end
 
+  context 'with a commit and a list of reviewed files' do
+    let(:report) do
+      Thingie::Report.new(
+        target: Thingie::ReviewTarget.new(
+          platform: 'github', repo_url: nil, pr_number: 1, commit_sha: 'abc1234def',
+          branch: nil, base_ref: 'c3d89f54ef47b0392c53f6e44bb50610a03785a9', head_ref: 'HEAD', merge_base: false
+        ),
+        model: 'gpt-4o',
+        issues: [],
+        processed_files: %w[app.rb lib/foo.rb]
+      )
+    end
+
+    it 'names the commit, lists the files and records the run', :aggregate_failures do
+      output = renderer.to_md
+      expect(output).to include('### Review of `abc1234`')
+      expect(output).to include('Files reviewed (2)', '- `app.rb`', '- `lib/foo.rb`')
+      expect(output).to include('Thingie details', "Thingie version: #{Thingie::VERSION}",
+                                'Review model: gpt-4o', 'Base: `c3d89f5`', 'UTC')
+      expect(output).not_to include('c3d89f54ef47')
+    end
+  end
+
   context 'with no issues but processed files' do
     let(:report) do
       Thingie::Report.new(
@@ -63,8 +86,10 @@ RSpec.describe Thingie::ReportRenderer do
       expect(renderer.to_cli).to include('No issues found across 5 file(s)')
     end
 
-    it 'reports the number of processed files in Markdown output' do
-      expect(renderer.to_md).to include('**✅ No issues found** across 5 file(s)')
+    it 'says no changes are recommended in Markdown output, leaving the file list to say how many were reviewed',
+       :aggregate_failures do
+      expect(renderer.to_md).to include('**✅ No changes recommended**')
+      expect(renderer.to_md).not_to include('across')
     end
   end
 end

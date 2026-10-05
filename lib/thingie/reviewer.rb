@@ -68,7 +68,8 @@ module Thingie
         model: @config['model'],
         issues: issues,
         processing_warnings: @warnings,
-        number_of_processed_files: @changeset.files.size
+        number_of_processed_files: @changeset.files.size,
+        processed_files: @changeset.files
       )
     end
 

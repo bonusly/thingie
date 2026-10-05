@@ -4,7 +4,7 @@ require 'json'
 
 module Thingie
   module GitHub
-    # Minimal GraphQL client wrapper around Octokit for resolving review threads.
+    # Minimal GraphQL client wrapper around Octokit for resolving review threads and hiding stale comments.
     class GraphqlClient
       THREAD_PAGE_SIZE = 100
 
@@ -36,6 +36,17 @@ module Thingie
       # @return [Object] the raw Octokit response
       def resolve_thread(thread_id)
         response = post_graphql(resolve_thread_mutation, { threadId: thread_id })
+        raise_on_errors(stringify(to_hash(response)))
+        response
+      end
+
+      # Hides a comment behind GitHub's "Show comment" toggle, labelled as outdated.
+      #
+      # @param node_id [String] the GraphQL node ID of the comment to minimize
+      # @raise [RuntimeError] if the GraphQL response contains top-level errors
+      # @return [Object] the raw Octokit response
+      def minimize_comment(node_id)
+        response = post_graphql(minimize_comment_mutation, { subjectId: node_id })
         raise_on_errors(stringify(to_hash(response)))
         response
       end
@@ -119,6 +130,16 @@ module Thingie
           mutation($threadId: ID!) {
             resolveReviewThread(input: { threadId: $threadId }) {
               thread { id }
+            }
+          }
+        GRAPHQL
+      end
+
+      def minimize_comment_mutation
+        <<~GRAPHQL
+          mutation($subjectId: ID!) {
+            minimizeComment(input: { subjectId: $subjectId, classifier: OUTDATED }) {
+              minimizedComment { isMinimized }
             }
           }
         GRAPHQL

@@ -36,7 +36,8 @@ module Thingie
     #
     # @return [String] Markdown-formatted report
     def to_md
-      lines = [Thingie::GitHub::Context::SUMMARY_MARKER, md_summary_line]
+      lines = [Thingie::GitHub::Context::SUMMARY_MARKER, md_heading, md_summary_line,
+               md_files_reviewed, md_run_info].compact
       lines += @report.issues.map { |issue| md_issue(issue) }
       lines.join("\n\n")
     end
@@ -57,8 +58,37 @@ module Thingie
         "**⚠️ #{@report.total_issues} issue(s) found** across " \
           "#{@report.number_of_processed_files} file(s)."
       else
-        "**✅ No issues found** across #{@report.number_of_processed_files} file(s)."
+        '**✅ No changes recommended**'
       end
+    end
+
+    # Names the reviewed commit so a later, collapsed copy of this comment
+    # still says which push it covered.
+    def md_heading
+      sha = @report.target.commit_sha
+      sha ? "### Review of `#{sha.to_s[0, 7]}`" : '### Review'
+    end
+
+    def md_files_reviewed
+      files = @report.processed_files
+      return if files.empty?
+
+      "<details><summary>Files reviewed (#{files.size})</summary>\n\n" \
+        "#{files.map { |file| "- `#{file}`" }.join("\n")}\n\n</details>"
+    end
+
+    # Same shape as the approval comment's details block.
+    def md_run_info
+      target = @report.target
+      rows = ["- Thingie version: #{Thingie::VERSION}"]
+      rows << "- Review model: #{@report.model}" unless @report.model.to_s.strip.empty?
+      rows << "- Base: `#{short_ref(target.base_ref)}`" if target.base_ref
+      rows << "- Reviewed at: #{Time.parse(@report.created_at).utc.strftime('%Y-%m-%d %H:%M UTC')}"
+      "<details><summary>Thingie details</summary>\n\n#{rows.join("\n")}\n\n</details>"
+    end
+
+    def short_ref(ref)
+      ref.match?(/\A\h{40}\z/) ? ref[0, 7] : ref
     end
 
     def render_issue(issue)
