@@ -50,13 +50,15 @@ module Thingie
       end
     end
 
-    # The names of credential-bearing variables in {.env} whose values appear in `text`.
+    # The names of credential variables in {.env} (`*_KEY`, `*_TOKEN`) whose
+    # values appear in `text`. Other forwarded variables, such as the default
+    # model names, are expected to show up in the result.
     #
     # @param text [String] output to check
     # @return [Array<String>] variable names found verbatim in `text`
     def leaked_secrets(text)
       env.select do |key, value|
-        ENV_PREFIXES.any? { |prefix| key.start_with?(prefix) } && value.to_s.length >= 16 && text.include?(value)
+        key.end_with?('_KEY', '_TOKEN') && value.to_s.length >= 16 && text.include?(value)
       end.keys
     end
   end

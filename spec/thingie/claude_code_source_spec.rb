@@ -221,13 +221,21 @@ RSpec.describe Thingie::ClaudeCodeSource do
     end
   end
 
-  context 'when the output echoes the API key' do
-    let(:cli_result) { super().merge('result' => 'The key is sk-ant-secret-value-1234567890') }
+  context 'when the output echoes a credential' do
+    let(:cli_result) { super().merge('result' => 'The key is sk-or-secret-value-1234567890') }
 
-    before { Thingie::Env['ANTHROPIC_API_KEY'] = 'sk-ant-secret-value-1234567890' }
+    before { Thingie::Env['ANTHROPIC_AUTH_TOKEN'] = 'sk-or-secret-value-1234567890' }
 
     it 'refuses to use the result' do
-      expect { source.call }.to raise_error(RuntimeError, /contains the value of ANTHROPIC_API_KEY/)
+      expect { source.call }.to raise_error(RuntimeError, /contains the value of ANTHROPIC_AUTH_TOKEN/)
+    end
+  end
+
+  context 'when the output names the configured default model' do
+    before { Thingie::Env['ANTHROPIC_DEFAULT_SONNET_MODEL'] = 'anthropic/claude-sonnet-5-5' }
+
+    it 'is not mistaken for a leaked secret' do
+      expect(source.call.size).to eq(2)
     end
   end
 
