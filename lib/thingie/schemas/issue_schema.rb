@@ -49,5 +49,13 @@ module Thingie
         additionalProperties: false
       }
     }.freeze
+
+    # Flat variant for a reviewer that covers every file in one run (see
+    # ClaudeCodeSource): each finding carries its own repo-relative path.
+    item = ISSUE_SCHEMA[:schema][:properties][:issues][:items]
+    item = item.merge(properties: item[:properties].merge(file: { type: 'string' }),
+                      required: item[:required] + %w[file])
+    CLAUDE_CODE_SCHEMA = { type: 'object', properties: { issues: { type: 'array', items: item } },
+                           required: %w[issues], additionalProperties: false }.freeze
   end
 end

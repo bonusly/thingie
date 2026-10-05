@@ -15,14 +15,6 @@ module Thingie
   class ClaudeCodeSource
     SOURCE_NAME = 'claude_code'
 
-    # Flat variant of ISSUE_SCHEMA: one run covers every file, so each finding
-    # carries its own repo-relative path.
-    item = Schemas::ISSUE_SCHEMA[:schema][:properties][:issues][:items]
-    item = item.merge(properties: item[:properties].merge(file: { type: 'string' }),
-                      required: item[:required] + %w[file])
-    SCHEMA = { type: 'object', properties: { issues: { type: 'array', items: item } }, required: %w[issues],
-               additionalProperties: false }.freeze
-
     # Whether the configuration selects this source for the first pass. A blank
     # `REVIEW_SOURCE` (what a workflow sets on a non-escalated run) means unset,
     # as for Thingie's other env overrides.
@@ -49,7 +41,9 @@ module Thingie
       @settings['model'] = nil if @settings['model'].to_s.strip.empty?
       # `--json-schema` only works with models the CLI knows; for anything else
       # the JSON is asked for in the prompt and read back out of the result text.
-      @provider, @models_file = config.values_at('provider', 'models_file')
+      @provider = config['provider']
+      @models_file = config['models_file']
+      @structured_output = @settings.fetch('structured_output', true)
       @changeset = changeset
       @prompt_builder = prompt_builder
       @usage = usage
@@ -97,7 +91,7 @@ module Thingie
       ClaudeCodeRunner.reject_leaked_secrets!(stdout, command)
       record_usage(result)
       record_details(result, transcript)
-      parse_issues(structured_output? ? result['structured_output'] : JsonExtractor.parse(result['result'].to_s))
+      parse_issues(@structured_output ? result['structured_output'] : JsonExtractor.parse(result['result'].to_s))
     end
 
     private
@@ -108,7 +102,7 @@ module Thingie
 
     def argv
       args = [command, '-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', 'dontAsk']
-      args.push('--json-schema', JSON.generate(SCHEMA)) if structured_output?
+      args.push('--json-schema', JSON.generate(Schemas::CLAUDE_CODE_SCHEMA)) if @structured_output
       args.push('--max-budget-usd', @settings['max_budget_usd'].to_s) if @settings['max_budget_usd'].to_f.positive?
       args.push('--max-turns', @settings['max_turns'].to_s) if @settings['max_turns'].to_i.positive?
       args.push('--model', @settings['model']) if @settings['model']
@@ -123,10 +117,8 @@ module Thingie
       @prompt_builder.claude_code(skill: @settings['skill'], base_ref: @changeset.base_ref,
                                   head_ref: @changeset.head_ref, files: @changeset.files,
                                   diff_path: diff_path&.delete_prefix(File.join(@changeset.workdir, '')),
-                                  inline_json: !structured_output?)
+                                  inline_json: !@structured_output)
     end
-
-    def structured_output? = @settings.fetch('structured_output', true)
 
     # Writes a run file (the diff handed to the agent, the transcript kept as
     # the "why did it say this" artifact) inside the project.
