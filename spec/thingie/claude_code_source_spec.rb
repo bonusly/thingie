@@ -59,7 +59,7 @@ RSpec.describe Thingie::ClaudeCodeSource do
     call = calls.first
     expect(call[:chdir]).to eq(tmp_dir)
     expect(call[:timeout]).to eq(1800)
-    expect(call[:argv].first(4)).to eq(['claude', '-p', '--output-format', 'json'])
+    expect(call[:argv].first(5)).to eq(['claude', '-p', '--output-format', 'stream-json', '--verbose'])
     expect(call[:argv]).to include('--json-schema', '--max-budget-usd', '5.0', '--permission-mode', 'dontAsk')
     schema = JSON.parse(call[:argv][call[:argv].index('--json-schema') + 1])
     expect(schema.dig('properties', 'issues', 'items', 'required')).to include('file', 'severity', 'affected_lines')
@@ -93,6 +93,22 @@ RSpec.describe Thingie::ClaudeCodeSource do
     expect(saved['session_id']).to eq('sess-1')
   end
 
+  context 'when the CLI streams the transcript' do
+    let(:stdout) do
+      tool = lambda do |name|
+        { 'type' => 'assistant', 'message' => { 'content' => [{ 'type' => 'tool_use', 'name' => name }] } }
+      end
+      events = [{ 'type' => 'system', 'subtype' => 'init' }, tool['Read'], tool['Task'], tool['Read'],
+                cli_result.merge('type' => 'result', 'subagent_stats' => { 'spawned' => 7 })]
+      events.map { |event| JSON.generate(event) }.join("\n")
+    end
+
+    it 'takes the result from the final event and counts the tool calls', :aggregate_failures do
+      expect(source.call.size).to eq(2)
+      expect(source.details).to include('subagents' => 7, 'tool_calls' => 'Read ×2, Task ×1', 'turns' => 17)
+    end
+  end
+
   context 'when the result names no model' do
     let(:cli_result) { super().except('modelUsage') }
 
@@ -114,7 +130,7 @@ RSpec.describe Thingie::ClaudeCodeSource do
       issues = source.call
       expect(issues.map(&:title)).to eq(['Missing return', 'Dot-slash path'])
       expect(source.warnings).to contain_exactly(
-        a_string_including('1 finding(s) for `config/locales/en.yml`, which is not in the changeset'),
+        a_string_including('1 finding(s) for `config/locales/en.yml`, not in the changeset'),
         a_string_including('malformed Claude Code finding for app.rb')
       )
     end

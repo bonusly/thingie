@@ -85,13 +85,14 @@ module Thingie
       stdout, stderr, status = @runner.call(argv, chdir: @changeset.workdir, stdin: prompt,
                                                   timeout: @settings['timeout'])
       raw_path = save_raw_output(stdout)
-      result = JsonExtractor.parse(stdout.to_s)
+      transcript = ClaudeCodeTranscript.parse(stdout)
+      result = transcript.result
       raise "#{command} exited #{status.exitstatus}: #{failure_reason(result, stderr)}" unless status.success?
       raise "#{command} printed no JSON result#{" (saved to #{raw_path})" if raw_path}" unless result.is_a?(Hash)
 
       reject_leaked_secrets(stdout)
       record_usage(result)
-      record_details(result)
+      record_details(result, transcript)
       parse_issues(result['structured_output'])
     end
 
@@ -109,15 +110,14 @@ module Thingie
     end
 
     def argv
-      args = [command, '-p', '--output-format', 'json', '--json-schema', JSON.generate(SCHEMA),
+      args = [command, '-p', '--output-format', 'stream-json', '--verbose', '--json-schema', JSON.generate(SCHEMA),
               '--max-budget-usd', @settings['max_budget_usd'].to_s,
               '--permission-mode', 'dontAsk']
       args.push('--model', @settings['model']) if @settings['model']
       denied = Array(@settings['disallowed_tools'])
       args.push('--disallowedTools', denied.join(',')) unless denied.empty?
       tools = Array(@settings['allowed_tools'])
-      args.push('--allowedTools', tools.join(',')) unless tools.empty?
-      args
+      tools.empty? ? args : args.push('--allowedTools', tools.join(','))
     end
 
     def prompt
@@ -132,7 +132,7 @@ module Thingie
       raise "#{command} output contains the value of #{leaked.join(', ')}; refusing to use it" if leaked.any?
     end
 
-    # The full JSON result is the "why did it say this" artifact: keep it on
+    # The full transcript is the "why did it say this" artifact: keep it on
     # disk (the CI workflow uploads it) rather than in the PR comment.
     #
     # @return [String, nil] the path written, or nil when disabled or it failed
@@ -152,12 +152,14 @@ module Thingie
       nil
     end
 
-    def record_details(result)
+    def record_details(result, transcript)
       @details = {
         'source' => SOURCE_NAME,
         'skill' => @settings['skill'],
         'model' => reported_model(result) || @settings['model'],
         'turns' => result['num_turns'],
+        'subagents' => transcript.subagents,
+        'tool_calls' => transcript.tool_calls,
         'duration_ms' => result['duration_ms'],
         'cost_usd' => result['total_cost_usd'],
         'session_id' => result['session_id'],
@@ -190,16 +192,11 @@ module Thingie
 
       parser = IssueParser.new
       Array(output['issues']).group_by { |issue| issue['file'].to_s.delete_prefix('./') }.flat_map do |file, issues|
-        next unknown_path(file, issues) unless @changeset.files.include?(file)
+        next issues.filter_map { |issue| parse_issue(parser, issue, file) } if @changeset.files.include?(file)
 
-        issues.filter_map { |issue| parse_issue(parser, issue, file) }
+        @warnings << "Claude Code reported #{issues.size} finding(s) for `#{file}`, not in the changeset; dropped"
+        []
       end
-    end
-
-    def unknown_path(file, issues)
-      @warnings << "Claude Code reported #{issues.size} finding(s) for `#{file}`, " \
-                   'which is not in the changeset; dropped'
-      []
     end
 
     def parse_issue(parser, issue, file)
