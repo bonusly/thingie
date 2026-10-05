@@ -173,15 +173,12 @@ skill = "/code-review"
 model = ""
 # Hard spend cap per run, in USD (the CLI stops when reached).
 max_budget_usd = 5.0
-# Cap on agentic turns; 0 lets the CLI decide (the budget is the real bound).
-max_turns = 0
 # Tools the run may use without prompting. Keep it read-only plus git reads:
 # Thingie posts the findings, the run must not.
 allowed_tools = ["Read", "Grep", "Glob", "Task", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)"]
-# Tools denied even if a skill asks: the checkout's credentials, the process
-# environment and dotenv files are the secrets a prompt injected through the PR
-# would go for.
-disallowed_tools = ["Read(./.git/**)", "Read(//proc/**)", "Read(**/.env*)", "Bash(git * --output*)"]
+# Optional deny list on top of the allowlist (same rule syntax), e.g.
+# ["Read(./.git/**)"]; empty by default.
+disallowed_tools = []
 # Seconds before the run is killed.
 timeout = 1800
 # Where to save the CLI's full JSON result (relative to the project root) for

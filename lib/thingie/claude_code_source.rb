@@ -45,9 +45,8 @@ module Thingie
     #   defaults to {ClaudeCodeRunner}, injectable so specs never spawn the CLI
     def initialize(config:, changeset:, prompt_builder:, usage:, runner: ClaudeCodeRunner)
       @settings = (config['claude_code'] || {}).transform_keys(&:to_s)
-      # TOML has no nil, so an unset model or turn cap arrives as "" / 0.
+      # TOML has no nil, so an unset model arrives as "".
       @settings['model'] = nil if @settings['model'].to_s.strip.empty?
-      @settings['max_turns'] = nil unless @settings['max_turns'].to_i.positive?
       @changeset = changeset
       @prompt_builder = prompt_builder
       @usage = usage
@@ -108,7 +107,6 @@ module Thingie
               '--max-budget-usd', @settings['max_budget_usd'].to_s,
               '--permission-mode', 'dontAsk']
       args.push('--model', @settings['model']) if @settings['model']
-      args.push('--max-turns', @settings['max_turns'].to_s) if @settings['max_turns']
       denied = Array(@settings['disallowed_tools'])
       args.push('--disallowedTools', denied.join(',')) unless denied.empty?
       tools = Array(@settings['allowed_tools'])

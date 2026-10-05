@@ -65,7 +65,7 @@ RSpec.describe Thingie::ClaudeCodeSource do
     expect(schema.dig('properties', 'issues', 'items', 'required')).to include('file', 'severity', 'affected_lines')
     expect(call[:argv][call[:argv].index('--allowedTools') + 1])
       .to eq(config['claude_code']['allowed_tools'].join(','))
-    expect(call[:argv][call[:argv].index('--disallowedTools') + 1]).to include('Read(./.git/**)', 'Read(//proc/**)')
+    expect(call[:argv]).not_to include('--disallowedTools')
     expect(call[:stdin]).to start_with('/code-review')
     expect(call[:stdin]).to include('`main`', '- app.rb', '- lib/b.rb', '1 — Critical')
   end
@@ -120,15 +120,15 @@ RSpec.describe Thingie::ClaudeCodeSource do
     end
   end
 
-  context 'when the project leaves the model and turn cap at their TOML defaults' do
+  context 'when the project leaves the model at its TOML default' do
     before do
       FileUtils.mkdir_p(File.join(tmp_dir, '.thingie'))
-      File.write(File.join(tmp_dir, '.thingie/config.toml'), "[claude_code]\nmodel = \"\"\nmax_turns = 0\n")
+      File.write(File.join(tmp_dir, '.thingie/config.toml'), "[claude_code]\nmodel = \"\"\n")
     end
 
-    it 'lets the CLI pick, rather than passing empty flags' do
+    it 'lets the CLI pick, rather than passing an empty flag' do
       source.call
-      expect(calls.first[:argv]).not_to include('--model', '--max-turns')
+      expect(calls.first[:argv]).not_to include('--model')
     end
   end
 
@@ -139,7 +139,7 @@ RSpec.describe Thingie::ClaudeCodeSource do
         [claude_code]
         skill = "/deep-review"
         model = "claude-opus-5-5"
-        max_turns = 40
+        disallowed_tools = ["Read(./.git/**)"]
         raw_output_file = ""
       TOML
     end
@@ -147,7 +147,7 @@ RSpec.describe Thingie::ClaudeCodeSource do
     it 'passes them to the CLI', :aggregate_failures do
       source.call
       argv = calls.first[:argv]
-      expect(argv).to include('--model', 'claude-opus-5-5', '--max-turns', '40')
+      expect(argv).to include('--model', 'claude-opus-5-5', '--disallowedTools', 'Read(./.git/**)')
       expect(calls.first[:stdin]).to start_with('/deep-review')
       expect(File).not_to exist(File.join(tmp_dir, 'log/thingie-claude-code.json'))
     end
