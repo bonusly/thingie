@@ -47,6 +47,9 @@ module Thingie
       @settings = (config['claude_code'] || {}).transform_keys(&:to_s)
       # TOML has no nil, so an unset model arrives as "".
       @settings['model'] = nil if @settings['model'].to_s.strip.empty?
+      # `--json-schema` only works with models the CLI knows; for anything else
+      # the JSON is asked for in the prompt and read back out of the result text.
+      @provider = config['provider']
       @changeset = changeset
       @prompt_builder = prompt_builder
       @usage = usage
@@ -87,13 +90,13 @@ module Thingie
       raw_path = save_raw_output(stdout)
       transcript = ClaudeCodeTranscript.parse(stdout)
       result = transcript.result
-      raise "#{command} exited #{status.exitstatus}: #{failure_reason(result, stderr)}" unless status.success?
+      raise "#{command} exited #{status.exitstatus}: #{transcript.failure_reason(stderr)}" unless status.success?
       raise "#{command} printed no JSON result#{" (saved to #{raw_path})" if raw_path}" unless result.is_a?(Hash)
 
-      reject_leaked_secrets(stdout)
+      ClaudeCodeRunner.reject_leaked_secrets!(stdout, command)
       record_usage(result)
       record_details(result, transcript)
-      parse_issues(result['structured_output'])
+      parse_issues(structured_output? ? result['structured_output'] : JsonExtractor.parse(result['result'].to_s))
     end
 
     private
@@ -102,17 +105,11 @@ module Thingie
       @settings['command'].to_s
     end
 
-    # The CLI reports its own failures (auth, API errors) as the JSON result on
-    # stdout, with nothing on stderr.
-    def failure_reason(result, stderr)
-      text = result.is_a?(Hash) ? result['result'].to_s : ''
-      (text.strip.empty? ? stderr.to_s : text).strip[0, 500]
-    end
-
     def argv
-      args = [command, '-p', '--output-format', 'stream-json', '--verbose', '--json-schema', JSON.generate(SCHEMA),
-              '--max-budget-usd', @settings['max_budget_usd'].to_s,
-              '--permission-mode', 'dontAsk']
+      args = [command, '-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', 'dontAsk']
+      args.push('--json-schema', JSON.generate(SCHEMA)) if structured_output?
+      args.push('--max-budget-usd', @settings['max_budget_usd'].to_s) if @settings['max_budget_usd'].to_f.positive?
+      args.push('--max-turns', @settings['max_turns'].to_s) if @settings['max_turns'].to_i.positive?
       args.push('--model', @settings['model']) if @settings['model']
       denied = Array(@settings['disallowed_tools'])
       args.push('--disallowedTools', denied.join(',')) unless denied.empty?
@@ -122,14 +119,12 @@ module Thingie
 
     def prompt
       @prompt_builder.claude_code(skill: @settings['skill'], base_ref: @changeset.base_ref,
-                                  head_ref: @changeset.head_ref, files: @changeset.files)
+                                  head_ref: @changeset.head_ref, files: @changeset.files,
+                                  inline_json: !structured_output?)
     end
 
-    # The CLI's own output is the one channel back to the PR, so refuse to post
-    # anything that echoes a credential from its environment.
-    def reject_leaked_secrets(stdout)
-      leaked = ClaudeCodeRunner.leaked_secrets(stdout)
-      raise "#{command} output contains the value of #{leaked.join(', ')}; refusing to use it" if leaked.any?
+    def structured_output?
+      @settings.fetch('structured_output', true)
     end
 
     # The full transcript is the "why did it say this" artifact: keep it on
@@ -161,7 +156,8 @@ module Thingie
         'subagents' => transcript.subagents,
         'tool_calls' => transcript.tool_calls,
         'duration_ms' => result['duration_ms'],
-        'cost_usd' => result['total_cost_usd'],
+        'cost_usd' => @cost,
+        'cost_source' => @cost_source,
         'session_id' => result['session_id'],
         'notes' => result['result'].to_s[0, 4000]
       }.compact
@@ -177,18 +173,20 @@ module Thingie
 
     def record_usage(result)
       usage = result['usage'] || {}
+      @cost, @cost_source = ClaudeCodePricing.cost(result, model: reported_model(result) || @settings['model'],
+                                                           provider: @provider)
       @usage.record_totals(input_tokens: usage['input_tokens'], output_tokens: usage['output_tokens'],
                            cache_read_tokens: usage['cache_read_input_tokens'],
-                           cache_write_tokens: usage['cache_creation_input_tokens'], cost: result['total_cost_usd'])
+                           cache_write_tokens: usage['cache_creation_input_tokens'], cost: @cost)
     end
 
-    # The CLI's own output becomes `structured_output`; a missing one means the
-    # run ended before producing findings (budget, max turns), which must not
-    # pass as a clean empty review. A finding on a path outside the changeset
-    # or missing a required field is dropped with a warning rather than
-    # discarding the whole (paid) run.
+    # A run that ends without the findings JSON (budget, turn cap, model went
+    # off-script) must not pass as a clean empty review. A finding on a path
+    # outside the changeset or missing a required field is dropped with a
+    # warning rather than discarding the whole (paid) run.
     def parse_issues(output)
-      raise "#{command} returned no structured output (budget or turn limit reached?)" unless output.is_a?(Hash)
+      output = { 'issues' => output } if output.is_a?(Array)
+      raise "#{command} returned no findings JSON (budget or turn limit reached?)" unless output.is_a?(Hash)
 
       parser = IssueParser.new
       Array(output['issues']).group_by { |issue| issue['file'].to_s.delete_prefix('./') }.flat_map do |file, issues|

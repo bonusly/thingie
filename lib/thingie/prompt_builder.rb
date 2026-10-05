@@ -73,10 +73,11 @@ module Thingie
     # @param base_ref [String] ref the changes are compared against
     # @param head_ref [String] ref under review
     # @param files [Array<String>] repo-relative paths in the changeset
+    # @param inline_json [Boolean] ask for the findings JSON in the reply (no `--json-schema`)
     # @return [String] the rendered prompt text
-    def claude_code(skill:, base_ref:, head_ref:, files:)
+    def claude_code(skill:, base_ref:, head_ref:, files:, inline_json: false)
       render_template(CLAUDE_CODE_TEMPLATE, 'skill' => skill, 'base_ref' => base_ref, 'head_ref' => head_ref,
-                                            'files' => files,
+                                            'files' => files, 'inline_json' => inline_json,
                                             'severity_scale' => format_scale(@config.severity_scale),
                                             'confidence_scale' => format_scale(@config.confidence_scale),
                                             'show_threshold_text' => show_threshold_text)

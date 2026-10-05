@@ -73,10 +73,69 @@ RSpec.describe Thingie::ClaudeCodeSource do
   it 'records the run cost and tokens into the shared usage', :aggregate_failures do
     source.call
     expect(usage.cost).to eq(0.42)
+    expect(source.details['cost_source']).to eq('cli')
     expect(usage.input_tokens).to eq(1000)
     expect(usage.output_tokens).to eq(200)
     expect(usage.cache_read_tokens).to eq(50)
     expect(usage.cache_write_tokens).to eq(10)
+  end
+
+  context 'when the ruby_llm registry prices the model' do
+    let(:tier) do
+      instance_double(RubyLLM::Model::PricingTier, input_per_million: 1.4, output_per_million: 4.4,
+                                                   cache_read_input_per_million: 0.26,
+                                                   cache_write_input_per_million: nil)
+    end
+
+    before do
+      info = instance_double(RubyLLM::Model::Info,
+                             pricing: instance_double(RubyLLM::Model::Pricing,
+                                                      text_tokens: instance_double(RubyLLM::Model::PricingCategory,
+                                                                                   standard: tier)))
+      allow(RubyLLM.models).to receive(:find).with('claude-sonnet-5-5', 'openai').and_return(info)
+    end
+
+    it 'prices the run from its tokens instead of trusting the CLI', :aggregate_failures do
+      source.call
+      # 1000 in × 1.4 + 50 cache read × 0.26 + 10 cache write × 1.4 (no cache-write rate) + 200 out × 4.4, per million
+      expect(usage.cost).to be_within(1e-9).of(0.002307)
+      expect(source.details).to include('cost_usd' => 0.002307, 'cost_source' => 'registry')
+    end
+  end
+
+  context 'without structured output (a model the CLI cannot validate)' do
+    let(:cli_result) do
+      reply = "Here are the findings:\n#{JSON.generate('issues' => findings)}"
+      super().except('structured_output').merge('result' => reply)
+    end
+
+    before do
+      FileUtils.mkdir_p(File.join(tmp_dir, '.thingie'))
+      File.write(File.join(tmp_dir, '.thingie/config.toml'), <<~TOML)
+        [claude_code]
+        model = "z-ai/glm-5.3"
+        structured_output = false
+        max_budget_usd = 0
+        max_turns = 60
+      TOML
+    end
+
+    it 'asks for the JSON in the prompt, caps turns instead of budget, and parses the reply', :aggregate_failures do
+      expect(source.call.size).to eq(2)
+      argv = calls.first[:argv]
+      expect(argv).not_to include('--json-schema', '--max-budget-usd')
+      expect(argv).to include('--max-turns', '60', '--model', 'z-ai/glm-5.3')
+      expect(calls.first[:stdin])
+        .to include('Your final reply must be only this JSON object', '"file": "<repo-relative path>"')
+    end
+
+    context 'when the reply has no JSON' do
+      let(:cli_result) { super().merge('result' => 'I reviewed the code and found nothing worth reporting.') }
+
+      it 'fails rather than reporting a clean review' do
+        expect { source.call }.to raise_error(RuntimeError, /no findings JSON/)
+      end
+    end
   end
 
   it 'exposes the run details, naming the model that spent the most', :aggregate_failures do
@@ -233,7 +292,7 @@ RSpec.describe Thingie::ClaudeCodeSource do
     let(:cli_result) { { 'result' => 'budget reached', 'total_cost_usd' => 5.0 } }
 
     it 'raises instead of reporting a clean review' do
-      expect { source.call }.to raise_error(RuntimeError, /no structured output/)
+      expect { source.call }.to raise_error(RuntimeError, /no findings JSON/)
     end
   end
 

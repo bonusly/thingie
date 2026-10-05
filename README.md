@@ -328,11 +328,14 @@ source = "claude_code"      # or REVIEW_SOURCE=claude_code for one run
 [claude_code]
 skill = "/code-review"      # must exist in the reviewed project
 model = ""                  # empty: the CLI's default
-max_budget_usd = 5.0        # the run stops when reached
+structured_output = true    # --json-schema; only for models the CLI recognises
+max_budget_usd = 5.0        # the run stops when reached (CLI estimate, Claude prices only)
 allowed_tools = ["Read", "Grep", "Glob", "Task", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)"]
 timeout = 1800              # seconds before the run is killed
 raw_output_file = "log/thingie-claude-code.json"
 ```
+
+A non-Claude model works through an Anthropic-compatible endpoint (`ANTHROPIC_BASE_URL`, e.g. OpenRouter), with three adjustments because the CLI only knows Claude: `structured_output = false` (the findings JSON is requested in the prompt and parsed from the reply), `max_budget_usd = 0` plus `max_turns = 60` (the CLI's cost estimate is wrong for unknown models, so bound the run by turns), and the model listed in the ruby_llm registry so Thingie prices the run from its tokens (`cost_source: registry` in the details block) instead of taking the CLI's figure.
 
 The runner needs the CLI on `PATH` (`npm install -g @anthropic-ai/claude-code`) and `ANTHROPIC_API_KEY` in the environment; the critic pass still uses `LLM_API_KEY`. The CLI runs with only `PATH`, `HOME` and `ANTHROPIC_*`/`CLAUDE_*` variables, the read-only tools above (`disallowed_tools` takes an optional deny list in the same syntax), and Thingie refuses a result that echoes one of those credentials, so a prompt planted in the PR cannot lift a secret into the comment. A run that exits non-zero, times out, or ends without structured output (budget or turn cap) fails the review rather than posting a clean "no issues"; a finding on a file outside the changeset or missing a field is dropped with a processing warning. The run's cost is recorded in the usage stats like any LLM call.
 

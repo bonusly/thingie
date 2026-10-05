@@ -50,6 +50,18 @@ module Thingie
       end
     end
 
+    # The CLI's own output is the one channel back to the PR, so refuse to use
+    # output that echoes a credential from its environment.
+    #
+    # @param text [String] the CLI's stdout
+    # @param command [String] the command name, for the error
+    # @return [void]
+    # @raise [RuntimeError] when a credential value appears in `text`
+    def reject_leaked_secrets!(text, command)
+      leaked = leaked_secrets(text)
+      raise "#{command} output contains the value of #{leaked.join(', ')}; refusing to use it" if leaked.any?
+    end
+
     # The names of credential variables in {.env} (`*_KEY`, `*_TOKEN`) whose
     # values appear in `text`. Other forwarded variables, such as the default
     # model names, are expected to show up in the result.

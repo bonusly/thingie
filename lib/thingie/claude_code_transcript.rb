@@ -35,6 +35,16 @@ module Thingie
       @events.reverse.find { |event| event['type'] == 'result' } || (@events.size == 1 ? @events.first : nil)
     end
 
+    # Why a failed run failed: the CLI reports its own errors (auth, API) in the
+    # result text with nothing on stderr, so prefer that.
+    #
+    # @param stderr [String] the CLI's stderr
+    # @return [String] the reason, trimmed
+    def failure_reason(stderr)
+      text = result.is_a?(Hash) ? result['result'].to_s : ''
+      (text.strip.empty? ? stderr.to_s : text).strip[0, 500]
+    end
+
     # How many times each tool was called across the run, as "Read ×3, Grep ×1".
     #
     # @return [String, nil] the summary, nil when no tool was called

@@ -169,10 +169,20 @@ source = "llm"
 command = "claude"
 # Slash command run over the changeset; it must exist in the reviewed project.
 skill = "/code-review"
-# Model for the run; empty uses the CLI's default.
+# Model for the run; empty uses the CLI's default. A non-Claude model works
+# through an Anthropic-compatible endpoint (ANTHROPIC_BASE_URL), but the CLI
+# then cannot validate structured output or price the run: set
+# structured_output = false, cap the run with max_turns rather than the
+# budget, and keep the model in the ruby_llm registry so it is priced there.
 model = ""
-# Hard spend cap per run, in USD (the CLI stops when reached).
+# Ask the CLI to validate the findings JSON against Thingie's schema. Only
+# works with models the CLI recognises; otherwise the JSON is requested in the
+# prompt and parsed from the reply.
+structured_output = true
+# Hard spend cap per run, in USD, as the CLI estimates it (Claude prices only;
+# 0 disables the flag).
 max_budget_usd = 5.0
+# Optional cap on agentic turns, e.g. max_turns = 60; unset means none.
 # Tools the run may use without prompting. Keep it read-only plus git reads:
 # Thingie posts the findings, the run must not.
 allowed_tools = ["Read", "Grep", "Glob", "Task", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)"]

@@ -29,3 +29,20 @@ Confidence scale:
 <%= severity_rubric %>
 If you are unsure whether a finding clears the "shown at all" bar above, lean
 toward NOT reporting it. If nothing qualifies, return an empty `issues` list.
+<%- if inline_json -%>
+
+Your final reply must be only this JSON object, with no prose around it:
+{
+  "issues": [
+    {
+      "file": "<repo-relative path>",
+      "title": "<issue_title>",
+      "details": "<issue_description>",
+      "tags": ["pass:<name>", "<tag>", ...],
+      "severity": <1-4>,
+      "confidence": <1-4>,
+      "affected_lines": [{ "start_line": <int>, "end_line": <int or null>, "proposal": "<code or null>" }]
+    }
+  ]
+}
+<%- end -%>
