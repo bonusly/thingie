@@ -184,6 +184,16 @@ RSpec.describe Thingie::ClaudeCodeSource do
     it 'raises with the stderr' do
       expect { source.call }.to raise_error(RuntimeError, /exited 1: Not logged in/)
     end
+
+    context 'when the CLI reports the failure in its JSON result instead' do
+      let(:runner) do
+        ->(*) { [JSON.generate('is_error' => true, 'result' => 'API Error: 401 API key is invalid'), '', status] }
+      end
+
+      it 'raises with that reason' do
+        expect { source.call }.to raise_error(RuntimeError, /exited 1: API Error: 401 API key is invalid/)
+      end
+    end
   end
 
   context 'when the CLI exits cleanly without a JSON result' do

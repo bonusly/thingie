@@ -85,9 +85,8 @@ module Thingie
       stdout, stderr, status = @runner.call(argv, chdir: @changeset.workdir, stdin: prompt,
                                                   timeout: @settings['timeout'])
       raw_path = save_raw_output(stdout)
-      raise "#{command} exited #{status.exitstatus}: #{stderr.to_s.strip[0, 500]}" unless status.success?
-
       result = JsonExtractor.parse(stdout.to_s)
+      raise "#{command} exited #{status.exitstatus}: #{failure_reason(result, stderr)}" unless status.success?
       raise "#{command} printed no JSON result#{" (saved to #{raw_path})" if raw_path}" unless result.is_a?(Hash)
 
       reject_leaked_secrets(stdout)
@@ -100,6 +99,13 @@ module Thingie
 
     def command
       @settings['command'].to_s
+    end
+
+    # The CLI reports its own failures (auth, API errors) as the JSON result on
+    # stdout, with nothing on stderr.
+    def failure_reason(result, stderr)
+      text = result.is_a?(Hash) ? result['result'].to_s : ''
+      (text.strip.empty? ? stderr.to_s : text).strip[0, 500]
     end
 
     def argv
