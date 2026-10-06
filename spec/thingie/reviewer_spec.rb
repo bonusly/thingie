@@ -322,6 +322,47 @@ RSpec.describe Thingie::Reviewer do
     end
   end
 
+  context 'when the model answers in the reasoning channel and leaves the content empty' do
+    let(:thinking) do
+      '{"issues":[{"title":"Bug","details":"desc","severity":1,"confidence":1,' \
+        '"tags":[],"affected_lines":[{"start_line":1}]}]}'
+    end
+    let(:fake_llm_client) do
+      response = message_double(content: '', input_tokens: 80, output_tokens: 40, tool_calls: {},
+                                cache_read_tokens: nil, cache_write_tokens: nil,
+                                cost: instance_double(RubyLLM::Cost, total: nil),
+                                thinking: instance_double(RubyLLM::Thinking, text: thinking), thinking_tokens: nil)
+      instance_double(Thingie::LlmClient, complete_with_schema: response)
+    end
+
+    it 'parses the findings from the reasoning', :aggregate_failures do
+      report = reviewer.review
+      expect(report.total_issues).to eq(1)
+      expect(report.issues.first.title).to eq('Bug')
+    end
+
+    context 'when the reasoning is prose without an issues object' do
+      let(:thinking) { 'Checking the diff. A hash like {"a": 1} is fine here.' }
+
+      it 'reports no issues and no warning', :aggregate_failures do
+        report = reviewer.review
+        expect(report.total_issues).to eq(0)
+        expect(report.processing_warnings).to be_empty
+      end
+    end
+
+    context 'when an unrelated object is quoted before the issues object' do
+      let(:thinking) do
+        'The diff changes {"a": 1}. Answer: {"issues":[{"title":"Bug","details":"desc","severity":1,' \
+          '"confidence":1,"tags":[],"affected_lines":[{"start_line":1}]}]}'
+      end
+
+      it 'still finds the issues' do
+        expect(reviewer.review.total_issues).to eq(1)
+      end
+    end
+  end
+
   context 'when the LLM returns pure prose with no JSON' do
     let(:fake_llm_client) do
       cost_stub = instance_double(RubyLLM::Cost, total: nil)

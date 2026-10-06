@@ -73,18 +73,18 @@ module Thingie
     # Build a classifier from the System One settings in the configuration.
     #
     # @param config [Thingie::Configuration] source of the `system_one_*` settings
-    # @raise [Thingie::ConfigurationError] if System One isn't enabled with exactly `true`, or the API key is missing
+    # @raise [Thingie::ConfigurationError] if System One isn't enabled with exactly `true`, or the API key,
+    #   model, or API base URL is missing
     def initialize(config)
       unless config['system_one_enabled'] == true
         raise ConfigurationError, 'System One is disabled. Set system_one_enabled to true (or SYSTEM_ONE_ENABLED=true).'
       end
 
-      @api_key = config['system_one_api_key'].to_s.strip
-      raise ConfigurationError, 'Missing SYSTEM_ONE_API_KEY.' if @api_key.empty?
-
-      @model = config['system_one_model']
+      @api_key = required_setting(config, 'system_one_api_key', 'SYSTEM_ONE_API_KEY')
+      @model = required_setting(config, 'system_one_model', 'SYSTEM_ONE_MODEL')
+      api_base = required_setting(config, 'system_one_api_base', 'SYSTEM_ONE_API_BASE')
       @timeout = config['request_timeout']
-      @uri = URI("#{config['system_one_api_base'].to_s.chomp('/')}#{PATH}")
+      @uri = URI("#{api_base.chomp('/')}#{PATH}")
     end
 
     # Ask every question about the state in a single request.
@@ -104,10 +104,17 @@ module Thingie
 
     private
 
+    def required_setting(config, key, env_name)
+      value = config[key].to_s.strip
+      raise ConfigurationError, "Missing #{env_name}." if value.empty?
+
+      value
+    end
+
     def value_of(answer, question)
       return answer.fetch('noul') unless answer.fetch('type') == 'score'
 
-      answer.fetch('score') / [question[:criteria].size - 1, 1].max
+      answer.fetch('score').to_f / [question[:criteria].size - 1, 1].max
     end
 
     def request(state:, questions:)

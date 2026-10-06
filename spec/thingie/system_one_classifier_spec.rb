@@ -32,6 +32,16 @@ RSpec.describe Thingie::SystemOneClassifier do
     expect(result).to eq(sqli: 0.97, overall: 0.95)
   end
 
+  it 'divides an integer score as a float' do
+    stub_response(Net::HTTPOK, answers: { 'overall' => { 'type' => 'score', 'score' => 1 } })
+
+    result = classifier.classify(state: { path: 'a.rb' },
+                                 questions: { overall: { type: 'score', instructions: 'Risk?',
+                                                         criteria: %w[low mid high] } })
+
+    expect(result).to eq(overall: 0.5)
+  end
+
   it 'sends the model, state and questions to the System One endpoint', :aggregate_failures do
     stub_response(Net::HTTPOK, answers: { 'sqli' => { 'type' => 'noul', 'noul' => 0.1 } })
 
@@ -81,8 +91,14 @@ RSpec.describe Thingie::SystemOneClassifier do
       .to raise_error(Thingie::ConfigurationError, /disabled/)
   end
 
-  it 'requires an API key' do
-    expect { described_class.new(settings.merge('system_one_api_key' => ' ')) }
-      .to raise_error(Thingie::ConfigurationError, /API_KEY/)
+  {
+    'system_one_api_key' => 'API_KEY',
+    'system_one_model' => 'MODEL',
+    'system_one_api_base' => 'API_BASE'
+  }.each do |key, name|
+    it "requires #{key}" do
+      expect { described_class.new(settings.merge(key => ' ')) }
+        .to raise_error(Thingie::ConfigurationError, /Missing SYSTEM_ONE_#{name}/)
+    end
   end
 end
