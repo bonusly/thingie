@@ -41,7 +41,8 @@ module Thingie
     :severity,
     :confidence,
     :tags,
-    :affected_lines
+    :affected_lines,
+    :evidence
   ) do
     # Builds a raw issue, defaulting optional fields absent from the LLM's JSON.
     #
@@ -51,7 +52,8 @@ module Thingie
     # @param details [String, nil] extended explanation of the issue
     # @param tags [Array<String>] issue tags (e.g. `bug`, `security`)
     # @param affected_lines [Array<Thingie::AffectedRange>] code ranges the issue refers to
-    def initialize(title:, severity:, confidence:, details: nil, tags: [], affected_lines: [])
+    # @param evidence [String, nil] what the reviewer confirmed with its tools, and where
+    def initialize(title:, severity:, confidence:, details: nil, tags: [], affected_lines: [], evidence: nil)
       super
     end
   end
@@ -59,7 +61,7 @@ module Thingie
   # Normalized issue enriched with file context and an assigned ID.
   class Issue
     attr_accessor :id
-    attr_reader :file, :title, :details, :severity, :confidence, :tags, :affected_lines
+    attr_reader :file, :title, :details, :severity, :confidence, :tags, :affected_lines, :evidence
 
     # Builds an `Issue` from a raw hash (e.g. parsed from LLM JSON output).
     #
@@ -100,7 +102,8 @@ module Thingie
         confidence: hash.fetch('confidence'),
         details: hash['details'],
         tags: hash['tags'] || [],
-        affected_lines: affected_lines
+        affected_lines: affected_lines,
+        evidence: hash['evidence']
       )
       new(id: hash['id'], file: hash['file'], raw_issue: raw, affected_lines: affected_lines)
     end
@@ -116,6 +119,7 @@ module Thingie
       @file = file
       @title = raw_issue.title
       @details = raw_issue.details
+      @evidence = raw_issue.evidence
       @severity = raw_issue.severity
       @confidence = raw_issue.confidence
       @tags = raw_issue.tags || []
@@ -143,6 +147,7 @@ module Thingie
         'file' => @file,
         'title' => @title,
         'details' => @details,
+        'evidence' => @evidence,
         'severity' => @severity,
         'confidence' => @confidence,
         'tags' => @tags,
