@@ -61,6 +61,7 @@ module Thingie
       render_template(VERIFY_TEMPLATE, 'input' => diff, 'file_lines' => file_lines, 'pr_context' => pr_context,
                                        'symbol_lookup' => symbol_lookup,
                                        'finding' => format_finding(issue),
+                                       'user_impact' => @config.dig('verify', 'bar') == 'user_impact',
                                        'severity_scale' => format_scale(@config.severity_scale),
                                        'confidence_scale' => format_scale(@config.confidence_scale),
                                        'show_threshold_text' => show_threshold_text,

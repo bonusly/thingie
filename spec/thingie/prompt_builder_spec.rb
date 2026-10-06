@@ -164,6 +164,19 @@ RSpec.describe Thingie::PromptBuilder do
                                'affected_lines' => [{ 'start_line' => 1 }])
     end
 
+    it 'asks whether it is true and whether it would matter to a user when the bar is user_impact', :aggregate_failures do
+      impact = Thingie::Configuration.new(root: tmp_dir, overrides: { 'verify' => { 'bar' => 'user_impact' } })
+      prompt = described_class.new(impact).verify(issue: issue, diff: 'x')
+      expect(prompt).to include('Would it matter to someone using the product?', 'search and file tools')
+      expect(prompt).not_to include('materially valuable to a maintainer')
+    end
+
+    it 'keeps the default bar unless told otherwise', :aggregate_failures do
+      prompt = builder.verify(issue: issue, diff: 'x')
+      expect(prompt).to include('materially valuable to a maintainer')
+      expect(prompt).not_to include('Would it matter to someone using the product?')
+    end
+
     it 'shows the critic the evidence the reviewer gave', :aggregate_failures do
       with_evidence = Thingie::Issue.from_hash('title' => 'Leaky query', 'details' => 'd', 'severity' => 1,
                                                'confidence' => 2, 'tags' => [], 'file' => 'app.rb',
