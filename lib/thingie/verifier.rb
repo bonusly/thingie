@@ -96,13 +96,14 @@ module Thingie
         symbol_lookup: @tools.any?,
         pr_context: @pr_context.to_s
       )
-      response = @llm_client.complete_with_schema(prompt, Schemas::VERDICT_SCHEMA, tools: @tools)
+      tool_names = []
+      response = @llm_client.complete_with_schema(prompt, Schemas::VERDICT_SCHEMA, tools: @tools, tool_log: tool_names)
       @usage&.record(response)
       content = parse_content(response)
       verdict = content['verdict'].to_s.strip.downcase
       @debug_output&.critic_call(issue: issue, response: response,
                                  verdict: verdict.empty? ? '(no verdict)' : verdict,
-                                 content: content)
+                                 content: content, tool_names: tool_names)
       {
         keep: verdict != 'reject',
         severity: valid_override(content['severity_override'], @config.severity_scale),
