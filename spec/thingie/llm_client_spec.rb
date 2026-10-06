@@ -147,7 +147,7 @@ RSpec.describe Thingie::LlmClient do
       chat_double = instance_double(RubyLLM::Chat, with_schema: instance_double(RubyLLM::Chat, ask: 'response'))
       hook = nil
       allow(chat_double).to receive(:with_tools).and_return(chat_double)
-      allow(chat_double).to receive(:on_tool_call) do |&block|
+      allow(chat_double).to receive(:before_tool_call) do |&block|
         hook = block
         chat_double
       end

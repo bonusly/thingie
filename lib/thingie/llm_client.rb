@@ -59,7 +59,7 @@ module Thingie
     def complete_with_schema(prompt, schema, tools: [], tool_log: nil)
       c = chat
       c = c.with_tools(*tools) unless tools.empty?
-      c = c.on_tool_call { |call| tool_log << call.name } if tool_log
+      c = LlmCompat.on_tool_call(c, ->(call) { tool_log << call.name }) if tool_log
       c = c.with_schema(schema) unless tools.any? && @config['schema_with_tools'] == false
       c.ask(prompt)
     end
