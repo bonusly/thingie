@@ -51,7 +51,8 @@ module Thingie
     # output schema.
     #
     # @param prompt [String] the prompt text to send
-    # @param schema [Object] the structured output schema the response must conform to
+    # @param schema [Object] the structured output schema the response must conform to; skipped when tools are
+    #   given and `schema_with_tools` is false (the prompt then carries the JSON shape and the reply is parsed)
     # @param tools [Array<Object>] optional `ruby_llm` tools to make available for tool-use
     # @param tool_log [Array<String>, nil] filled with the name of each tool call the model makes
     # @return [Object] the `ruby_llm` response
@@ -59,7 +60,8 @@ module Thingie
       c = chat
       c = c.with_tools(*tools) unless tools.empty?
       c = c.on_tool_call { |call| tool_log << call.name } if tool_log
-      c.with_schema(schema).ask(prompt)
+      c = c.with_schema(schema) unless tools.any? && @config['schema_with_tools'] == false
+      c.ask(prompt)
     end
 
     # Applies the configured provider's API key/base to a RubyLLM config

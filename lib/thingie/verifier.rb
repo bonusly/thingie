@@ -118,7 +118,7 @@ module Thingie
 
     def parse_content(response)
       content = response&.content
-      content = JSON.parse(content) if content.is_a?(String)
+      content = JsonExtractor.parse(content) if content.is_a?(String)
       content.is_a?(Hash) ? content.transform_keys(&:to_s) : {}
     end
 
