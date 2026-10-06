@@ -164,7 +164,7 @@ RSpec.describe Thingie::PromptBuilder do
                                'affected_lines' => [{ 'start_line' => 1 }])
     end
 
-    it 'asks whether it is true and whether it would matter to a user when the bar is user_impact', :aggregate_failures do
+    it 'asks whether it is true and would matter to a user when the bar is user_impact', :aggregate_failures do
       impact = Thingie::Configuration.new(root: tmp_dir, overrides: { 'verify' => { 'bar' => 'user_impact' } })
       prompt = described_class.new(impact).verify(issue: issue, diff: 'x')
       expect(prompt).to include('Would it matter to someone using the product?', 'search and file tools')
