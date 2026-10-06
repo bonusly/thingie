@@ -193,6 +193,35 @@ module Thingie
       exit 1
     end
 
+    desc 'escalate', 'Label the PR when its System One change-risk score reaches an escalation threshold'
+    option :what, type: :string, aliases: '-w', desc: 'Git ref to score'
+    option :against, type: :string, aliases: '-v', desc: 'Git ref to compare against'
+    option :filters, type: :string, aliases: '-f', desc: 'Filter scored files by glob pattern(s)'
+    option :merge_base, type: :boolean, default: true, desc: 'Use merge base for comparison'
+    option :pr, type: :numeric, desc: 'Pull Request number'
+    option :gh_repo, type: :string, desc: 'owner/repo'
+    option :token, type: :string, desc: 'GitHub token'
+    # Scores the changeset with System One and applies the `[[escalations]]` labels the riskiest
+    # file's overall score reaches. Does nothing when no escalations are configured.
+    #
+    # @return [void]
+    def escalate
+      config = Thingie::Configuration.new
+      rules = Array(config['escalations'])
+      return if rules.empty?
+
+      escalator = build_escalator(resolve_github_context, rules)
+      scorer = Thingie::ChangeRiskScorer.new(changeset: build_changeset(config),
+                                             classifier: Thingie::SystemOneClassifier.new(config),
+                                             concurrency: config['max_concurrent_tasks'])
+      score = scorer.call.max.fetch(:overall, 0.0)
+      labels = escalator.call(score)
+      puts "Overall risk #{score.round(2)}: #{labels.empty? ? 'no escalation' : "labelled #{labels.join(', ')}"}"
+    rescue StandardError => e
+      warn "Escalation failed: #{e.class}: #{e.message}"
+      exit 1
+    end
+
     desc 'models', 'Refresh and save the local RubyLLM models registry'
     option :path, type: :string, aliases: '-p',
                   desc: 'Where to save the models JSON (defaults to the models_file config)'
@@ -366,6 +395,19 @@ module Thingie
           owner: repo_owner(context),
           repo: repo_name(context),
           pr_number: options[:pr] || context&.pr_number
+        )
+      end
+
+      # @param context [Thingie::GitHub::Context, nil] the resolved GitHub Action context
+      # @param rules [Array<Hash>] the `[[escalations]]` config entries
+      # @return [Thingie::GitHub::Escalator] an escalator configured for the target PR
+      def build_escalator(context, rules)
+        Thingie::GitHub::Escalator.new(
+          token: options[:token] || Env.fetch('GITHUB_TOKEN', nil),
+          owner: repo_owner(context),
+          repo: repo_name(context),
+          pr_number: options[:pr] || context&.pr_number,
+          rules: rules
         )
       end
 

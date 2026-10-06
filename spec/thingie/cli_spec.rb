@@ -182,4 +182,39 @@ RSpec.describe Thingie::CLI do
       expect(fake_approver).to have_received(:dismiss_existing_approvals)
     end
   end
+
+  context 'when running escalate' do
+    let(:rules) { [{ 'threshold' => 0.5, 'label' => 'risk: needs review' }] }
+    let(:config) { Thingie::Configuration.new(root: tmp_dir, overrides: { 'escalations' => rules }) }
+    let(:escalator) { instance_double(Thingie::GitHub::Escalator, call: ['risk: needs review']) }
+    let(:scorer) do
+      instance_double(Thingie::ChangeRiskScorer,
+                      call: Thingie::ChangeRiskScorer::Result.new(files: {}, max: { overall: 0.7 }, obfuscation: []))
+    end
+
+    before do
+      allow(Thingie::Configuration).to receive(:new).and_return(config)
+      allow(Thingie::GitHub::Escalator).to receive(:new).and_return(escalator)
+      allow(Thingie::SystemOneClassifier).to receive(:new)
+      allow(Thingie::ChangeRiskScorer).to receive(:new).and_return(scorer)
+      allow(Thingie::Changeset).to receive(:new)
+    end
+
+    it 'labels the PR using the riskiest overall score' do
+      expect { described_class.start(['escalate', '--pr', '42', '--gh-repo', 'o/r']) }
+        .to output(/Overall risk 0.7: labelled risk: needs review/).to_stdout
+
+      expect(escalator).to have_received(:call).with(0.7)
+    end
+
+    context 'with no escalations configured' do
+      let(:rules) { [] }
+
+      it 'does nothing' do
+        described_class.start(['escalate', '--pr', '42', '--gh-repo', 'o/r'])
+
+        expect(Thingie::ChangeRiskScorer).not_to have_received(:new)
+      end
+    end
+  end
 end
