@@ -279,9 +279,9 @@ Key settings:
 | System One model | `jev-latest` | `system_one_model` | `SYSTEM_ONE_MODEL` | — |
 | System One API base URL | `https://openrouter.ai/api` | `system_one_api_base` | `SYSTEM_ONE_API_BASE` | — |
 | System One API key | — | `system_one_api_key` | `SYSTEM_ONE_API_KEY` | — |
-| Escalation rules | none | `escalations` (`[[escalations]]` with `threshold` 0.0-1.0 and `label`) | — | — |
+| Escalation rules | none | `escalations` (`[[escalations]]` with `threshold` 0.0-1.0, `label`, and optional `title` and `description`) | — | — |
 
-With `system_one_enabled`, `thingie escalate --pr N --gh-repo owner/repo` scores the changeset and adds the `label` of every `[[escalations]]` rule that the riskiest file's `overall` score reaches. It also removes the labels of rules the score no longer reaches, so every label named in a rule is managed by Thingie; don't reuse one for something applied by hand. Labels only raise a flag; they don't affect the review or approval. The token needs permission to label PRs (`pull-requests: write`).
+With `system_one_enabled`, `thingie review` scores the changeset and the report shows each question's highest score and the escalations. `thingie github-comment` then adds the `label` of every `[[escalations]]` rule that the riskiest file's `overall` score reaches, and removes the labels of rules the score no longer reaches, so every label named in a rule is managed by Thingie; don't reuse one for something applied by hand. Labels only raise a flag; they don't affect the review or approval. A scoring or labelling failure is a warning and never fails the run. The token needs permission to label PRs (`pull-requests: write`).
 
 Supported providers match whatever RubyLLM supports, including `openai`, `anthropic`, `gemini`, `ollama`, `deepseek`, `openrouter`, `mistral`, `perplexity`, `xai`, `azure`, `bedrock`, `vertexai`, and `gpustack`.
 

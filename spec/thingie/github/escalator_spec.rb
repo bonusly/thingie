@@ -11,7 +11,7 @@ RSpec.describe Thingie::GitHub::Escalator do # rubocop:disable RSpec/SpecFilePat
   before { allow(Octokit::Client).to receive(:new).and_return(client) }
 
   def escalator(rules: self.rules)
-    described_class.new(token: 't', owner: 'o', repo: 'r', pr_number: 7, rules: rules)
+    described_class.new(token: 't', owner: 'o', repo: 'r', pr_number: 7, rules: Thingie::EscalationRules.new(rules))
   end
 
   it 'adds the label of every rule the score reaches, including a score equal to the threshold' do
@@ -54,21 +54,5 @@ RSpec.describe Thingie::GitHub::Escalator do # rubocop:disable RSpec/SpecFilePat
     escalator(rules: shared).call(0.3)
 
     expect(client).not_to have_received(:remove_label)
-  end
-
-  it 'labels once when two rules share a label' do
-    shared = [{ 'threshold' => 0.2, 'label' => 'risk' }, { 'threshold' => 0.4, 'label' => 'risk' }]
-
-    expect(escalator(rules: shared).call(0.9)).to eq(['risk'])
-  end
-
-  it 'rejects a threshold outside 0 to 1' do
-    expect { escalator(rules: [{ 'threshold' => 5, 'label' => 'x' }]) }
-      .to raise_error(Thingie::ConfigurationError, /threshold/)
-  end
-
-  it 'rejects a blank label' do
-    expect { escalator(rules: [{ 'threshold' => 0.5, 'label' => ' ' }]) }
-      .to raise_error(Thingie::ConfigurationError, /label/)
   end
 end

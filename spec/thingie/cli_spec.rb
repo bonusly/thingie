@@ -183,38 +183,124 @@ RSpec.describe Thingie::CLI do
     end
   end
 
-  context 'when running escalate' do
-    let(:rules) { [{ 'threshold' => 0.5, 'label' => 'risk: needs review' }] }
-    let(:config) { Thingie::Configuration.new(root: tmp_dir, overrides: { 'escalations' => rules }) }
-    let(:escalator) { instance_double(Thingie::GitHub::Escalator, call: ['risk: needs review']) }
-    let(:scorer) do
-      instance_double(Thingie::ChangeRiskScorer,
-                      call: Thingie::ChangeRiskScorer::Result.new(files: {}, max: { overall: 0.7 }, obfuscation: []))
+  context 'when running a review with System One enabled' do
+    let(:rules) do
+      [{ 'threshold' => 0.5, 'label' => 'risk: needs review', 'title' => 'Needs review',
+         'description' => 'A person should read this.' }]
     end
+    let(:config) do
+      Thingie::Configuration.new(root: tmp_dir, overrides: { 'system_one_enabled' => true, 'escalations' => rules })
+    end
+    let(:report) do
+      target = Thingie::ReviewTarget.new(platform: 'local', repo_url: nil, pr_number: nil, commit_sha: 'deadbeef',
+                                         branch: nil, base_ref: 'main', head_ref: 'HEAD', merge_base: false)
+      Thingie::Report.new(target: target, model: 'm', issues: [], number_of_processed_files: 1)
+    end
+    let(:fake_changeset) do
+      instance_double(Thingie::Changeset, files: ['a.rb'], workdir: tmp_dir, base_ref: 'main', head_ref: 'HEAD')
+    end
+    let(:result) do
+      Thingie::ChangeRiskScorer::Result.new(files: { 'a.rb' => { security: 0.1, overall: 0.7 } },
+                                            max: { security: 0.1, overall: 0.7 }, obfuscation: [])
+    end
+    let(:scorer) { instance_double(Thingie::ChangeRiskScorer, call: result) }
 
     before do
       allow(Thingie::Configuration).to receive(:new).and_return(config)
-      allow(Thingie::GitHub::Escalator).to receive(:new).and_return(escalator)
+      allow(Thingie::Changeset).to receive(:new).and_return(fake_changeset)
+      allow(Thingie::Reviewer).to receive(:new)
+        .and_return(instance_double(Thingie::Reviewer, review: report, usage: Thingie::Stats::Usage.new))
+      allow(Thingie::LlmClient).to receive(:new)
+      allow(Thingie::SkillCatalog).to receive(:tool).and_return(nil)
       allow(Thingie::SystemOneClassifier).to receive(:new)
       allow(Thingie::ChangeRiskScorer).to receive(:new).and_return(scorer)
-      allow(Thingie::Changeset).to receive(:new)
     end
 
-    it 'labels the PR using the riskiest overall score' do
-      expect { described_class.start(['escalate', '--pr', '42', '--gh-repo', 'o/r']) }
-        .to output(/Overall risk 0.7: labelled risk: needs review/).to_stdout
+    def run_review
+      Thingie::CLI.start(['review', '--output', tmp_dir])
+    end
+
+    it 'records the scores and the escalation labels on the report' do
+      run_review
+
+      expect(report.change_risk).to eq('max' => { 'security' => 0.1, 'overall' => 0.7 },
+                                       'files' => { 'a.rb' => { 'security' => 0.1, 'overall' => 0.7 } },
+                                       'escalations' => [{ 'label' => 'risk: needs review', 'title' => 'Needs review',
+                                                           'description' => 'A person should read this.' }])
+    end
+
+    it 'leaves the report without a change risk when no file was scored' do
+      allow(scorer).to receive(:call)
+        .and_return(Thingie::ChangeRiskScorer::Result.new(files: {}, max: {}, obfuscation: []))
+
+      run_review
+
+      expect(report.change_risk).to be_nil
+    end
+
+    it 'keeps the review when scoring fails', :aggregate_failures do
+      allow(scorer).to receive(:call).and_raise(Thingie::SystemOneError, 'boom')
+
+      expect { run_review }.to output(/Change risk scoring skipped: boom/).to_stderr
+      expect(report.change_risk).to be_nil
+      expect(report.processing_warnings).to include(/boom/)
+    end
+
+    it 'keeps the review when scoring raises an error that is not a System One error', :aggregate_failures do
+      allow(scorer).to receive(:call).and_raise(OpenSSL::SSL::SSLError, 'handshake failed')
+
+      expect { run_review }.to output(/Change risk scoring skipped: handshake failed/).to_stderr
+      expect(report.change_risk).to be_nil
+    end
+  end
+
+  context 'when running github-comment on a report with a change risk' do
+    let(:rules) { [{ 'threshold' => 0.5, 'label' => 'risk: needs review' }] }
+    let(:config) { Thingie::Configuration.new(root: tmp_dir, overrides: { 'escalations' => rules }) }
+    let(:md_path) { File.join(tmp_dir, 'code-review-report.md') }
+    let(:report) do
+      target = Thingie::ReviewTarget.new(platform: 'github', repo_url: nil, pr_number: 42, commit_sha: 'deadbeef',
+                                         branch: 'feat', base_ref: 'main', head_ref: 'HEAD', merge_base: false)
+      Thingie::Report.new(target: target, model: 'm', issues: [], number_of_processed_files: 1).tap do |built|
+        built.change_risk = { 'max' => { 'overall' => 0.7 }, 'files' => {},
+                              'escalations' => [{ 'label' => 'risk: needs review' }] }
+      end
+    end
+    let(:fake_commenter) { instance_double(Thingie::GitHub::Commenter, post_review: nil) }
+    let(:escalator) { instance_double(Thingie::GitHub::Escalator, call: ['risk: needs review']) }
+
+    before do
+      allow(Thingie::Configuration).to receive(:new).and_return(config)
+      allow(Thingie::GitHub::Commenter).to receive(:new).and_return(fake_commenter)
+      allow(Thingie::GitHub::Escalator).to receive(:new).and_return(escalator)
+      report.save(tmp_dir)
+      File.write(md_path, 'summary')
+    end
+
+    def run_github_comment
+      Thingie::CLI.start(['github-comment', '--md-report-file', md_path, '--pr', '42', '--gh-repo', 'o/r'])
+    end
+
+    it 'labels the PR for the report overall score' do
+      run_github_comment
 
       expect(escalator).to have_received(:call).with(0.7)
     end
 
-    context 'with no escalations configured' do
-      let(:rules) { [] }
+    it 'still posts the review when labelling fails', :aggregate_failures do
+      allow(escalator).to receive(:call).and_raise(StandardError, 'no permission')
 
-      it 'does nothing' do
-        described_class.start(['escalate', '--pr', '42', '--gh-repo', 'o/r'])
+      expect { run_github_comment }.to output(/Escalation failed: StandardError: no permission/).to_stderr
+      expect(fake_commenter).to have_received(:post_review)
+    end
 
-        expect(Thingie::ChangeRiskScorer).not_to have_received(:new)
-      end
+    it 'does not touch labels when the report has no change risk' do
+      report.change_risk = nil
+      report.save(tmp_dir)
+
+      run_github_comment
+
+      expect(Thingie::GitHub::Escalator).not_to have_received(:new)
     end
   end
 end

@@ -58,14 +58,18 @@ system_one_enabled = false
 system_one_model = "jev-latest"
 system_one_api_base = "https://openrouter.ai/api"
 
-# Escalation paths for the System One change-risk score. `thingie escalate` scores
-# the changeset and, for each rule whose `threshold` the riskiest file's `overall`
-# score (0.0-1.0) reaches, adds its `label` to the PR. Needs `system_one_enabled`.
+# Escalation paths for the System One change-risk score. With `system_one_enabled`,
+# `thingie review` scores the changeset and records the scores and escalations in
+# the report; `thingie github-comment` then adds, for each rule whose `threshold`
+# the riskiest file's `overall` score (0.0-1.0) reaches, its `label` to the PR.
+# An optional `title` and `description` appear in the review and the GitHub summary.
 # Rules may stack: a score that reaches several thresholds adds every label.
 # Define rules as [[escalations]] tables in .thingie/config.toml, for example:
 #   [[escalations]]
 #   threshold = 0.5
 #   label = "risk: needs review"
+#   title = "Needs careful review"
+#   description = "System One thinks a person should read this change closely."
 #
 #   [[escalations]]
 #   threshold = 0.8

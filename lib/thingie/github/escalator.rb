@@ -15,13 +15,12 @@ module Thingie
       # @param owner [String] the repository owner
       # @param repo [String] the repository name
       # @param pr_number [Integer] the pull request number
-      # @param rules [Array<Hash>] `[[escalations]]` entries, each with a `threshold` (0.0-1.0) and a `label`
-      # @raise [Thingie::ConfigurationError] if a rule has no valid threshold or label
+      # @param rules [Thingie::EscalationRules] the escalation rules to apply
       def initialize(token:, owner:, repo:, pr_number:, rules:)
         @client = Octokit::Client.new(access_token: token)
         @slug = "#{owner}/#{repo}"
         @pr_number = pr_number
-        @rules = rules.each { |rule| validate(rule) }
+        @rules = rules
       end
 
       # Label the pull request for every rule the score reaches and remove the labels of the
@@ -31,33 +30,19 @@ module Thingie
       # @param score [Float] the overall change-risk score, 0.0-1.0
       # @return [Array<String>] the labels added, empty when no rule matched
       def call(score)
-        labels = @rules.select { |rule| score >= rule['threshold'] }.map { |rule| rule['label'] }.uniq
+        labels = @rules.labels_for(score)
         @client.add_labels_to_an_issue(@slug, @pr_number, labels) unless labels.empty?
-        (managed_labels - labels).each { |label| remove(label) }
+        (@rules.managed_labels - labels).each { |label| remove(label) }
         labels
       end
 
       private
-
-      def managed_labels
-        @rules.map { |rule| rule['label'] }.uniq
-      end
 
       # A label that isn't on the PR is already in the desired state.
       def remove(label)
         @client.remove_label(@slug, @pr_number, label)
       rescue Octokit::NotFound
         nil
-      end
-
-      def validate(rule)
-        threshold = rule['threshold']
-        unless threshold.is_a?(Numeric) && threshold.between?(0, 1)
-          raise ConfigurationError, "escalations threshold must be a number from 0 to 1, got #{threshold.inspect}"
-        end
-        return unless rule['label'].to_s.strip.empty?
-
-        raise ConfigurationError, 'escalations label must not be blank'
       end
     end
   end

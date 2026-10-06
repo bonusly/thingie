@@ -5,7 +5,7 @@ require 'yard'
 # This spec audits documentation across the whole codebase rather than a single
 # class, so it doesn't fit RSpec/DescribeClass; and the YARD registry only
 # needs building once for the whole file, so before(:context) is intentional.
-# rubocop:disable RSpec/DescribeClass, RSpec/BeforeAfterAll
+# rubocop:disable-next RSpec/DescribeClass, RSpec/BeforeAfterAll
 RSpec.describe 'YARD documentation coverage' do
   before(:context) do
     Dir.chdir(File.expand_path('../..', __dir__)) do
@@ -45,4 +45,3 @@ RSpec.describe 'YARD documentation coverage' do
     expect(mismatched).to be_empty, -> { mismatched.join("\n") }
   end
 end
-# rubocop:enable RSpec/DescribeClass, RSpec/BeforeAfterAll
