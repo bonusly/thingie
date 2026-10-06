@@ -160,6 +160,38 @@ RSpec.describe Thingie::LlmClient do
       expect(log).to eq(['thingie--search'])
     end
 
+    context 'when the model cannot combine tools with a response schema' do
+      let(:config) do
+        Thingie::Configuration.new(root: tmp_dir, overrides: { provider: 'openai', llm_api_key: 'secret',
+                                                               schema_with_tools: false })
+      end
+      let(:chat_double) { instance_double(RubyLLM::Chat, ask: 'response', with_tools: nil, with_schema: nil) }
+
+      before do
+        allow(chat_double).to receive_messages(with_tools: chat_double, with_schema: chat_double)
+        allow(described_class.new(config).llm_context).to receive(:chat)
+      end
+
+      it 'asks without the schema when tools are given, so the model can call them', :aggregate_failures do
+        client = described_class.new(config)
+        allow(client.llm_context).to receive(:chat).and_return(chat_double)
+
+        client.complete_with_schema('prompt', { type: 'object' }, tools: [instance_double(RubyLLM::Tool)])
+
+        expect(chat_double).to have_received(:with_tools)
+        expect(chat_double).not_to have_received(:with_schema)
+      end
+
+      it 'still applies the schema when there are no tools' do
+        client = described_class.new(config)
+        allow(client.llm_context).to receive(:chat).and_return(chat_double)
+
+        client.complete_with_schema('prompt', { type: 'object' })
+
+        expect(chat_double).to have_received(:with_schema).with({ type: 'object' })
+      end
+    end
+
     it 'skips with_tools when no tools are given' do
       client = described_class.new(config)
       chat_double = instance_double(RubyLLM::Chat, with_schema: instance_double(RubyLLM::Chat, ask: 'r'))

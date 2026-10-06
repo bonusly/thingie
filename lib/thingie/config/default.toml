@@ -22,6 +22,12 @@ retries = 3
 # Maximum number of concurrent file reviews (uses fibers).
 max_concurrent_tasks = 10
 
+# Whether to also ask for schema-constrained JSON on calls that have tools. Some
+# models (GLM through OpenRouter) answer straight away instead of calling a tool
+# when a response schema is set, so the review is never verified. Set false for
+# those: the prompt describes the JSON and the reply is parsed instead.
+schema_with_tools = true
+
 # Timeout (in seconds) for a single LLM request, including connection and
 # response. Set lower to fail fast on unreachable providers.
 request_timeout = 120

@@ -76,6 +76,24 @@ RSpec.describe Thingie::Verifier do
     end
   end
 
+  context 'when the critic replies with prose around the JSON, as a tool-using call without a schema does' do
+    let(:issues) { [issue('reject-me')] }
+    let(:fake_llm_client) do
+      instance_double(Thingie::LlmClient).tap do |client|
+        allow(client).to receive(:complete_with_schema).and_return(
+          message_double(content: "I checked the callers.\n{\"verdict\": \"reject\", \"reasoning\": \"guarded\"}",
+                         thinking: nil, thinking_tokens: nil, input_tokens: nil, output_tokens: nil,
+                         tool_calls: {}, cache_read_tokens: nil, cache_write_tokens: nil,
+                         cost: instance_double(RubyLLM::Cost, total: nil), model_info: nil)
+        )
+      end
+    end
+
+    it 'still honours the verdict' do
+      expect(verifier.call(issues)).to be_empty
+    end
+  end
+
   context 'when the critic supplies an out-of-range override' do
     let(:issues) { [issue('override-me')] }
     let(:fake_llm_client) do
