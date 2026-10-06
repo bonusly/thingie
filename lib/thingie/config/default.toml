@@ -190,6 +190,12 @@ require_evidence = false
 # runs on findings that passed the thresholds above, so cost scales with finding
 # count, not file size. Fail-open: a finding is kept if the critic can't run.
 enabled = true
+# What the critic asks. "default": is it true and valuable to a maintainer. "user_impact":
+# is it true AND would someone using the product see a failure, an error, wrong data or
+# something missing (a concrete trigger and consequence)? Nits and maintainability
+# points must clear a much higher bar. Pair with tools (schema_with_tools = false for
+# models that skip tools when a schema is set) so the critic can check the code.
+bar = "default"
 # Optional: run the critic on a stronger model than the review (same provider
 # and API key). Leave empty to reuse the review model.
 # model = "claude-opus-4.8"
