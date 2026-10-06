@@ -19,4 +19,38 @@ RSpec.describe Thingie::PostProcessor do
   it 'keeps everything when no thresholds are configured' do
     expect(described_class.new(nil).call(issues)).to eq(issues)
   end
+
+  context 'with require_evidence' do
+    def finding(confidence:, evidence:)
+      Thingie::Issue.from_hash('title' => 't', 'severity' => 2, 'confidence' => confidence, 'evidence' => evidence,
+                               'file' => 'a.rb', 'affected_lines' => [{ 'start_line' => 1 }])
+    end
+
+    let(:verified) { finding(confidence: 1, evidence: 'award.rb:31 skips the check') }
+    let(:unverified) { finding(confidence: 1, evidence: ' ') }
+
+    it 'grades a finding without evidence as unverified, so a stricter max_confidence drops it', :aggregate_failures do
+      kept = described_class.new('max_confidence' => 2, 'require_evidence' => true).call([verified, unverified])
+      expect(kept).to eq([verified])
+      expect(unverified.confidence).to eq(3)
+    end
+
+    it 'never raises a finding that is already below the unverified grade' do
+      weak = finding(confidence: 4, evidence: nil)
+      described_class.new('require_evidence' => true).call([weak])
+      expect(weak.confidence).to eq(4)
+    end
+
+    it 'uses the configured unverified grade' do
+      kept = described_class.new('max_confidence' => 2, 'require_evidence' => true,
+                                 'unverified_confidence' => 2).call([unverified])
+      expect(kept).to eq([unverified])
+    end
+
+    it 'leaves confidence alone when the option is off', :aggregate_failures do
+      kept = described_class.new('max_confidence' => 2).call([verified, unverified])
+      expect(kept).to eq([verified, unverified])
+      expect(unverified.confidence).to eq(1)
+    end
+  end
 end

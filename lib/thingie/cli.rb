@@ -92,6 +92,7 @@ module Thingie
       clients = build_lsp_clients(config, changeset)
       tools = clients.map { |client| Thingie::Lsp::SymbolTool.new(client: client, root: changeset.workdir) }
       tools << Thingie::FileTool.new(root: changeset.workdir)
+      tools << Thingie::SearchTool.new(root: changeset.workdir)
       skill_tool = Thingie::SkillCatalog.tool(config)
       tools << skill_tool if skill_tool
       mcp_toolset = Thingie::Mcp::Toolset.build(config)

@@ -29,7 +29,8 @@ module Thingie
         confidence: issue.fetch('confidence'),
         details: issue['details'],
         tags: issue['tags'] || [],
-        affected_lines: parse_affected_lines(issue['affected_lines'])
+        affected_lines: parse_affected_lines(issue['affected_lines']),
+        evidence: issue['evidence']
       )
     end
 

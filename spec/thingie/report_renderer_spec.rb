@@ -92,4 +92,22 @@ RSpec.describe Thingie::ReportRenderer do
       expect(renderer.to_md).not_to include('across')
     end
   end
+
+  context 'with a finding that carries evidence' do
+    let(:report) do
+      raw = Thingie::RawIssue.new(title: 'Guard skipped', severity: 2, confidence: 1, details: 'd',
+                                  evidence: 'award.rb:31 skips the check',
+                                  affected_lines: [Thingie::AffectedRange.new(start_line: 3, end_line: 3)])
+      Thingie::Report.new(
+        target: Thingie::ReviewTarget.new(platform: 'local', repo_url: nil, pr_number: nil, commit_sha: nil,
+                                          branch: nil, base_ref: 'main', head_ref: 'HEAD', merge_base: false),
+        model: 'm',
+        issues: [Thingie::Issue.new(id: 1, file: 'app.rb', raw_issue: raw, affected_lines: raw.affected_lines)]
+      )
+    end
+
+    it 'shows the evidence under the finding' do
+      expect(renderer.to_md).to include('**Evidence:** award.rb:31 skips the check')
+    end
+  end
 end

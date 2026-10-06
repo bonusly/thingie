@@ -382,6 +382,27 @@ This is independent from `approve.max_severity` (the **BLOCK line**, see
 comment without blocking auto-approval, e.g. `post_process.max_severity = 3`
 but `approve.max_severity = 2`.
 
+### Verified review (`review.prompt = "verified"`)
+
+The default prompt tells the model to report only what it is certain of, which in practice means it reports almost nothing and misses real bugs. The `verified` prompt asks for the opposite discipline: check each suspicion against the code with the tools (a read-only `git grep` search tool, the file tool, and the language server when configured), cite what was confirmed in the finding's `evidence`, and grade `confidence` by how far the verification got, not by how sure the model feels.
+
+```toml
+[review]
+prompt = "verified"
+
+[post_process]
+max_confidence = 2        # post confirmed and likely findings; hunches are dropped
+require_evidence = true   # a finding with no evidence is graded 3 whatever the model wrote
+
+[confidence_scale]
+1 = "Confirmed: you traced the failing path through the code with your tools and cite it in evidence"
+2 = "Likely: plausible and mostly verified, but one link in the path is unchecked"
+3 = "Suspected: a hunch you could not verify"
+4 = "Speculative: do not report"
+```
+
+The evidence shows under each finding (inline comment and report) and is passed to the critic, so a reader can see why a finding was raised and the critic can check the claim. The search tool is always available to the reviewer and the critic; it is limited to tracked files under the working directory and runs without a shell.
+
 ### Language servers (LSP)
 
 When you configure a language server, Thingie exposes a symbol-lookup tool to the
