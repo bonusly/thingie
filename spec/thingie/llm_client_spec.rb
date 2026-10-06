@@ -142,6 +142,24 @@ RSpec.describe Thingie::LlmClient do
       expect(chat_double).to have_received(:with_schema).with({ type: 'object' })
     end
 
+    it 'records the name of each tool call the model makes in the log it is given' do
+      client = described_class.new(config)
+      chat_double = instance_double(RubyLLM::Chat, with_schema: instance_double(RubyLLM::Chat, ask: 'response'))
+      hook = nil
+      allow(chat_double).to receive(:with_tools).and_return(chat_double)
+      allow(chat_double).to receive(:on_tool_call) do |&block|
+        hook = block
+        chat_double
+      end
+      allow(client.llm_context).to receive(:chat).and_return(chat_double)
+      log = []
+
+      client.complete_with_schema('prompt', { type: 'object' }, tools: [instance_double(RubyLLM::Tool)], tool_log: log)
+      hook.call(instance_double(RubyLLM::ToolCall, name: 'thingie--search'))
+
+      expect(log).to eq(['thingie--search'])
+    end
+
     it 'skips with_tools when no tools are given' do
       client = described_class.new(config)
       chat_double = instance_double(RubyLLM::Chat, with_schema: instance_double(RubyLLM::Chat, ask: 'r'))

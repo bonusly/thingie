@@ -53,10 +53,12 @@ module Thingie
     # @param prompt [String] the prompt text to send
     # @param schema [Object] the structured output schema the response must conform to
     # @param tools [Array<Object>] optional `ruby_llm` tools to make available for tool-use
+    # @param tool_log [Array<String>, nil] filled with the name of each tool call the model makes
     # @return [Object] the `ruby_llm` response
-    def complete_with_schema(prompt, schema, tools: [])
+    def complete_with_schema(prompt, schema, tools: [], tool_log: nil)
       c = chat
       c = c.with_tools(*tools) unless tools.empty?
+      c = c.on_tool_call { |call| tool_log << call.name } if tool_log
       c.with_schema(schema).ask(prompt)
     end
 

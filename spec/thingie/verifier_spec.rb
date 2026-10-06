@@ -143,10 +143,10 @@ RSpec.describe Thingie::Verifier do
       debug_verifier.call(issues)
       expect(fake_debug_output).to have_received(:critic_call)
         .with(issue: issues[0], response: anything, verdict: 'uphold',
-              content: hash_including('verdict' => 'uphold'))
+              content: hash_including('verdict' => 'uphold'), tool_names: [])
       expect(fake_debug_output).to have_received(:critic_call)
         .with(issue: issues[1], response: anything, verdict: 'reject',
-              content: hash_including('verdict' => 'reject'))
+              content: hash_including('verdict' => 'reject'), tool_names: [])
     end
 
     it 'does not call critic_call when verifier is disabled' do

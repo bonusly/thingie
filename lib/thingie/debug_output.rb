@@ -261,7 +261,8 @@ module Thingie
     # @param response [Object, nil] the `ruby_llm` response object for the call
     # @param issues [Array<Thingie::Issue>] the parsed issues from the response
     # @return [void]
-    def review_call(file:, response:, issues:)
+    # @param tool_names [Array<String>, nil] the name of each tool call the model made, when tracked
+    def review_call(file:, response:, issues:, tool_names: nil)
       return unless @enabled
 
       parts = ["#{issues.size} issue(s) found", @detail.token_summary(response)]
@@ -270,9 +271,24 @@ module Thingie
       warn "[DEBUG][REVIEW] #{file}: #{parts.join(' | ')}"
       tool_info = @detail.tool_calls_summary(response)
       warn "[DEBUG][REVIEW]   tool calls: #{tool_info}" if tool_info
+      tool_calls(tag: 'REVIEW', label: file, names: tool_names) if tool_names
       @detail.reasoning(response, tag: 'REVIEW')
       @detail.issues(issues, tag: 'REVIEW') if issues.any?
       @detail.content(response, tag: 'REVIEW')
+    end
+
+    # Prints which tools a review or critic call used, so a reader can tell whether
+    # the model checked its claims or answered from the prompt alone.
+    #
+    # @param tag [String] `REVIEW` or `CRITIC`
+    # @param label [String] the file or finding the call was about
+    # @param names [Array<String>] the name of each tool call, in order
+    # @return [void]
+    def tool_calls(tag:, label:, names:)
+      return unless @enabled
+
+      summary = names.empty? ? 'none' : names.tally.map { |name, count| "#{name} x#{count}" }.join(', ')
+      warn "[DEBUG][#{tag}] #{label}: tool calls: #{summary}"
     end
 
     # Called when a file review's LLM response can't be parsed.
@@ -333,7 +349,8 @@ module Thingie
     # @param verdict [Symbol, String] the critic's verdict for this finding
     # @param content [Hash, nil] the parsed verdict hash from the critic response
     # @return [void]
-    def critic_call(issue:, response:, verdict:, content:)
+    # @param tool_names [Array<String>, nil] the name of each tool call the model made, when tracked
+    def critic_call(issue:, response:, verdict:, content:, tool_names: nil)
       return unless @enabled
 
       parts = [@detail.token_summary(response)]
@@ -342,6 +359,7 @@ module Thingie
       warn "[DEBUG][CRITIC] '#{issue.title}' (#{issue.file}) -> #{verdict} | #{parts.join(' | ')}"
       tool_info = @detail.tool_calls_summary(response)
       warn "[DEBUG][CRITIC]   tool calls: #{tool_info}" if tool_info
+      tool_calls(tag: 'CRITIC', label: issue.title, names: tool_names) if tool_names
       @detail.reasoning(response, tag: 'CRITIC')
       @detail.verdict(content, tag: 'CRITIC')
     end

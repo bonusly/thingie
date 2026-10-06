@@ -122,10 +122,11 @@ module Thingie
       full = whole_file ? nil : @changeset.full_content_for(file)
       prompt = @prompt_builder.review(diff: diff, file_lines: full, symbol_lookup: @tools.any?,
                                       whole_file: whole_file, pr_context: @pr_context.to_s)
-      response = @llm_client.complete_with_schema(prompt, Schemas::ISSUE_SCHEMA, tools: @tools)
+      tool_names = []
+      response = @llm_client.complete_with_schema(prompt, Schemas::ISSUE_SCHEMA, tools: @tools, tool_log: tool_names)
       @usage.record(response)
       issues = parse_response(response, file)
-      @debug_output.review_call(file: file, response: response, issues: issues)
+      @debug_output.review_call(file: file, response: response, issues: issues, tool_names: tool_names)
       only_changed_lines(issues, file)
     rescue JSON::ParserError => e
       @warnings << "Could not parse LLM response for #{file}: #{e.message}"
