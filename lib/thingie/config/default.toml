@@ -183,6 +183,15 @@ max_severity = 4
 # cannot pass a stricter max_confidence.
 require_evidence = false
 
+[dedupe]
+# Before posting, drop findings that repeat another finding in the same run or a Thingie
+# comment that is still open on the pull request, so a re-run does not post the same
+# problem twice. One extra model call (no tools) per run, over the whole list. If the
+# call fails, every finding is posted and a warning is printed.
+enabled = false
+# Model for that call; defaults to the review model.
+# model = "..."
+
 [verify]
 # Critic / challenge pass: after filtering, re-examine each surviving finding
 # with a fresh, adversarially-framed LLM call that must ground the issue in the

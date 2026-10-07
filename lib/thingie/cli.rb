@@ -366,8 +366,26 @@ module Thingie
           resolve_token: options[:resolve_token] || Env.fetch('THINGIE_RESOLVE_TOKEN', nil),
           owner: repo_owner(context),
           repo: repo_name(context),
-          pr_number: options[:pr] || context&.pr_number
+          pr_number: options[:pr] || context&.pr_number,
+          duplicate_filter: build_duplicate_filter
         )
+      end
+
+      # The repeat check is opt-in with `[dedupe] enabled = true`. It uses
+      # `[dedupe] model` when set, else the review model.
+      #
+      # @return [Thingie::DuplicateFilter, nil] the filter, or nil when disabled or unavailable
+      def build_duplicate_filter
+        config = Thingie::Configuration.new
+        settings = config['dedupe']
+        return unless settings.is_a?(Hash) && settings['enabled']
+
+        model = settings['model'].to_s.strip
+        client = model.empty? ? Thingie::LlmClient.new(config) : Thingie::LlmClient.new(config, model: model)
+        Thingie::DuplicateFilter.new(llm_client: client)
+      rescue StandardError => e
+        warn "Repeated-finding check disabled — #{e.message}"
+        nil
       end
 
       # Auto-approve the PR when the [approve] config block is enabled. Loads

@@ -138,6 +138,20 @@ module Thingie
       @confidence = confidence unless confidence.nil?
     end
 
+    CITED_FILE = %r{([\w./-]+\.(?:rb|rake|erb|tsx?|jsx?|ya?ml|json|md|lock|toml|sql|s?css)):\d+}
+
+    # A file the finding's own text points at, when the text never mentions the file the finding is
+    # attached to. A reviewer that wandered into another file reports that file's line numbers, so
+    # anchoring the comment here would put it on an unrelated line.
+    #
+    # @return [String, nil] the first cited file, or nil when the text cites none or cites this file
+    def cited_other_file
+      cited = "#{@title} #{@details}".scan(CITED_FILE).flatten
+      return if cited.empty?
+
+      cited.first unless cited.any? { |path| File.basename(path) == File.basename(@file.to_s) }
+    end
+
     # The evidence as a collapsed GitHub block, so the comment reads short and the proof is one click away.
     #
     # @return [String, nil] the block, or nil when the reviewer gave no evidence

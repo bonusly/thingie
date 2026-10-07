@@ -24,7 +24,10 @@ module Thingie
       # @param resolve_token [String, nil] optional PAT with write access, required to resolve
       #   review threads via GraphQL; falls back to `token` when absent (but resolution will
       #   fail for tokens that can't do it, e.g. `GITHUB_TOKEN`)
-      def initialize(token:, owner:, repo:, pr_number:, resolve_token: nil)
+      # @param duplicate_filter [Thingie::DuplicateFilter, nil] drops findings that repeat another
+      #   finding or a comment that is still open; findings are all posted when absent
+      def initialize(token:, owner:, repo:, pr_number:, resolve_token: nil, duplicate_filter: nil)
+        @duplicate_filter = duplicate_filter
         # auto_paginate so PRs with many files/comments aren't truncated to the
         # first page when validating diff lines or collapsing old summaries.
         @client = Octokit::Client.new(access_token: token, auto_paginate: true)
@@ -50,13 +53,13 @@ module Thingie
       def post_review(summary:, report:)
         pr = @client.pull_request("#{@owner}/#{@repo}", @pr_number)
         commit_id = pr.head.sha
-        resolve_previous_threads(report.issues)
+        open_threads = resolve_previous_threads(report.issues)
         collapse_previous_summaries
         if report.issues.empty?
           # Only post the overview comment when there's nothing to flag inline.
           post_summary_comment(summary)
         else
-          off_diff = post_inline_comments(report.issues, commit_id)
+          off_diff = post_inline_comments(without_repeats(report.issues, open_threads), commit_id)
           post_off_diff_comment(off_diff)
         end
       end
@@ -65,9 +68,28 @@ module Thingie
 
       # Post one inline comment per affected line that falls inside the PR diff.
       # GitHub's review-comment API only accepts line-based comments on diff
-      # lines; returns the issues that couldn't be posted inline (off-diff).
+      # lines; returns the issues that couldn't be posted inline (off-diff). A
+      # finding whose text is about another file is never put on a line, because
+      # its line numbers belong to that other file.
       def post_inline_comments(issues, commit_id)
-        issues.reject { |issue| post_issue_inline?(issue, commit_id) }
+        issues.reject { |issue| issue.cited_other_file.nil? && post_issue_inline?(issue, commit_id) }
+      end
+
+      # Findings that repeat another finding or a comment that is still open are
+      # dropped. If the check itself fails, everything is posted and the failure is
+      # reported, so a broken check never hides a finding.
+      def without_repeats(issues, open_threads)
+        return issues unless @duplicate_filter
+
+        @duplicate_filter.call(issues, open_threads.map { |thread| open_comment_for(thread) })
+      rescue StandardError => e
+        warn "Could not check for repeated findings, posting all of them — #{e.class}: #{e.message}"
+        issues
+      end
+
+      def open_comment_for(thread)
+        body = thread.dig('comments', 'nodes', 0, 'body').to_s.sub(REVIEW_COMMENT_MARKER, '')
+        { file: thread['path'], line: thread['line'], text: body.sub(%r{<details>.*?</details>}m, '').strip }
       end
 
       # Issues outside the diff can't be inline comments. Collect them into a
@@ -76,15 +98,16 @@ module Thingie
         return if issues.empty?
 
         rows = issues.map { |issue| off_diff_row(issue) }
-        body = "<details><summary>#{issues.size} finding(s) outside this diff</summary>\n\n" \
+        body = "<details><summary>#{issues.size} finding(s) outside this diff or about another file</summary>\n\n" \
                "#{rows.join("\n")}\n\n</details>\n\n#{Context::SUMMARY_MARKER}"
         @client.add_comment("#{@owner}/#{@repo}", @pr_number, body)
       end
 
       def off_diff_row(issue)
+        cited = issue.cited_other_file
         line = issue.affected_lines.first&.start_line
-        location = line ? ":#{line}" : ''
-        "- **#{severity_label(issue.severity)}** `#{issue.file}#{location}` — #{issue.title}"
+        location = cited || [issue.file, line].compact.join(':')
+        "- **#{severity_label(issue.severity)}** `#{location}` — #{issue.title}"
       end
 
       def post_issue_inline?(issue, commit_id)
@@ -180,19 +203,27 @@ module Thingie
       # (fixed) or whose anchor line is outdated. Threads are identified by the
       # REVIEW_COMMENT_MARKER in their first comment, so this works even with the
       # default Actions GITHUB_TOKEN (which can't read /user to learn the bot's
-      # login).
+      # login). Returns the Thingie threads left open because their line is still reported.
       def resolve_previous_threads(current_issues)
         current_lines = current_issue_lines(current_issues)
         # Resolve each thread independently so one failure doesn't strand the
         # rest; tally failures with an explicit loop (not #count) to keep the
         # API side effects out of a query method.
         unresolved = 0
+        still_open = []
         fetch_review_threads.each do |thread|
+          still_open << thread if open_and_reported?(thread, current_lines)
           unresolved += 1 unless resolve_thread(thread, current_lines)
         end
         warn_thread_resolution_failure(unresolved) if unresolved.positive?
+        still_open
       rescue StandardError => e
         warn "Could not fetch previous review threads — #{e.message}"
+        []
+      end
+
+      def open_and_reported?(thread, current_lines)
+        !thread['isResolved'] && thingie_thread?(thread) && line_still_reported?(thread, current_lines)
       end
 
       def warn_thread_resolution_failure(count)

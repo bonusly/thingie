@@ -238,6 +238,16 @@ The approval needs the workflow's `pull-requests: write` permission (already req
 
 > **Limitation.** "Contributor" is determined from commit author/committer GitHub logins, so a `Co-authored-by:` trailer doesn't count as having committed. If a thread's resolver can't be determined (e.g. a deleted account), Thingie fails safe and does not approve.
 
+### Repeated findings and findings about another file
+
+- **Findings about another file.** A reviewer sometimes reports a problem it found in a different file than the one it was reviewing, so the line number belongs to that other file. When a finding's text cites only other files (`path/to/file.rb:17`) and never the file it is attached to, Thingie does not put it on a line. It lists the finding in the collapsed summary comment under the cited file instead.
+- **Repeats (`[dedupe] enabled = true`).** On a re-run, Thingie would otherwise post the same problem again beside the thread that is still open, and models word the same issue several ways within one run. With `[dedupe]` enabled, one extra model call (no tools) compares the new findings with each other and with the Thingie comments still open on the PR, and drops the repeats. Two different problems on the same line are kept. If the call fails, every finding is posted and a warning is printed. `[dedupe] model` picks the model, and the review model is the default.
+
+```toml
+[dedupe]
+enabled = true
+```
+
 ### Configuration options
 
 Thingie reads configuration from layers (later layers override earlier ones):
