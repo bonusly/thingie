@@ -361,22 +361,23 @@ module Thingie
       # @param context [Thingie::GitHub::Context, nil] the resolved GitHub Action context
       # @return [Thingie::GitHub::Commenter] a commenter configured for the target PR
       def build_commenter(context)
+        config = Thingie::Configuration.new
         Thingie::GitHub::Commenter.new(
           token: options[:token] || Env.fetch('GITHUB_TOKEN', nil),
           resolve_token: options[:resolve_token] || Env.fetch('THINGIE_RESOLVE_TOKEN', nil),
           owner: repo_owner(context),
           repo: repo_name(context),
           pr_number: options[:pr] || context&.pr_number,
-          duplicate_filter: build_duplicate_filter
+          duplicate_filter: build_duplicate_filter(config)
         )
       end
 
-      # The repeat check is opt-in with `[dedupe] enabled = true`. It uses
+      # The repeat check is on unless `[dedupe] enabled = false`. It uses
       # `[dedupe] model` when set, else the review model.
       #
+      # @param config [Thingie::Configuration] the loaded configuration
       # @return [Thingie::DuplicateFilter, nil] the filter, or nil when disabled or unavailable
-      def build_duplicate_filter
-        config = Thingie::Configuration.new
+      def build_duplicate_filter(config)
         settings = config['dedupe']
         return unless settings.is_a?(Hash) && settings['enabled']
 
