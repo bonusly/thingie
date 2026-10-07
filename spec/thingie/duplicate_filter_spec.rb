@@ -3,7 +3,9 @@
 require 'spec_helper'
 
 RSpec.describe Thingie::DuplicateFilter do
-  subject(:filter) { described_class.new(llm_client: llm_client) }
+  subject(:filter) { described_class.new(llm_client: llm_client, prompt_builder: prompt_builder) }
+
+  let(:prompt_builder) { Thingie::PromptBuilder.new(Thingie::Configuration.new(root: Dir.mktmpdir)) }
 
   let(:llm_client) { instance_double(Thingie::LlmClient) }
   let(:open_comments) { [{ file: 'a.rb', line: 3, text: 'Query never returns users' }] }
