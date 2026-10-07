@@ -21,13 +21,14 @@ module Thingie
 
     # Finds the `issues` array of a review answer inside a model's reasoning. Only an object
     # with an `issues` array counts, so ordinary reasoning prose, or an unrelated `{...}` quoted
-    # before the answer, is never mistaken for findings.
+    # before the answer, is never mistaken for findings. The last such object wins: the final
+    # answer follows any quoted schema or draft, and searching backwards finds it quickly.
     #
     # @param reasoning [#text, String, nil] the response's thinking, or its text
     # @return [Array, nil] the raw issues, or nil if the reasoning holds no such object
     def self.issues_in(reasoning)
       text = (reasoning.respond_to?(:text) ? reasoning.text : reasoning).to_s
-      text.enum_for(:scan, '{').map { Regexp.last_match.begin(0) }.each do |start|
+      text.enum_for(:scan, '{').map { Regexp.last_match.begin(0) }.reverse_each do |start|
         parsed = extract_json(text[start..])
         return parsed['issues'] if parsed.is_a?(Hash) && parsed['issues'].is_a?(Array)
       end

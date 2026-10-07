@@ -8,9 +8,15 @@ module Thingie
     #
     # @param rules [Array<Hash>, nil] `[[escalations]]` entries, each with a `threshold` (0.0-1.0), a `label`,
     #   and optionally a `title` and `description`
-    # @raise [Thingie::ConfigurationError] if a rule has no valid threshold or label
+    # @raise [Thingie::ConfigurationError] if the rules aren't a list of tables, or a rule has no valid
+    #   threshold or label
     def initialize(rules)
-      @rules = Array(rules).each { |rule| validate(rule) }
+      @rules = rules.nil? ? [] : rules
+      unless @rules.is_a?(Array) && @rules.all?(Hash)
+        raise ConfigurationError, 'escalations must be a list of [[escalations]] tables'
+      end
+
+      @rules.each { |rule| validate(rule) }
     end
 
     # Whether any rule is configured.

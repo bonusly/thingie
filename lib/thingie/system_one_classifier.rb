@@ -2,6 +2,7 @@
 
 require 'json'
 require 'net/http'
+require 'openssl'
 require 'uri'
 
 module Thingie
@@ -98,7 +99,7 @@ module Thingie
     def classify(state:, questions: RISK_QUESTIONS)
       answers = request(state: state, questions: questions)
       questions.to_h { |name, question| [name.to_sym, value_of(answers.fetch(name.to_s), question)] }
-    rescue KeyError, JSON::ParserError => e
+    rescue KeyError, TypeError, ArgumentError, JSON::ParserError => e
       raise SystemOneError, "Unexpected System One response: #{e.message}"
     end
 
@@ -112,9 +113,10 @@ module Thingie
     end
 
     def value_of(answer, question)
-      return answer.fetch('noul') unless answer.fetch('type') == 'score'
+      raise TypeError, "answer is #{answer.class}, not an object" unless answer.is_a?(Hash)
+      return Float(answer.fetch('noul')) unless answer.fetch('type') == 'score'
 
-      answer.fetch('score').to_f / [question[:criteria].size - 1, 1].max
+      Float(answer.fetch('score')) / [question[:criteria].size - 1, 1].max
     end
 
     def request(state:, questions:)
@@ -123,7 +125,10 @@ module Thingie
         raise SystemOneError, "System One request failed (#{response.code}): #{response.body}"
       end
 
-      JSON.parse(response.body).fetch('answers')
+      answers = JSON.parse(response.body).fetch('answers')
+      raise TypeError, "answers is #{answers.class}, not an object" unless answers.is_a?(Hash)
+
+      answers
     end
 
     def post(payload)
@@ -132,7 +137,8 @@ module Thingie
       http.open_timeout = http.read_timeout = http.write_timeout = @timeout
       headers = { 'Authorization' => "Bearer #{@api_key}", 'Content-Type' => 'application/json' }
       http.post(@uri.path, JSON.generate(payload), headers)
-    rescue Net::OpenTimeout, Net::ReadTimeout, Net::WriteTimeout, SocketError, SystemCallError => e
+    rescue Net::OpenTimeout, Net::ReadTimeout, Net::WriteTimeout, SocketError, SystemCallError, OpenSSL::SSL::SSLError,
+           IOError, Net::ProtocolError, Net::HTTPBadResponse => e
       raise SystemOneError, "System One request failed: #{e.class}: #{e.message}"
     end
   end

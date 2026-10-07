@@ -361,6 +361,17 @@ RSpec.describe Thingie::Reviewer do
         expect(reviewer.review.total_issues).to eq(1)
       end
     end
+
+    context 'when a draft issues object is quoted before the final answer' do
+      let(:thinking) do
+        'Draft: {"issues":[]}. Final: {"issues":[{"title":"Bug","details":"desc","severity":1,' \
+          '"confidence":1,"tags":[],"affected_lines":[{"start_line":1}]}]}'
+      end
+
+      it 'uses the final answer' do
+        expect(reviewer.review.total_issues).to eq(1)
+      end
+    end
   end
 
   context 'when the LLM returns pure prose with no JSON' do

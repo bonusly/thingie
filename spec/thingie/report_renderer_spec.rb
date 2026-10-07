@@ -137,6 +137,12 @@ RSpec.describe Thingie::ReportRenderer do
       expect(renderer.to_cli).to include('Escalations: none')
     end
 
+    it 'says no files were scored when there are no scores', :aggregate_failures do
+      change_risk.merge!('max' => {}, 'escalations' => [])
+      expect(renderer.to_md).to include('Change risk: no files scored', 'No files were scored.')
+      expect(renderer.to_cli).to include('Change risk: no files scored')
+    end
+
     it 'survives a round trip through the saved report' do
       restored = Thingie::Report.from_hash(JSON.parse(JSON.generate(report.to_h)))
 

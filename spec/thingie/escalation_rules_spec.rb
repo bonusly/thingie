@@ -71,5 +71,10 @@ RSpec.describe Thingie::EscalationRules do
       expect { described_class.new([{ 'threshold' => 0.5, 'label' => ' ' }]) }
         .to raise_error(Thingie::ConfigurationError, /label/)
     end
+
+    it 'rejects a single [escalations] table instead of a list of tables' do
+      expect { described_class.new({ 'threshold' => 0.5, 'label' => 'x' }) }
+        .to raise_error(Thingie::ConfigurationError, /list of \[\[escalations\]\] tables/)
+    end
   end
 end

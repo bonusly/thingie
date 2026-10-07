@@ -389,7 +389,7 @@ module Thingie
         scorer = Thingie::ChangeRiskScorer.new(changeset: changeset, concurrency: config['max_concurrent_tasks'],
                                                classifier: Thingie::SystemOneClassifier.new(config))
         result = scorer.call
-        report.change_risk = change_risk_summary(result, rules) unless result.max.empty?
+        report.change_risk = change_risk_summary(result, rules)
       rescue StandardError => e
         warn "[thingie] Change risk scoring skipped: #{e.message}"
         report.processing_warnings << "Change risk scoring skipped: #{e.message}"

@@ -86,6 +86,37 @@ RSpec.describe Thingie::SystemOneClassifier do
       .to raise_error(Thingie::SystemOneError, /Unexpected/)
   end
 
+  [Errno::ECONNRESET, EOFError, OpenSSL::SSL::SSLError, Net::HTTPBadResponse].each do |error|
+    it "raises SystemOneError when the connection fails with #{error}" do
+      allow(http).to receive(:post).and_raise(error)
+
+      expect { classifier.classify(state: {}, questions: questions) }
+        .to raise_error(Thingie::SystemOneError, /#{error}/)
+    end
+  end
+
+  [
+    ['an answer that is not an object', { 'sqli' => 'yes' }],
+    ['a null noul', { 'sqli' => { 'type' => 'noul', 'noul' => nil } }],
+    ['a non-numeric noul', { 'sqli' => { 'type' => 'noul', 'noul' => 'high' } }],
+    ['answers that are not an object', ['sqli']]
+  ].each do |description, answers|
+    it "raises SystemOneError for #{description}" do
+      stub_response(Net::HTTPOK, answers: answers)
+
+      expect { classifier.classify(state: {}, questions: questions) }
+        .to raise_error(Thingie::SystemOneError, /Unexpected/)
+    end
+  end
+
+  it 'raises SystemOneError for a null score instead of reporting zero risk' do
+    stub_response(Net::HTTPOK, answers: { 'overall' => { 'type' => 'score', 'score' => nil } })
+
+    expect do
+      classifier.classify(state: {}, questions: { overall: { type: 'score', criteria: %w[low high] } })
+    end.to raise_error(Thingie::SystemOneError, /Unexpected/)
+  end
+
   it 'refuses to run unless enabled' do
     expect { described_class.new(settings.merge('system_one_enabled' => false)) }
       .to raise_error(Thingie::ConfigurationError, /disabled/)

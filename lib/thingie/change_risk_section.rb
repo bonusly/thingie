@@ -15,7 +15,8 @@ module Thingie
     # @return [String] CLI-formatted section
     def to_cli
       rows = escalations.map { |escalation| "\n  - #{cli_escalation(escalation)}" }.join
-      "Change risk: #{scores(' ').join(', ')}\nEscalations:#{rows.empty? ? ' none' : rows}\n"
+      "Change risk: #{@risk['max'].empty? ? 'no files scored' : scores(' ').join(', ')}\n" \
+        "Escalations:#{rows.empty? ? ' none' : rows}\n"
     end
 
     # The scores and escalations as a collapsed block, with the overall score and any escalation
@@ -23,14 +24,19 @@ module Thingie
     #
     # @return [String] Markdown-formatted section
     def to_md
-      rows = scores(': ').map { |score| "- #{score}" }.join("\n")
       bullets = escalations.map { |escalation| "- #{md_escalation(escalation)}" }.join("\n")
-      "<details><summary>Change risk: #{headline}</summary>\n\n" \
-        "Highest score per question across the changed files:\n\n#{rows}\n\n" \
+      "<details><summary>Change risk: #{headline}</summary>\n\n#{md_scores}\n\n" \
         "Escalations:#{bullets.empty? ? ' none' : "\n\n#{bullets}"}\n\n</details>"
     end
 
     private
+
+    def md_scores
+      return 'No files were scored.' if @risk['max'].empty?
+
+      rows = scores(': ').map { |score| "- #{score}" }.join("\n")
+      "Highest score per question across the changed files:\n\n#{rows}"
+    end
 
     def scores(separator)
       @risk['max'].map { |question, score| "#{question.tr('_', ' ')}#{separator}#{format('%.2f', score)}" }

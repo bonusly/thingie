@@ -229,13 +229,13 @@ RSpec.describe Thingie::CLI do
                                                            'description' => 'A person should read this.' }])
     end
 
-    it 'leaves the report without a change risk when no file was scored' do
+    it 'records an empty change risk when no file was scored, so stale labels are cleared' do
       allow(scorer).to receive(:call)
         .and_return(Thingie::ChangeRiskScorer::Result.new(files: {}, max: {}, obfuscation: []))
 
       run_review
 
-      expect(report.change_risk).to be_nil
+      expect(report.change_risk).to eq('max' => {}, 'files' => {}, 'escalations' => [])
     end
 
     it 'keeps the review when scoring fails', :aggregate_failures do
