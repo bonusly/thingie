@@ -189,6 +189,16 @@ max_severity = 4
 # cannot pass a stricter max_confidence.
 require_evidence = false
 
+[repeat_run]
+# The model samples a different set of issues on each run, so re-reviewing a PR after a push can
+# surface new findings about code that has not changed. On a re-run of a PR Thingie has already
+# commented on, a new finding about code unchanged since the last review is posted only if its
+# severity is at or below this (1 = Critical, 2 = High). Findings about new or changed code, such
+# as a new file or method, always get the normal bar. Held-back findings are listed in the log.
+# Set to 4 to post everything. A thread already open is never resolved just because the model
+# did not repeat it; it resolves when the code it commented on changes.
+max_severity = 2
+
 [dedupe]
 # Before posting, drop findings that repeat another finding in the same run or a Thingie
 # comment that is still open on the pull request, so a re-run does not post the same

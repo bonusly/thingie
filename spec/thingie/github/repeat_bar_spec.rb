@@ -1,0 +1,100 @@
+# frozen_string_literal: true
+
+require 'spec_helper'
+
+RSpec.describe Thingie::GitHub::RepeatBar do # rubocop:disable RSpec/SpecFilePathFormat
+  subject(:bar) do
+    described_class.new(client: client, repo: 'o/r', pr_number: 1, max_severity: max_severity, marker: marker)
+  end
+
+  let(:client) { instance_double(Octokit::Client) }
+  let(:marker) { '<!-- thingie-review-comment -->' }
+  let(:max_severity) { 2 }
+  let(:comment_class) { Struct.new(:body, :created_at, :original_commit_id) }
+  let(:file_class) { Struct.new(:filename, :patch) }
+  let(:comparison) { Struct.new(:files) }
+  let(:previous_comments) do
+    [comment_class.new("#{marker}\n\nold", Time.utc(2026, 1, 1), 'old-sha'),
+     comment_class.new("#{marker}\n\nnewer", Time.utc(2026, 1, 2), 'last-sha'),
+     comment_class.new('a human comment', Time.utc(2026, 1, 3), 'human-sha')]
+  end
+  # Line 20 of a.rb was added since the last review; lines 19 and 21 are context.
+  let(:patch) { "@@ -19,2 +19,3 @@\n ctx19\n+added20\n ctx21" }
+
+  def finding(title, severity:, line:, file: 'a.rb')
+    Thingie::Issue.from_hash('title' => title, 'details' => 'd', 'severity' => severity, 'confidence' => 1,
+                             'tags' => [], 'file' => file, 'affected_lines' => [{ 'start_line' => line }])
+  end
+
+  before do
+    allow(Warning).to receive(:warn) # the bar reports what it holds back with Kernel#warn
+    allow(client).to receive_messages(pull_request_comments: previous_comments,
+                                      compare: comparison.new([file_class.new('a.rb', patch)]))
+  end
+
+  it 'posts everything when it is not a re-run', :aggregate_failures do
+    allow(client).to receive(:pull_request_comments).and_return([])
+    issues = [finding('minor', severity: 3, line: 10)]
+
+    expect(bar.call(issues, 'head-sha')).to eq(issues)
+    expect(client).not_to have_received(:compare)
+  end
+
+  it 'posts everything when no bar is configured' do
+    issues = [finding('minor', severity: 4, line: 10)]
+
+    expect(described_class.new(client: client, repo: 'o/r', pr_number: 1, max_severity: nil, marker: marker)
+      .call(issues, 'head-sha')).to eq(issues)
+  end
+
+  context 'when it is a re-run' do
+    let(:minor_on_old_code) { finding('minor, old code', severity: 3, line: 10) }
+    let(:severe_on_old_code) { finding('severe, old code', severity: 2, line: 10) }
+    let(:minor_on_new_code) { finding('minor, new code', severity: 3, line: 20) }
+    let(:minor_in_new_file) { finding('minor, new file', severity: 4, line: 1, file: 'b.rb') }
+
+    it 'holds back a less severe finding about code that did not change since the last review' do
+      expect(bar.call([minor_on_old_code], 'head-sha')).to eq([])
+    end
+
+    it 'keeps a severe finding about unchanged code' do
+      expect(bar.call([severe_on_old_code], 'head-sha')).to eq([severe_on_old_code])
+    end
+
+    it 'keeps a less severe finding about lines added since the last review' do
+      expect(bar.call([minor_on_new_code], 'head-sha')).to eq([minor_on_new_code])
+    end
+
+    it 'keeps a less severe finding in a file added since the last review' do
+      allow(client).to receive(:compare)
+        .and_return(comparison.new([file_class.new('b.rb', "@@ -0,0 +1,3 @@\n+one\n+two\n+three")]))
+
+      expect(bar.call([minor_in_new_file], 'head-sha')).to eq([minor_in_new_file])
+    end
+
+    it 'compares against the commit of the newest Thingie comment, not a human one' do
+      bar.call([minor_on_old_code], 'head-sha')
+
+      expect(client).to have_received(:compare).with('o/r', 'last-sha', 'head-sha')
+    end
+
+    it 'holds back less severe findings without asking GitHub when nothing was pushed', :aggregate_failures do
+      expect(bar.call([minor_on_old_code, minor_on_new_code], 'last-sha')).to eq([])
+      expect(client).not_to have_received(:compare)
+    end
+
+    it 'says which findings it held back' do
+      bar.call([minor_on_old_code], 'head-sha')
+
+      expect(Warning).to have_received(:warn).with(/Held back 1 new finding.*above 2.*minor, old code/, any_args)
+    end
+
+    it 'posts everything and says so when the changes cannot be fetched', :aggregate_failures do
+      allow(client).to receive(:compare).and_raise(Octokit::NotFound)
+      issues = [minor_on_old_code]
+
+      expect(bar.call(issues, 'head-sha')).to eq(issues)
+      expect(Warning).to have_received(:warn).with(/Could not tell what changed since the last review/, any_args)
+    end
+  end
+end
