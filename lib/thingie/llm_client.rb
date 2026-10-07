@@ -7,6 +7,9 @@ require_relative 'errors'
 module Thingie
   # Thin wrapper around ruby_llm for code review prompts.
   class LlmClient
+    # The longest a tool call's label gets in a finding's debugging record.
+    LABEL_LIMIT = 100
+
     # Maps Thingie provider names to the RubyLLM config attribute names.
     PROVIDER_CONFIG = {
       'openai' => { key: :openai_api_key, base: :openai_api_base },
@@ -54,12 +57,13 @@ module Thingie
     # @param schema [Object] the structured output schema the response must conform to; skipped when tools are
     #   given and `schema_with_tools` is false (the prompt then carries the JSON shape and the reply is parsed)
     # @param tools [Array<Object>] optional `ruby_llm` tools to make available for tool-use
-    # @param tool_log [Array<String>, nil] filled with the name of each tool call the model makes
+    # @param tool_log [Array<String>, nil] filled with a label for each tool call the model makes: the tool name
+    #   and what it was asked, for example `search amounts_within_max`
     # @return [Object] the `ruby_llm` response
     def complete_with_schema(prompt, schema, tools: [], tool_log: nil)
       c = chat
       c = c.with_tools(*tools) unless tools.empty?
-      c = LlmCompat.on_tool_call(c, ->(call) { tool_log << call.name }) if tool_log
+      c = LlmCompat.on_tool_call(c, ->(call) { tool_log << tool_call_label(call) }) if tool_log
       c = c.with_schema(schema) unless tools.any? && @config['schema_with_tools'] == false
       c.ask(prompt)
     end
@@ -83,6 +87,13 @@ module Thingie
     end
 
     private
+
+    # The tool name and its arguments on one line, trimmed, for the debugging record of a finding.
+    def tool_call_label(call)
+      detail = call.arguments.to_h.values.reject { |value| value.nil? || value == false }.join(' ')
+      detail = "#{detail[0, LABEL_LIMIT - 3]}..." if detail.length > LABEL_LIMIT
+      detail.empty? ? call.name : "#{call.name} #{detail}"
+    end
 
     def validate!
       return if @config['llm_api_key'] && !@config['llm_api_key'].to_s.strip.empty?

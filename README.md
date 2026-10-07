@@ -401,7 +401,7 @@ require_evidence = true   # a finding with no evidence is graded 3 whatever the 
 4 = "Speculative: do not report"
 ```
 
-The evidence shows under each finding (inline comment and report) and is passed to the critic, so a reader can see why a finding was raised and the critic can check the claim. The search tool is always available to the reviewer and the critic; it is limited to tracked files under the working directory and runs without a shell.
+The evidence shows under each finding (inline comment and report), collapsed, with the tool calls the model made for debugging: what the second look asked its tools, and what the review pass asked for the file (a long list is cut at 25 lines). The evidence is also passed to the critic, so a reader can see why a finding was raised and the critic can check the claim. The search tool is always available to the reviewer and the critic; it is limited to tracked files under the working directory and runs without a shell.
 
 ### Language servers (LSP)
 

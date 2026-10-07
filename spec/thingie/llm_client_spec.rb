@@ -142,7 +142,7 @@ RSpec.describe Thingie::LlmClient do
       expect(chat_double).to have_received(:with_schema).with({ type: 'object' })
     end
 
-    it 'records the name of each tool call the model makes in the log it is given' do
+    it 'records each tool call the model makes, with what it was asked, in the log it is given', :aggregate_failures do
       client = described_class.new(config)
       chat_double = instance_double(RubyLLM::Chat, with_schema: instance_double(RubyLLM::Chat, ask: 'response'))
       hook = nil
@@ -155,9 +155,13 @@ RSpec.describe Thingie::LlmClient do
       log = []
 
       client.complete_with_schema('prompt', { type: 'object' }, tools: [instance_double(RubyLLM::Tool)], tool_log: log)
-      hook.call(instance_double(RubyLLM::ToolCall, name: 'thingie--search'))
+      asked = { pattern: 'amounts_within_max', path: nil, ignore_case: false }
+      hook.call(instance_double(RubyLLM::ToolCall, name: 'thingie--search', arguments: asked))
+      hook.call(instance_double(RubyLLM::ToolCall, name: 'thingie--files', arguments: {}))
+      hook.call(instance_double(RubyLLM::ToolCall, name: 'thingie--search', arguments: { pattern: 'x' * 150 }))
 
-      expect(log).to eq(['thingie--search'])
+      expect(log.first(2)).to eq(['thingie--search amounts_within_max', 'thingie--files'])
+      expect(log.last).to eq("thingie--search #{'x' * 97}...")
     end
 
     context 'when the model cannot combine tools with a response schema' do
