@@ -110,7 +110,7 @@ module Thingie
     def md_issue(issue)
       location = first_location(issue)
       link = location ? "[#{issue.file}:#{location}](#{issue.file}##{location})" : issue.file
-      lines = ["## ##{issue.id} #{md_title(issue)}", link, issue.details]
+      lines = ["## ##{issue.id} #{md_title(issue)}", link, issue.details_markdown]
       lines << issue.evidence_block
       lines << "**Tags:** #{issue.tags.join(', ')}" unless issue.tags.to_a.empty?
       lines.compact.join("\n\n")

@@ -238,6 +238,17 @@ The approval needs the workflow's `pull-requests: write` permission (already req
 
 > **Limitation.** "Contributor" is determined from commit author/committer GitHub logins, so a `Co-authored-by:` trailer doesn't count as having committed. If a thread's resolver can't be determined (e.g. a deleted account), Thingie fails safe and does not approve.
 
+### Plain-language comments
+
+Both review prompts tell the model how to write each finding: a title of at most 8 words that says what breaks, and details in three short parts, **What's wrong**, **When it happens** and **Fix**, in plain words and under 80 words, with technical terms explained or left out. The goal is a comment someone can read in ten seconds without having seen the code. The file and line references stay in the collapsed Evidence block.
+
+The text is `lib/thingie/prompts/comment_style.txt`. To replace it, set `comment_style` under `[prompt_vars]` in your config; an empty string turns it off.
+
+```toml
+[prompt_vars]
+comment_style = "Write each finding in two sentences."
+```
+
 ### Repeated findings and findings about another file
 
 - **Findings about another file.** A reviewer sometimes reports a problem it found in a different file than the one it was reviewing, so the line number belongs to that other file. When a finding's text cites only other files (`path/to/file.rb:17`) and never the file it is attached to, Thingie does not put it on a line. It lists the finding in the collapsed summary comment under the cited file instead.

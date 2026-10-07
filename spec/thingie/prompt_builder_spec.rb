@@ -155,6 +155,29 @@ RSpec.describe Thingie::PromptBuilder do
       bad = Thingie::Configuration.new(root: tmp_dir, overrides: { 'review' => { 'prompt' => 'loose' } })
       expect { prompt_for(bad) }.to raise_error(ArgumentError, /Unknown \[review\] prompt "loose"/)
     end
+
+    it 'asks both prompts for a short plain title and three short parts in the details', :aggregate_failures do
+      [config, verified_config].each do |cfg|
+        prompt = prompt_for(cfg)
+        expect(prompt).to include('HOW TO WRITE EACH FINDING', 'at most 8 words', "**What's wrong:**",
+                                  '**When it happens:**', '**Fix:**', 'a ten-year-old', 'blank line between parts')
+      end
+    end
+
+    it 'lets the style be replaced from prompt_vars', :aggregate_failures do
+      overrides = { 'prompt_vars' => { 'comment_style' => 'WRITE TERSELY' } }
+      prompt = prompt_for(Thingie::Configuration.new(root: tmp_dir, overrides: overrides))
+
+      expect(prompt).to include('WRITE TERSELY')
+      expect(prompt).not_to include('HOW TO WRITE EACH FINDING')
+    end
+
+    it 'keeps the style out of the critic prompt' do
+      issue = Thingie::Issue.from_hash('title' => 't', 'details' => 'd', 'severity' => 2, 'confidence' => 1,
+                                       'tags' => [], 'file' => 'a.rb', 'affected_lines' => [{ 'start_line' => 1 }])
+
+      expect(described_class.new(config).verify(issue: issue, diff: 'x')).not_to include('HOW TO WRITE EACH FINDING')
+    end
   end
 
   describe '#duplicates' do

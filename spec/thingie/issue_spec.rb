@@ -116,4 +116,29 @@ RSpec.describe Thingie::Issue do
       expect([copy.review_tool_calls, copy.critic_tool_calls]).to eq([['search a'], ['file b.rb']])
     end
   end
+
+  describe '#details_markdown' do
+    def with_details(details)
+      described_class.from_hash('title' => 't', 'details' => details, 'severity' => 2, 'confidence' => 1,
+                                'tags' => [], 'file' => 'a.rb', 'affected_lines' => [{ 'start_line' => 1 }])
+    end
+
+    it 'puts each labelled part on its own paragraph', :aggregate_failures do
+      run_together = "**What's wrong:** It crashes. **When it happens:** On a new user. **Fix:** Skip them."
+
+      expect(with_details(run_together).details_markdown)
+        .to eq("**What's wrong:** It crashes.\n\n**When it happens:** On a new user.\n\n**Fix:** Skip them.")
+    end
+
+    it 'leaves parts that are already separate alone' do
+      separate = "**What's wrong:** It crashes.\n\n**When it happens:** On a new user.\n\n**Fix:** Skip them."
+
+      expect(with_details(separate).details_markdown).to eq(separate)
+    end
+
+    it 'leaves details in any other shape untouched', :aggregate_failures do
+      expect(with_details('It crashes for a new user.').details_markdown).to eq('It crashes for a new user.')
+      expect(with_details(nil).details_markdown).to be_nil
+    end
+  end
 end

@@ -14,6 +14,7 @@ module Thingie
     }.freeze
     VERIFY_TEMPLATE = File.expand_path('prompts/verify.erb', __dir__)
     DUPLICATES_TEMPLATE = File.expand_path('prompts/duplicates.erb', __dir__)
+    COMMENT_STYLE_FILE = File.expand_path('prompts/comment_style.txt', __dir__)
 
     # ERB's result_with_hash raises NameError for any var referenced in a
     # template but absent from the hash, so these (used unconditionally in
@@ -98,8 +99,14 @@ module Thingie
       @template_cache[path] ||= File.read(path, encoding: 'UTF-8')
     end
 
+    # `comment_style` can be replaced from `[prompt_vars]` like the other template variables.
     def template_vars
-      DEFAULT_TEMPLATE_VARS.merge(prompt_vars)
+      DEFAULT_TEMPLATE_VARS.merge('comment_style' => comment_style).merge(prompt_vars)
+    end
+
+    # How a finding's title and details should be written, shared by both review prompts.
+    def comment_style
+      @comment_style ||= File.read(COMMENT_STYLE_FILE, encoding: 'UTF-8')
     end
 
     # Normalize to string keys so symbol-keyed config can't silently miss lookups.
