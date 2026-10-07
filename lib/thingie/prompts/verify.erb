@@ -48,7 +48,6 @@ this run's final severity/confidence (and therefore whether the finding blocks
 auto-approval) — it does not resurface or re-hide a finding relative to the
 show-line above.
 
-<%- if grade_confidence -%>
 Always give a confidence grade in `confidence_override`, set by how far YOUR check
 got, not by how sure the first-pass reviewer sounded. Use the confidence scale above:
 the most confident grade means you confirmed the problem in the code with the tools
@@ -56,7 +55,6 @@ and can say where; the middle grades mean it is likely from what you read but on
 step is unconfirmed; the least confident means you could not check it. This grade is
 what the confidence limit is applied to.
 
-<%- end -%>
 ----HOW TO DECIDE----
 <%- if user_impact -%>
 Two questions, in order. Reject the finding if either answer is no.
@@ -81,10 +79,6 @@ Respond with a JSON object following this schema:
 {
   "verdict": "uphold" | "reject",
   "severity_override": <1-4, or null to leave the original grade unchanged>,
-<%- if grade_confidence -%>
   "confidence_override": <1-4>,
-<%- else -%>
-  "confidence_override": <1-4, or null to leave the original grade unchanged>,
-<%- end -%>
   "reasoning": "<one or two sentences grounding the verdict (and any override) in the code>"
 }
