@@ -62,7 +62,6 @@ module Thingie
                                        'symbol_lookup' => symbol_lookup,
                                        'finding' => format_finding(issue),
                                        'user_impact' => @config.dig('verify', 'bar') == 'user_impact',
-                                       'grade_confidence' => confidence_after_verify?,
                                        'severity_scale' => format_scale(@config.severity_scale),
                                        'confidence_scale' => format_scale(@config.confidence_scale),
                                        'show_threshold_text' => show_threshold_text,
@@ -70,11 +69,6 @@ module Thingie
     end
 
     private
-
-    # With `[post_process] confidence_after_verify`, the critic's grade is what max_confidence applies to.
-    def confidence_after_verify?
-      @config.dig('post_process', 'confidence_after_verify') == true
-    end
 
     # `[review] prompt` picks the bundled review prompt: `default` (strict, report only what is certain)
     # or `verified` (check suspicions with the tools, cite evidence, grade confidence by verification).

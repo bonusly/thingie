@@ -81,7 +81,7 @@ RSpec.describe Thingie::PromptBuilder do
     it 'states the show-line threshold in terms of the default post_process config' do
       prompt = builder.review(diff: '')
       expect(prompt).to include('severity 4 (Low) or better')
-      expect(prompt).to include('confidence 1 (Highest, 100% confidence) or better')
+      expect(prompt).to include('confidence 2 (Very High) or better')
     end
 
     it 'states that auto-approval is disabled by default' do
@@ -171,14 +171,10 @@ RSpec.describe Thingie::PromptBuilder do
       expect(prompt).not_to include('materially valuable to a maintainer')
     end
 
-    it 'tells the critic to always grade confidence by how far its check got when the cap comes after it',
-       :aggregate_failures do
-      graded = Thingie::Configuration.new(
-        root: tmp_dir, overrides: { 'post_process' => { 'confidence_after_verify' => true } }
-      )
-      prompt = described_class.new(graded).verify(issue: issue, diff: 'x')
+    it 'tells the critic to always grade confidence by how far its own check got', :aggregate_failures do
+      prompt = builder.verify(issue: issue, diff: 'x')
       expect(prompt).to include('Always give a confidence grade', '"confidence_override": <1-4>,')
-      expect(builder.verify(issue: issue, diff: 'x')).not_to include('Always give a confidence grade')
+      expect(prompt).not_to include('or null to leave the original grade unchanged>,\n  "reasoning"')
     end
 
     it 'keeps the default bar unless told otherwise', :aggregate_failures do
