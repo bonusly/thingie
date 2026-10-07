@@ -182,6 +182,11 @@ max_severity = 4
 # graded `unverified_confidence` (default 3) whatever number the model wrote, so it
 # cannot pass a stricter max_confidence.
 require_evidence = false
+# false: max_confidence filters on the confidence the first-pass reviewer wrote about its own
+# finding, before the critic runs. true: max_confidence filters after the critic pass, on the
+# grade the critic gives once it has checked the code with its tools, and the critic must give
+# one. Use true with the "verified" prompt, where the first-pass number says little.
+confidence_after_verify = false
 
 [dedupe]
 # Before posting, drop findings that repeat another finding in the same run or a Thingie
