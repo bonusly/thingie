@@ -67,8 +67,8 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
     commenter.post_review(summary: 'S', report: report_for([issue]))
 
     expect(client).to have_received(:create_pull_request_comment)
-      .with('o/r', 1, a_string_including('**Evidence:** award.rb:31 skips the check'), 'commit-sha', 'app.rb', 11,
-            { side: 'RIGHT' })
+      .with('o/r', 1, a_string_including("<details><summary>Evidence</summary>\n\naward.rb:31 skips the check"),
+            'commit-sha', 'app.rb', 11, { side: 'RIGHT' })
   end
 
   it 'posts no evidence line when there is none' do

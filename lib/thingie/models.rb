@@ -138,6 +138,15 @@ module Thingie
       @confidence = confidence unless confidence.nil?
     end
 
+    # The evidence as a collapsed GitHub block, so the comment reads short and the proof is one click away.
+    #
+    # @return [String, nil] the block, or nil when the reviewer gave no evidence
+    def evidence_block
+      return if @evidence.to_s.strip.empty?
+
+      "<details><summary>Evidence</summary>\n\n#{@evidence}\n\n</details>"
+    end
+
     # Converts the issue to a plain hash for JSON serialization.
     #
     # @return [Hash] a plain-hash representation suitable for JSON serialization

@@ -107,7 +107,8 @@ RSpec.describe Thingie::ReportRenderer do
     end
 
     it 'shows the evidence under the finding' do
-      expect(renderer.to_md).to include('**Evidence:** award.rb:31 skips the check')
+      expect(renderer.to_md)
+        .to include("<details><summary>Evidence</summary>\n\naward.rb:31 skips the check\n\n</details>")
     end
   end
 end
