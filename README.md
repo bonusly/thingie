@@ -241,11 +241,11 @@ The approval needs the workflow's `pull-requests: write` permission (already req
 ### Repeated findings and findings about another file
 
 - **Findings about another file.** A reviewer sometimes reports a problem it found in a different file than the one it was reviewing, so the line number belongs to that other file. When a finding's text cites only other files (`path/to/file.rb:17`) and never the file it is attached to, Thingie does not put it on a line. It lists the finding in the collapsed summary comment under the cited file instead.
-- **Repeats (`[dedupe] enabled = true`).** On a re-run, Thingie would otherwise post the same problem again beside the thread that is still open, and models word the same issue several ways within one run. With `[dedupe]` enabled, one extra model call (no tools) compares the new findings with each other and with the Thingie comments still open on the PR, and drops the repeats. Two different problems on the same line are kept. If the call fails, every finding is posted and a warning is printed. `[dedupe] model` picks the model, and the review model is the default.
+- **Repeats (`[dedupe]`, on by default).** On a re-run, Thingie would otherwise post the same problem again beside the thread that is still open, and models word the same issue several ways within one run. With `[dedupe]` on, one extra model call (no tools) compares the new findings with each other and with the Thingie comments still open on the PR, and drops the repeats. Two different problems on the same line are kept. If the call fails, every finding is posted and a warning is printed. `[dedupe] model` picks the model, and the review model is the default.
 
 ```toml
 [dedupe]
-enabled = true
+enabled = false   # opt out
 ```
 
 ### Configuration options
@@ -271,7 +271,7 @@ Key settings:
 | Log file | stdout | `log_file` | `THINGIE_LOG_FILE` | — |
 | Log level | `info` | `log_level` | `THINGIE_LOG_LEVEL` | — |
 | Max concurrent file reviews | `10` | `max_concurrent_tasks` | `MAX_CONCURRENT_TASKS` | — |
-| Confidence threshold (keep if ≤) | `1` | `post_process.max_confidence` | — | — |
+| Confidence threshold (keep if ≤, applied after the critic) | `2` | `post_process.max_confidence` | — | — |
 | Severity threshold (keep if ≤) | `3` | `post_process.max_severity` | — | — |
 | Critic pass enabled | `true` | `verify.enabled` | — | — |
 | Critic pass model | review model | `verify.model` | — | — |
@@ -380,7 +380,7 @@ whether a finding is surfaced to maintainers as a PR comment at all:
 
 ```toml
 [post_process]
-max_confidence = 1   # keep only the model's highest-confidence findings
+max_confidence = 1   # keep only findings the critic could confirm in the code
 max_severity = 3     # keep Critical/High/Medium, drop Low
 ```
 
@@ -411,7 +411,9 @@ require_evidence = true   # a finding with no evidence is graded 3 whatever the 
 4 = "Speculative: do not report"
 ```
 
-The confidence the first-pass reviewer writes about its own finding comes before any checking by the critic, so it tells you little. Set `post_process.confidence_after_verify = true` to move the `max_confidence` cap after the critic: the critic then always grades confidence by how far its own check with the tools got, and the cap is applied to that grade. Severity is still capped before the critic.
+The confidence the first-pass reviewer writes about its own finding comes before any checking, so it tells you little. Thingie therefore applies `max_confidence` after the critic, to the grade the critic gives: the critic always grades confidence by how far its own check with the tools got. Severity is still capped before the critic. If the critic is disabled, `max_confidence` applies to the reviewer's own grade.
+
+On a benchmark of 303 graded findings, a cap of 2 dropped about a quarter of the nits and a seventh of the good findings, a cap of 3 changed almost nothing, and a cap of 1 dropped most of the good findings. The grade says whether the critic could confirm a finding, not whether it matters, so it does not remove true but minor nits.
 
 The evidence shows under each finding (inline comment and report) and is passed to the critic, so a reader can see why a finding was raised and the critic can check the claim. The search tool is always available to the reviewer and the critic; it is limited to tracked files under the working directory and runs without a shell.
 

@@ -176,24 +176,25 @@ prompt = "default"
 # can be shown but not block, e.g. show max_severity=3, approve max_severity=2.
 # Both lines are also stated explicitly to the review/critic LLMs in their
 # prompts (see `severity_rubric` above and `PromptBuilder#show_threshold_text`).
-max_confidence = 1
+# max_severity is applied before the critic pass. max_confidence is applied after it, to the grade
+# the critic gives once it has checked the finding against the code with its tools (it always
+# grades), because the confidence a reviewer writes about its own finding comes before any
+# checking. On a benchmark of graded findings, 2 dropped about a quarter of the nits and a
+# seventh of the good findings; 1 dropped most of the good ones. Without the critic it applies
+# to the reviewer's own grade.
+max_confidence = 2
 max_severity = 4
 # With the "verified" prompt: a finding the reviewer gave no evidence for is
 # graded `unverified_confidence` (default 3) whatever number the model wrote, so it
 # cannot pass a stricter max_confidence.
 require_evidence = false
-# false: max_confidence filters on the confidence the first-pass reviewer wrote about its own
-# finding, before the critic runs. true: max_confidence filters after the critic pass, on the
-# grade the critic gives once it has checked the code with its tools, and the critic must give
-# one. Use true with the "verified" prompt, where the first-pass number says little.
-confidence_after_verify = false
 
 [dedupe]
 # Before posting, drop findings that repeat another finding in the same run or a Thingie
 # comment that is still open on the pull request, so a re-run does not post the same
 # problem twice. One extra model call (no tools) per run, over the whole list. If the
 # call fails, every finding is posted and a warning is printed.
-enabled = false
+enabled = true
 # Model for that call; defaults to the review model.
 # model = "..."
 

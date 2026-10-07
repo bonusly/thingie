@@ -11,30 +11,25 @@ RSpec.describe Thingie::PostProcessor do
     [issue(confidence: 1, severity: 2), issue(confidence: 2, severity: 2), issue(confidence: 1, severity: 4)]
   end
 
+  # Severity is capped before the critic pass, confidence after it.
+  def filter(settings, findings)
+    processor = described_class.new(settings)
+    processor.cap_confidence(processor.call(findings))
+  end
+
+  it 'caps severity in #call and leaves confidence for #cap_confidence', :aggregate_failures do
+    processor = described_class.new('max_confidence' => 1, 'max_severity' => 3)
+
+    expect(processor.call(issues)).to eq(issues.first(2))
+    expect(processor.cap_confidence(issues.first(2))).to eq([issues.first])
+  end
+
   it 'keeps only issues within the confidence and severity maximums' do
-    kept = described_class.new('max_confidence' => 1, 'max_severity' => 3).call(issues)
-    expect(kept).to eq([issues.first])
+    expect(filter({ 'max_confidence' => 1, 'max_severity' => 3 }, issues)).to eq([issues.first])
   end
 
   it 'keeps everything when no thresholds are configured' do
-    expect(described_class.new(nil).call(issues)).to eq(issues)
-  end
-
-  context 'with confidence_after_verify' do
-    subject(:processor) do
-      described_class.new('max_confidence' => 1, 'max_severity' => 3, 'confidence_after_verify' => true)
-    end
-
-    it 'filters on severity first and leaves confidence for after the critic', :aggregate_failures do
-      expect(processor.call(issues)).to eq(issues.first(2))
-      expect(processor.cap_confidence(issues.first(2))).to eq([issues.first])
-    end
-
-    it 'cap_confidence changes nothing when the cap is applied before the critic' do
-      before_critic = described_class.new('max_confidence' => 1)
-
-      expect(before_critic.cap_confidence(issues)).to eq(issues)
-    end
+    expect(filter(nil, issues)).to eq(issues)
   end
 
   context 'with require_evidence' do
@@ -47,7 +42,7 @@ RSpec.describe Thingie::PostProcessor do
     let(:unverified) { finding(confidence: 1, evidence: ' ') }
 
     it 'grades a finding without evidence as unverified, so a stricter max_confidence drops it', :aggregate_failures do
-      kept = described_class.new('max_confidence' => 2, 'require_evidence' => true).call([verified, unverified])
+      kept = filter({ 'max_confidence' => 2, 'require_evidence' => true }, [verified, unverified])
       expect(kept).to eq([verified])
       expect(unverified.confidence).to eq(3)
     end
@@ -59,13 +54,12 @@ RSpec.describe Thingie::PostProcessor do
     end
 
     it 'uses the configured unverified grade' do
-      kept = described_class.new('max_confidence' => 2, 'require_evidence' => true,
-                                 'unverified_confidence' => 2).call([unverified])
+      kept = filter({ 'max_confidence' => 2, 'require_evidence' => true, 'unverified_confidence' => 2 }, [unverified])
       expect(kept).to eq([unverified])
     end
 
     it 'leaves confidence alone when the option is off', :aggregate_failures do
-      kept = described_class.new('max_confidence' => 2).call([verified, unverified])
+      kept = filter({ 'max_confidence' => 2 }, [verified, unverified])
       expect(kept).to eq([verified, unverified])
       expect(unverified.confidence).to eq(1)
     end
