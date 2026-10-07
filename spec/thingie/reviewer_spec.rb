@@ -51,6 +51,26 @@ RSpec.describe Thingie::Reviewer do
     expect(report.number_of_processed_files).to eq(1)
   end
 
+  context 'when the review pass uses its tools' do
+    let(:fake_llm_client) do
+      issues = [{ 'title' => 'Missing return', 'details' => 'No return value', 'severity' => 2,
+                  'confidence' => 1, 'tags' => ['bug'], 'affected_lines' => [{ 'start_line' => 1 }] }]
+      response = message_double(content: { 'issues' => issues }, input_tokens: 1, output_tokens: 1, tool_calls: {},
+                                cache_read_tokens: nil, cache_write_tokens: nil, cost: nil, model_info: nil,
+                                thinking: nil, thinking_tokens: nil)
+      instance_double(Thingie::LlmClient).tap do |client|
+        allow(client).to receive(:complete_with_schema) do |_prompt, _schema, tool_log: nil, **|
+          tool_log&.push('thingie--search hello')
+          response
+        end
+      end
+    end
+
+    it 'keeps what it asked the tools on each finding from that file' do
+      expect(reviewer.review.issues.first.review_tool_calls).to eq(['thingie--search hello'])
+    end
+  end
+
   it 'accumulates LLM usage and enriches the target with the head commit sha', :aggregate_failures do
     report = reviewer.review
     expect(reviewer.usage).to be_a(Thingie::Stats::Usage)

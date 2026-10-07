@@ -61,7 +61,8 @@ module Thingie
   # Normalized issue enriched with file context and an assigned ID.
   class Issue
     attr_accessor :id
-    attr_reader :file, :title, :details, :severity, :confidence, :tags, :affected_lines, :evidence
+    attr_reader :file, :title, :details, :severity, :confidence, :tags, :affected_lines, :evidence,
+                :review_tool_calls, :critic_tool_calls
 
     # Builds an `Issue` from a raw hash (e.g. parsed from LLM JSON output).
     #
@@ -105,7 +106,9 @@ module Thingie
         affected_lines: affected_lines,
         evidence: hash['evidence']
       )
-      new(id: hash['id'], file: hash['file'], raw_issue: raw, affected_lines: affected_lines)
+      new(id: hash['id'], file: hash['file'], raw_issue: raw, affected_lines: affected_lines).tap do |issue|
+        issue.record_tool_calls(review: hash['review_tool_calls'], critic: hash['critic_tool_calls'])
+      end
     end
 
     # Builds a normalized issue from a raw LLM finding.
@@ -124,6 +127,19 @@ module Thingie
       @confidence = raw_issue.confidence
       @tags = raw_issue.tags || []
       @affected_lines = affected_lines
+      @review_tool_calls = []
+      @critic_tool_calls = []
+    end
+
+    # Keeps the tool calls the model made while producing and while checking this finding, for debugging.
+    # Either argument may be nil to leave that record unchanged.
+    #
+    # @param review [Array<String>, nil] the calls made by the review pass over this finding's file
+    # @param critic [Array<String>, nil] the calls made by the second look at this finding
+    # @return [void]
+    def record_tool_calls(review: nil, critic: nil)
+      @review_tool_calls = Array(review) unless review.nil?
+      @critic_tool_calls = Array(critic) unless critic.nil?
     end
 
     # Applies a critic-supplied correction to severity and/or confidence,
@@ -152,13 +168,17 @@ module Thingie
       cited.first unless cited.any? { |path| File.basename(path) == File.basename(@file.to_s) }
     end
 
-    # The evidence as a collapsed GitHub block, so the comment reads short and the proof is one click away.
-    #
-    # @return [String, nil] the block, or nil when the reviewer gave no evidence
-    def evidence_block
-      return if @evidence.to_s.strip.empty?
+    TOOL_CALL_LINES = 25
 
-      "<details><summary>Evidence</summary>\n\n#{@evidence}\n\n</details>"
+    # What the model confirmed, and the tool calls it made to confirm it, as a collapsed GitHub block, so the
+    # comment reads short and the proof is one click away. The tool calls are there for debugging.
+    #
+    # @return [String, nil] the block, or nil when there is neither evidence nor a tool call to show
+    def evidence_block
+      parts = [@evidence.to_s.strip, tool_calls_text].reject(&:empty?)
+      return if parts.empty?
+
+      "<details><summary>Evidence</summary>\n\n#{parts.join("\n\n")}\n\n</details>"
     end
 
     # Converts the issue to a plain hash for JSON serialization.
@@ -171,11 +191,27 @@ module Thingie
         'title' => @title,
         'details' => @details,
         'evidence' => @evidence,
+        'review_tool_calls' => @review_tool_calls,
+        'critic_tool_calls' => @critic_tool_calls,
         'severity' => @severity,
         'confidence' => @confidence,
         'tags' => @tags,
         'affected_lines' => @affected_lines.map { |range| range.to_h.transform_keys(&:to_s) }
       }
+    end
+
+    private
+
+    def tool_calls_text
+      sections = [['Second look', @critic_tool_calls], ['Review pass over this file', @review_tool_calls]]
+      sections.reject { |_, calls| calls.empty? }.map { |label, calls| tool_calls_section(label, calls) }.join("\n\n")
+    end
+
+    def tool_calls_section(label, calls)
+      lines = calls.tally.map { |call, count| count > 1 ? "#{call} (x#{count})" : call }
+      shown = lines.first(TOOL_CALL_LINES)
+      shown << "... and #{lines.size - shown.size} more" if lines.size > shown.size
+      "Tool calls, #{label.downcase} (#{calls.size}):\n\n```text\n#{shown.join("\n")}\n```"
     end
   end
 

@@ -416,7 +416,7 @@ The confidence the first-pass reviewer writes about its own finding comes before
 
 On a benchmark of 303 graded findings, a cap of 2 dropped about a quarter of the nits and a seventh of the good findings, a cap of 3 changed almost nothing, and a cap of 1 dropped most of the good findings. The grade says whether the critic could confirm a finding, not whether it matters, so it does not remove true but minor nits.
 
-The evidence shows under each finding (inline comment and report) and is passed to the critic, so a reader can see why a finding was raised and the critic can check the claim. The search tool is always available to the reviewer and the critic; it is limited to tracked files under the working directory and runs without a shell.
+The evidence shows under each finding (inline comment and report), collapsed, with the tool calls the model made for debugging: what the second look asked its tools, and what the review pass asked for the file (a long list is cut at 25 lines). The evidence is also passed to the critic, so a reader can see why a finding was raised and the critic can check the claim. The search tool is always available to the reviewer and the critic; it is limited to tracked files under the working directory and runs without a shell.
 
 ### Language servers (LSP)
 

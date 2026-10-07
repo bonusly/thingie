@@ -60,6 +60,23 @@ RSpec.describe Thingie::Verifier do
     expect(kept.map(&:title)).to eq(['keep-me'])
   end
 
+  context 'when the critic uses its tools' do
+    let(:issues) { [issue('keep-me')] }
+    let(:fake_llm_client) do
+      instance_double(Thingie::LlmClient).tap do |client|
+        allow(client).to receive(:complete_with_schema) do |_prompt, _schema, tool_log: nil, **|
+          tool_log&.push('thingie--search amounts_within_max', 'thingie--file app/models/award.rb')
+          verdict('uphold')
+        end
+      end
+    end
+
+    it 'keeps what it asked the tools on the finding' do
+      expect(verifier.call(issues).first.critic_tool_calls)
+        .to eq(['thingie--search amounts_within_max', 'thingie--file app/models/award.rb'])
+    end
+  end
+
   context 'when the critic supplies a severity/confidence override' do
     let(:issues) { [issue('override-me')] }
     let(:fake_llm_client) do

@@ -127,6 +127,7 @@ module Thingie
       response = @llm_client.complete_with_schema(prompt, Schemas::ISSUE_SCHEMA, tools: @tools, tool_log: tool_names)
       @usage.record(response)
       issues = parse_response(response, file)
+      issues.each { |issue| issue.record_tool_calls(review: tool_names) }
       @debug_output.review_call(file: file, response: response, issues: issues, tool_names: tool_names)
       only_changed_lines(issues, file)
     rescue JSON::ParserError => e
