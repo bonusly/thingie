@@ -92,4 +92,66 @@ RSpec.describe Thingie::ReportRenderer do
       expect(renderer.to_md).not_to include('across')
     end
   end
+
+  context 'with a change risk' do
+    let(:change_risk) do
+      { 'max' => { 'user_impact' => 0.9, 'overall' => 0.52 }, 'files' => {},
+        'escalations' => [{ 'label' => 'risk: needs review' }] }
+    end
+
+    before { report.change_risk = change_risk }
+
+    it 'shows the overall score, the per-question scores and the escalations in Markdown', :aggregate_failures do
+      output = renderer.to_md
+      expect(output).to include('Change risk: overall 0.52, escalated: `risk: needs review`')
+      expect(output).to include('- user impact: 0.90', "Escalations:\n\n- `risk: needs review`")
+    end
+
+    it 'shows the scores and the escalations in CLI output', :aggregate_failures do
+      output = renderer.to_cli
+      expect(output).to include('Change risk: user impact 0.90, overall 0.52')
+      expect(output).to include("Escalations:\n  - risk: needs review")
+    end
+
+    context 'when the escalation has a title and description' do
+      let(:change_risk) do
+        { 'max' => { 'overall' => 0.9 }, 'files' => {},
+          'escalations' => [{ 'label' => 'risk: high', 'title' => 'High risk',
+                              'description' => 'Ask a second reviewer.' }] }
+      end
+
+      it 'puts them in the Markdown summary, with the label alongside', :aggregate_failures do
+        output = renderer.to_md
+        expect(output).to include('Change risk: overall 0.90, escalated: High risk')
+        expect(output).to include('- **High risk** (`risk: high`): Ask a second reviewer.')
+      end
+
+      it 'puts them in the CLI output, with the label alongside' do
+        expect(renderer.to_cli).to include('  - High risk (risk: high): Ask a second reviewer.')
+      end
+    end
+
+    it 'says no escalation was taken when none applied', :aggregate_failures do
+      change_risk['escalations'] = []
+      expect(renderer.to_md).to include('Change risk: overall 0.52</summary>', 'Escalations: none')
+      expect(renderer.to_cli).to include('Escalations: none')
+    end
+
+    it 'says no files were scored when there are no scores', :aggregate_failures do
+      change_risk.merge!('max' => {}, 'escalations' => [])
+      expect(renderer.to_md).to include('Change risk: no files scored', 'No files were scored.')
+      expect(renderer.to_cli).to include('Change risk: no files scored')
+    end
+
+    it 'survives a round trip through the saved report' do
+      restored = Thingie::Report.from_hash(JSON.parse(JSON.generate(report.to_h)))
+
+      expect(restored.change_risk).to eq(change_risk)
+    end
+  end
+
+  it 'omits the change risk section when System One did not score the change', :aggregate_failures do
+    expect(renderer.to_md).not_to include('Change risk')
+    expect(renderer.to_cli).not_to include('Change risk')
+  end
 end

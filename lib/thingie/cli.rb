@@ -101,6 +101,7 @@ module Thingie
       started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
       report = reviewer.review
       duration_ms = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - started) * 1000).round
+      attach_change_risk(report, config, changeset)
       render_report(report, config)
       Thingie::Stats::Emitter.new(config).emit_review_completed(report: report, duration_ms: duration_ms,
                                                                 usage: reviewer.usage)
@@ -187,6 +188,7 @@ module Thingie
       report = Thingie::Report.from_file(json_path_for(options[:md_report_file]))
       debug_approve_state
       commenter.post_review(summary: summary, report: report)
+      apply_escalations(context, report)
       maybe_approve(context, report, summary)
     rescue StandardError => e
       warn "GitHub comment failed: #{e.message}"
@@ -221,7 +223,7 @@ module Thingie
       exit 1
     end
 
-    # rubocop:disable Metrics/BlockLength
+    # rubocop:disable-next Metrics/BlockLength
     no_commands do
       # Resolves the local models JSON path from --path or the `models_file`
       # config. Exits with a usage message when neither is set.
@@ -369,6 +371,60 @@ module Thingie
         )
       end
 
+      # Scores the changeset with System One when it's enabled and records the scores, and the
+      # labels the `[[escalations]]` rules call for, on the report. A scoring failure is a warning,
+      # never a failed review.
+      #
+      # @param report [Thingie::Report] the report to attach the change risk to
+      # @param config [Thingie::Configuration] the loaded configuration
+      # @param changeset [Thingie::Changeset] the changeset that was reviewed
+      # @return [void]
+      def attach_change_risk(report, config, changeset)
+        rules = Thingie::EscalationRules.new(config['escalations'])
+        unless config['system_one_enabled']
+          warn '[thingie] escalations are configured but System One is disabled' unless rules.empty?
+          return
+        end
+
+        scorer = Thingie::ChangeRiskScorer.new(changeset: changeset, concurrency: config['max_concurrent_tasks'],
+                                               classifier: Thingie::SystemOneClassifier.new(config))
+        result = scorer.call
+        report.change_risk = change_risk_summary(result, rules)
+      rescue StandardError => e
+        warn "[thingie] Change risk scoring skipped: #{e.message}"
+        report.processing_warnings << "Change risk scoring skipped: #{e.message}"
+      end
+
+      # @param result [Thingie::ChangeRiskScorer::Result] the scored changeset
+      # @param rules [Thingie::EscalationRules] the escalation rules
+      # @return [Hash] the string-keyed summary stored on the report
+      def change_risk_summary(result, rules)
+        { 'max' => result.max.transform_keys(&:to_s),
+          'files' => result.files.transform_values { |scores| scores.transform_keys(&:to_s) },
+          'escalations' => rules.matching(result.max.fetch(:overall, 0.0)) }
+      end
+
+      # Applies the escalation labels for a report that carries a change risk. A labelling
+      # failure is a warning: labels never gate the review.
+      #
+      # @param context [Thingie::GitHub::Context, nil] the resolved GitHub Action context
+      # @param report [Thingie::Report] the review report
+      # @return [void]
+      def apply_escalations(context, report)
+        return unless report.change_risk
+
+        rules = Thingie::EscalationRules.new(Thingie::Configuration.new['escalations'])
+        return if rules.empty?
+
+        Thingie::GitHub::Escalator.new(
+          token: options[:token] || Env.fetch('GITHUB_TOKEN', nil),
+          owner: repo_owner(context), repo: repo_name(context),
+          pr_number: options[:pr] || context&.pr_number, rules: rules
+        ).call(report.change_risk['max'].fetch('overall', 0.0))
+      rescue StandardError => e
+        warn "Escalation failed: #{e.class}: #{e.message}"
+      end
+
       # Auto-approve the PR when the [approve] config block is enabled. Loads
       # config here because github-comment otherwise runs without it.
       #
@@ -454,7 +510,6 @@ module Thingie
         warn "[DEBUG] Approve enabled: #{enabled ? 'yes' : 'no'}"
       end
     end
-    # rubocop:enable Metrics/BlockLength
     # rubocop:enable Metrics/ClassLength
   end
 end

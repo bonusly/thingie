@@ -27,7 +27,7 @@ module Thingie
     #
     # @return [String] CLI-formatted report
     def to_cli
-      output = summary_line
+      output = summary_line + cli_change_risk
       output += @report.issues.map { |issue| render_issue(issue) }.join
       output
     end
@@ -37,12 +37,23 @@ module Thingie
     # @return [String] Markdown-formatted report
     def to_md
       lines = [Thingie::GitHub::Context::SUMMARY_MARKER, md_heading, md_summary_line,
-               md_files_reviewed, md_run_info].compact
+               md_files_reviewed, md_change_risk, md_run_info].compact
       lines += @report.issues.map { |issue| md_issue(issue) }
       lines.join("\n\n")
     end
 
     private
+
+    def cli_change_risk
+      risk = @report.change_risk
+      risk ? ChangeRiskSection.new(risk).to_cli : ''
+    end
+
+    # Shown only when System One scored the change.
+    def md_change_risk
+      risk = @report.change_risk
+      ChangeRiskSection.new(risk).to_md if risk
+    end
 
     def summary_line
       if @report.total_issues.positive?

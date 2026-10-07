@@ -450,7 +450,8 @@ RSpec.describe Thingie::GitHub::Approver do # rubocop:disable RSpec/SpecFilePath
     allow(pr).to receive_messages(additions: 600, deletions: 0)
     approver.run(report_for([]))
 
-    expect(client).to have_received(:add_comment).with('o/r', 1, a_string_including("_Thingie v#{Thingie::VERSION} · m_"))
+    expect(client).to have_received(:add_comment).with('o/r', 1,
+                                                       a_string_including("_Thingie v#{Thingie::VERSION} · m_"))
   end
 
   it 'includes the Thingie version in the approval review body' do

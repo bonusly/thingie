@@ -8,4 +8,8 @@ module Thingie
   # Raised when a language server fails to start or respond.
   class LspError < StandardError
   end
+
+  # Raised when a System One provider returns an error or an unexpected response.
+  class SystemOneError < StandardError
+  end
 end

@@ -154,9 +154,10 @@ module Thingie
       end
     end
 
+    # Some models answer in the reasoning channel and leave the content empty.
     def parse_response(response, file)
       content = response&.content
-      return [] if content.nil? || (content.is_a?(String) && content.strip.empty?)
+      return IssueParser.new.parse(JsonExtractor.issues_in(response&.thinking) || [], file) if content.to_s.strip.empty?
 
       parsed = content.is_a?(String) ? JsonExtractor.parse(content) : content
       raise JSON::ParserError, 'no valid JSON found in response' if parsed.nil?

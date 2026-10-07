@@ -42,15 +42,16 @@ RSpec.describe Thingie::Verifier do
 
   def verdict(value, severity_override: nil, confidence_override: nil)
     message_double(
-                    content: {
-                      'verdict' => value, 'reasoning' => 'r',
-                      'severity_override' => severity_override,
-                      'confidence_override' => confidence_override
-                    },
-                    thinking: nil, thinking_tokens: nil,
-                    input_tokens: nil, output_tokens: nil, tool_calls: {},
-                    cache_read_tokens: nil, cache_write_tokens: nil,
-                    cost: instance_double(RubyLLM::Cost, total: nil), model_info: nil)
+      content: {
+        'verdict' => value, 'reasoning' => 'r',
+        'severity_override' => severity_override,
+        'confidence_override' => confidence_override
+      },
+      thinking: nil, thinking_tokens: nil,
+      input_tokens: nil, output_tokens: nil, tool_calls: {},
+      cache_read_tokens: nil, cache_write_tokens: nil,
+      cost: instance_double(RubyLLM::Cost, total: nil), model_info: nil
+    )
   end
 
   after { FileUtils.rm_rf(tmp_dir) }

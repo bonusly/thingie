@@ -4,6 +4,77 @@ require 'tomlrb'
 require 'dotenv'
 
 module Thingie
+  # Environment-variable overrides for config keys, extracted from {Configuration}
+  # to keep that class under RuboCop's ClassLength limit. Mixed in via
+  # `include EnvOverrides`.
+  module EnvOverrides
+    ENV_OVERRIDES = {
+      'model' => 'LLM_MODEL',
+      'provider' => 'LLM_PROVIDER',
+      'llm_api_key' => 'LLM_API_KEY',
+      'llm_api_base' => 'LLM_API_BASE',
+      'github_token' => 'GITHUB_TOKEN',
+      'log_file' => 'THINGIE_LOG_FILE',
+      'log_level' => 'THINGIE_LOG_LEVEL',
+      'models_file' => 'THINGIE_MODELS_FILE',
+      'system_one_model' => 'SYSTEM_ONE_MODEL',
+      'system_one_api_base' => 'SYSTEM_ONE_API_BASE',
+      'system_one_api_key' => 'SYSTEM_ONE_API_KEY'
+    }.freeze
+
+    INTEGER_ENV_OVERRIDES = {
+      'retries' => 'LLM_RETRIES',
+      'request_timeout' => 'LLM_REQUEST_TIMEOUT',
+      'max_concurrent_tasks' => 'MAX_CONCURRENT_TASKS'
+    }.freeze
+
+    BOOLEAN_KEYS = %w[system_one_enabled].freeze
+
+    private
+
+    def apply_env_overrides(config)
+      merged = config.merge(string_env_overrides).merge(integer_env_overrides).merge(boolean_env_overrides)
+      validate_booleans(merged)
+    end
+
+    def validate_booleans(config)
+      BOOLEAN_KEYS.each do |key|
+        next if [true, false].include?(config[key])
+
+        raise ConfigurationError, "#{key} must be 'true' or 'false', got #{config[key].inspect}"
+      end
+      config
+    end
+
+    def string_env_overrides
+      ENV_OVERRIDES.transform_values do |env_key|
+        Env.fetch(env_key, nil)
+      end.compact
+    end
+
+    def boolean_env_overrides
+      env_overrides_for('system_one_enabled' => 'SYSTEM_ONE_ENABLED') { |value| parse_boolean(value) }
+    end
+
+    def parse_boolean(value)
+      # Anything but true/false passes through unchanged so validate_booleans rejects it by key.
+      { 'true' => true, 'false' => false }.fetch(value.downcase, value)
+    end
+
+    def integer_env_overrides
+      env_overrides_for(INTEGER_ENV_OVERRIDES, &:to_i)
+    end
+
+    # Only override keys that have a non-blank env var set; otherwise leave the
+    # merged config value untouched (a blank var must not coerce to 0/false).
+    def env_overrides_for(mapping)
+      mapping.each_with_object({}) do |(key, env_key), result|
+        value = Env.fetch(env_key, nil)&.strip
+        result[key] = yield(value) unless value.to_s.empty?
+      end
+    end
+  end
+
   # MCP server config accessors, extracted from {Configuration} to keep that
   # class under RuboCop's ClassLength limit. Mixed in via `include McpConfig`,
   # so it reads `@data` and `@root` as instance variables of the host class.
@@ -39,29 +110,13 @@ module Thingie
     attr_reader :data, :root
 
     include McpConfig
+    include EnvOverrides
 
     # Expanded lazily in load_user_env_file so a missing/unresolvable home
     # directory can't crash at load time.
     USER_ENV_FILE = '~/.thingie/.env'
 
     DEFAULT_SKILL_DIRECTORIES = %w[.agents .claude .cursor].freeze
-
-    ENV_OVERRIDES = {
-      'model' => 'LLM_MODEL',
-      'provider' => 'LLM_PROVIDER',
-      'llm_api_key' => 'LLM_API_KEY',
-      'llm_api_base' => 'LLM_API_BASE',
-      'github_token' => 'GITHUB_TOKEN',
-      'log_file' => 'THINGIE_LOG_FILE',
-      'log_level' => 'THINGIE_LOG_LEVEL',
-      'models_file' => 'THINGIE_MODELS_FILE'
-    }.freeze
-
-    INTEGER_ENV_OVERRIDES = {
-      'retries' => 'LLM_RETRIES',
-      'request_timeout' => 'LLM_REQUEST_TIMEOUT',
-      'max_concurrent_tasks' => 'MAX_CONCURRENT_TASKS'
-    }.freeze
 
     # Build the merged configuration for a project by loading and combining all layers
     # (bundled defaults, `.thingie/config.toml`, `~/.thingie/.env`, OS env vars, explicit overrides).
@@ -201,25 +256,6 @@ module Thingie
         deep_merge(base_value, override_value)
       else
         override_value.nil? ? base_value : override_value
-      end
-    end
-
-    def apply_env_overrides(config)
-      config.merge(string_env_overrides).merge(integer_env_overrides)
-    end
-
-    def string_env_overrides
-      ENV_OVERRIDES.transform_values do |env_key|
-        Env.fetch(env_key, nil)
-      end.compact
-    end
-
-    def integer_env_overrides
-      # Only override keys that have a non-blank env var set; otherwise leave the
-      # merged config value untouched (a blank var must not coerce to 0).
-      INTEGER_ENV_OVERRIDES.each_with_object({}) do |(key, env_key), result|
-        value = Env.fetch(env_key, nil)
-        result[key] = value.to_i if value && !value.strip.empty?
       end
     end
 

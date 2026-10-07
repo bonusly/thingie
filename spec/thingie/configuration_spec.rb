@@ -17,6 +17,36 @@ RSpec.describe Thingie::Configuration do
     expect(config['models_file']).to eq('')
   end
 
+  it 'disables System One by default', :aggregate_failures do
+    expect(config['system_one_enabled']).to be(false)
+    expect(config['system_one_api_base']).to eq('https://openrouter.ai/api')
+  end
+
+  context 'with System One environment variables' do
+    before do
+      Thingie::Env['SYSTEM_ONE_ENABLED'] = 'true'
+      Thingie::Env['SYSTEM_ONE_API_BASE'] = 'https://example.test/api'
+    end
+
+    it 'overrides the defaults', :aggregate_failures do
+      expect(config['system_one_enabled']).to be(true)
+      expect(config['system_one_api_base']).to eq('https://example.test/api')
+    end
+  end
+
+  it 'rejects System One enabled values other than true or false' do
+    Thingie::Env['SYSTEM_ONE_ENABLED'] = 'yes'
+
+    expect { config }.to raise_error(Thingie::ConfigurationError, /'true' or 'false'/)
+  end
+
+  it 'rejects a non-boolean system_one_enabled in project config' do
+    FileUtils.mkdir_p(File.join(tmp_dir, '.thingie'))
+    File.write(File.join(tmp_dir, '.thingie', 'config.toml'), %(system_one_enabled = "true"\n))
+
+    expect { config }.to raise_error(Thingie::ConfigurationError, /system_one_enabled must be 'true' or 'false'/)
+  end
+
   it 'exposes prompt_vars' do
     expect(config.prompt_vars).to include('self_id', 'requirements', 'json_requirements')
   end

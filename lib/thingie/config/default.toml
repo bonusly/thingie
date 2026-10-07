@@ -48,6 +48,34 @@ provider = "openai"
 # empty to use the shipped registry.
 models_file = ""
 
+# System One decision model (e.g. TypeSafe's Jev) used to score code changes on
+# risks such as security or performance. Disabled by default. Talks to the
+# TypeSafe System One API (POST <api_base>/v1/systemone), which OpenRouter and
+# TypeSafe-compatible providers expose. Set the key via SYSTEM_ONE_API_KEY
+# (never in this file). Env overrides: SYSTEM_ONE_ENABLED, SYSTEM_ONE_MODEL,
+# SYSTEM_ONE_API_BASE, SYSTEM_ONE_API_KEY.
+system_one_enabled = false
+system_one_model = "jev-latest"
+system_one_api_base = "https://openrouter.ai/api"
+
+# Escalation paths for the System One change-risk score. With `system_one_enabled`,
+# `thingie review` scores the changeset and records the scores and escalations in
+# the report; `thingie github-comment` then adds, for each rule whose `threshold`
+# the riskiest file's `overall` score (0.0-1.0) reaches, its `label` to the PR.
+# An optional `title` and `description` appear in the review and the GitHub summary.
+# Rules may stack: a score that reaches several thresholds adds every label.
+# Define rules as [[escalations]] tables in .thingie/config.toml, for example:
+#   [[escalations]]
+#   threshold = 0.5
+#   label = "risk: needs review"
+#   title = "Needs careful review"
+#   description = "System One thinks a person should read this change closely."
+#
+#   [[escalations]]
+#   threshold = 0.8
+#   label = "risk: high"
+escalations = []
+
 # Language servers the LLM can consult for extra context (definitions of
 # classes/methods referenced in the diff) during review. Disabled unless at
 # least one server is configured below. Each entry's `command` is launched in
