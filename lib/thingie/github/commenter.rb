@@ -171,7 +171,7 @@ module Thingie
           REVIEW_COMMENT_MARKER,
           "**[#{severity_label(issue.severity)}] #{issue.title}**",
           issue.details,
-          ("**Evidence:** #{issue.evidence}" unless issue.evidence.to_s.strip.empty?),
+          issue.evidence_block,
           tags
         ].compact.join("\n\n")
       end
