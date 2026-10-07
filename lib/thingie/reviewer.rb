@@ -7,7 +7,7 @@ require_relative 'json_extractor'
 module Thingie
   # Orchestrates reviewing the changeset: builds prompts, calls the LLM,
   # post-processes issues, and builds a Report.
-  class Reviewer
+  class Reviewer # rubocop:disable Metrics/ClassLength
     # Builds a reviewer for a single run of the pipeline.
     #
     # @param config [Thingie::Configuration] full merged configuration
@@ -48,11 +48,12 @@ module Thingie
       @debug_output.banner
       @debug_output.review_section_start
       issues = gather_llm_issues
-      filtered = PostProcessor.new(@config['post_process']).call(issues)
+      post_processor = PostProcessor.new(@config['post_process'])
+      filtered = post_processor.call(issues)
       @debug_output.post_process(before: issues.size, after: filtered.size)
       enriched = CodeEnricher.new(@changeset).call(filtered)
       @debug_output.first_pass(enriched)
-      verified = verify(enriched)
+      verified = post_processor.cap_confidence(verify(enriched))
       obfuscated = ObfuscationDetector.new(@changeset).call
       sorted = (verified + obfuscated).sort_by { |issue| issue.severity || Float::INFINITY }
       sorted.each_with_index { |issue, index| issue.id = index + 1 }

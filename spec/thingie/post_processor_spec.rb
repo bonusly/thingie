@@ -20,6 +20,23 @@ RSpec.describe Thingie::PostProcessor do
     expect(described_class.new(nil).call(issues)).to eq(issues)
   end
 
+  context 'with confidence_after_verify' do
+    subject(:processor) do
+      described_class.new('max_confidence' => 1, 'max_severity' => 3, 'confidence_after_verify' => true)
+    end
+
+    it 'filters on severity first and leaves confidence for after the critic', :aggregate_failures do
+      expect(processor.call(issues)).to eq(issues.first(2))
+      expect(processor.cap_confidence(issues.first(2))).to eq([issues.first])
+    end
+
+    it 'cap_confidence changes nothing when the cap is applied before the critic' do
+      before_critic = described_class.new('max_confidence' => 1)
+
+      expect(before_critic.cap_confidence(issues)).to eq(issues)
+    end
+  end
+
   context 'with require_evidence' do
     def finding(confidence:, evidence:)
       Thingie::Issue.from_hash('title' => 't', 'severity' => 2, 'confidence' => confidence, 'evidence' => evidence,
