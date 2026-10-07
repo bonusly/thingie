@@ -16,6 +16,7 @@ module Thingie
     MAX_LINE = 240
     MAX_PATTERN = 200
     TIMEOUT = 15
+    READ_CHUNK = 4096
 
     description <<~DESC
       Search the repository's tracked files with a regular expression (git grep -E)
@@ -67,21 +68,50 @@ module Thingie
     end
 
     def run(pattern, path, ignore_case)
-      argv = ['git', '-C', @root, 'grep', '-n', '-I', '--no-color', '-E']
+      # --literal-pathspecs makes `path` a plain path. Otherwise the tool reads pathspec magic such as
+      # `:(exclude)app` in it, and the search is no longer limited to what was asked for.
+      argv = ['git', '-C', @root, '--literal-pathspecs', 'grep', '-n', '-I', '--no-color', '-E']
       argv << '-i' if ignore_case == true || ignore_case.to_s == 'true'
       argv.push('-e', pattern)
       argv.push('--', path.to_s) unless path.to_s.strip.empty?
-      Timeout.timeout(TIMEOUT) { Open3.capture3(*argv) }
+      Timeout.timeout(TIMEOUT) { stream(argv) }
     end
 
-    def format_result(pattern, (stdout, stderr, status))
-      return "Search for `#{pattern}` failed: #{stderr.to_s.strip[0, 200]}" if status.exitstatus.to_i > 1
-      return "No matches for `#{pattern}`." if stdout.empty?
+    # Reads only as many lines as are shown, plus one to know there are more, and then stops the search. A
+    # broad pattern in a large repository would otherwise be buffered whole before the cap applied. Reading
+    # in bounded chunks also keeps one very long line from filling memory.
+    def stream(argv)
+      lines = []
+      Open3.popen3(*argv) do |stdin, stdout, stderr, waiter|
+        stdin.close
+        errors = Thread.new { stderr.read.to_s }
+        finished = false
+        begin
+          stdout.each_line(READ_CHUNK) do |line|
+            lines << line
+            break if lines.size > MAX_MATCHES
+          end
+          finished = lines.size <= MAX_MATCHES
+        ensure
+          stop(waiter) unless finished
+        end
+        [lines, errors.value, waiter.value]
+      end
+    end
 
-      lines = stdout.lines.map { |line| line.chomp[0, MAX_LINE] }
-      shown = lines.first(MAX_MATCHES)
-      extra = lines.size - shown.size
-      (shown + (extra.positive? ? ["... #{extra} more matches not shown; narrow the pattern or path."] : [])).join("\n")
+    def stop(waiter)
+      Process.kill('TERM', waiter.pid) if waiter.alive?
+    rescue Errno::ESRCH
+      nil
+    end
+
+    def format_result(pattern, (lines, stderr, status))
+      return "Search for `#{pattern}` failed: #{stderr.to_s.strip[0, 200]}" if status.exitstatus.to_i > 1
+      return "No matches for `#{pattern}`." if lines.empty?
+
+      shown = lines.first(MAX_MATCHES).map { |line| line.chomp[0, MAX_LINE] }
+      shown << '... more matches not shown; narrow the pattern or path.' if lines.size > MAX_MATCHES
+      shown.join("\n")
     end
   end
 end
