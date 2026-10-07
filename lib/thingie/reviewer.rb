@@ -7,7 +7,7 @@ require_relative 'json_extractor'
 module Thingie
   # Orchestrates reviewing the changeset: builds prompts, calls the LLM,
   # post-processes issues, and builds a Report.
-  class Reviewer
+  class Reviewer # rubocop:disable Metrics/ClassLength
     # Builds a reviewer for a single run of the pipeline.
     #
     # @param config [Thingie::Configuration] full merged configuration
