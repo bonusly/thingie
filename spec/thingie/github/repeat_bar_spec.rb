@@ -28,7 +28,7 @@ RSpec.describe Thingie::GitHub::RepeatBar do # rubocop:disable RSpec/SpecFilePat
 
   before do
     allow(Warning).to receive(:warn) # the bar reports what it holds back with Kernel#warn
-    allow(client).to receive_messages(pull_request_comments: previous_comments,
+    allow(client).to receive_messages(pull_request_comments: previous_comments, issue_comments: [],
                                       compare: comparison.new([file_class.new('a.rb', patch)]))
   end
 
@@ -95,6 +95,70 @@ RSpec.describe Thingie::GitHub::RepeatBar do # rubocop:disable RSpec/SpecFilePat
 
       expect(bar.call(issues, 'head-sha')).to eq(issues)
       expect(Warning).to have_received(:warn).with(/Could not tell what changed since the last review/, any_args)
+    end
+
+    context 'when the last review posted only a summary comment' do
+      let(:summary_class) { Struct.new(:body, :created_at) }
+      let(:summary) do
+        body = "### Review of `abc1234`\n\nNo issues.\n\n#{Thingie::GitHub::Context::SUMMARY_MARKER}"
+        summary_class.new(body, Time.utc(2026, 1, 5))
+      end
+
+      before do
+        allow(client).to receive_messages(pull_request_comments: [], issue_comments: [summary])
+      end
+
+      it 'counts it as the last review, so the bar still applies', :aggregate_failures do
+        expect(bar.call([minor_on_old_code], 'head-sha')).to eq([])
+        expect(client).to have_received(:compare).with('o/r', 'abc1234', 'head-sha')
+      end
+
+      it 'reads a summary that a later run collapsed' do
+        prefix = Thingie::GitHub::Commenter::OUTDATED_PREFIX
+        body = "#{prefix} of `abc1234`</summary>\n\n### Review of `abc1234`\n\n</details>"
+        collapsed = summary_class.new(body, Time.utc(2026, 1, 5))
+        allow(client).to receive(:issue_comments).and_return([collapsed])
+
+        expect(bar.call([minor_on_old_code], 'head-sha')).to eq([])
+      end
+
+      it 'uses the newest review when there are inline comments and summaries', :aggregate_failures do
+        allow(client).to receive(:pull_request_comments).and_return(previous_comments)
+
+        bar.call([minor_on_old_code], 'head-sha')
+
+        expect(client).to have_received(:compare).with('o/r', 'abc1234', 'head-sha')
+      end
+
+      it 'ignores a comment from someone else that mentions a review' do
+        human = summary_class.new('Review of `fffffff` looks fine to me', Time.utc(2026, 2, 1))
+        allow(client).to receive(:issue_comments).and_return([human])
+
+        expect(bar.call([minor_on_old_code], 'head-sha')).to eq([minor_on_old_code])
+      end
+    end
+
+    context 'when GitHub cannot say what changed' do
+      it 'keeps the normal bar for a file whose diff it left out' do
+        allow(client).to receive(:compare).and_return(comparison.new([file_class.new('a.rb', nil)]))
+
+        expect(bar.call([minor_on_old_code], 'head-sha')).to eq([minor_on_old_code])
+      end
+
+      it 'still holds back a finding in a file whose diff it did list' do
+        allow(client).to receive(:compare)
+          .and_return(comparison.new([file_class.new('a.rb', patch), file_class.new('big.bin', nil)]))
+
+        expect(bar.call([minor_on_old_code], 'head-sha')).to eq([])
+      end
+
+      it 'posts everything when the change has more files than GitHub lists', :aggregate_failures do
+        files = Array.new(300) { |n| file_class.new("f#{n}.rb", patch) }
+        allow(client).to receive(:compare).and_return(comparison.new(files))
+
+        expect(bar.call([minor_on_old_code], 'head-sha')).to eq([minor_on_old_code])
+        expect(Warning).to have_received(:warn).with(/300 or more files/, any_args)
+      end
     end
   end
 end
