@@ -195,4 +195,76 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
       end
     end
   end
+
+  context 'with a finding whose text is about another file' do
+    let(:issue) do
+      raw = Thingie::RawIssue.new(title: 'Query always returns empty', severity: 2, confidence: 2, tags: [],
+                                  details: 'other.rb:17 calls a method that does not exist')
+      range = Thingie::AffectedRange.new(start_line: 11, end_line: 11)
+      Thingie::Issue.new(id: 1, file: 'app.rb', raw_issue: raw, affected_lines: [range])
+    end
+
+    it 'does not put it on a line, and lists it in the summary comment under the cited file', :aggregate_failures do
+      commenter.post_review(summary: 'S', report: report_for([issue]))
+
+      expect(client).not_to have_received(:create_pull_request_comment)
+      expect(client).to have_received(:add_comment)
+        .with('o/r', 1, a_string_including('outside this diff or about another file', '`other.rb`',
+                                           'Query always returns empty'))
+    end
+  end
+
+  context 'with a repeated-finding filter' do
+    subject(:commenter) do
+      described_class.new(token: 'token', owner: 'o', repo: 'r', pr_number: 1, duplicate_filter: filter)
+    end
+
+    let(:filter) { instance_double(Thingie::DuplicateFilter) }
+    let(:marked_body) { "#{described_class::REVIEW_COMMENT_MARKER}\n\n**[High] Old title**\n\nOld text" }
+    let(:open_thread) do
+      {
+        'id' => 'THREAD1', 'isResolved' => false, 'isOutdated' => false, 'line' => 11, 'path' => 'app.rb',
+        'comments' => { 'nodes' => [{ 'author' => { 'login' => 'bot' },
+                                      'body' => marked_body }] }
+      }
+    end
+
+    before do
+      allow(client).to receive(:post) do |_path, body|
+        if JSON.parse(body)['query'].include?('reviewThreads')
+          { 'data' => { 'repository' => { 'pullRequest' => { 'reviewThreads' => { 'nodes' => [open_thread] } } } } }
+        else
+          {}
+        end
+      end
+    end
+
+    it 'hands the filter the findings and the comments that are still open', :aggregate_failures do
+      issue = build_issue('app.rb', 11)
+      allow(filter).to receive(:call).and_return([issue])
+
+      commenter.post_review(summary: 'S', report: report_for([issue]))
+
+      expect(filter).to have_received(:call)
+        .with([issue], [{ file: 'app.rb', line: 11, text: "**[High] Old title**\n\nOld text" }])
+      expect(client).to have_received(:create_pull_request_comment).once
+    end
+
+    it 'posts only what the filter keeps, and leaves the open thread alone', :aggregate_failures do
+      allow(filter).to receive(:call).and_return([])
+
+      commenter.post_review(summary: 'S', report: report_for([build_issue('app.rb', 11)]))
+
+      expect(client).not_to have_received(:create_pull_request_comment)
+      expect(client).not_to have_received(:post).with('/graphql', a_string_including('resolveReviewThread'))
+    end
+
+    it 'posts every finding and says so when the filter fails', :aggregate_failures do
+      allow(filter).to receive(:call).and_raise(StandardError, 'model timed out')
+
+      expect { commenter.post_review(summary: 'S', report: report_for([build_issue('app.rb', 11)])) }
+        .to output(/Could not check for repeated findings.*model timed out/).to_stderr
+      expect(client).to have_received(:create_pull_request_comment).once
+    end
+  end
 end
