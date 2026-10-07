@@ -77,6 +77,52 @@ RSpec.describe Thingie::Verifier do
     end
   end
 
+  context 'when the critic replies with text and no JSON' do
+    let(:issues) { [issue('keep-me')] }
+    let(:fake_llm_client) do
+      instance_double(Thingie::LlmClient).tap do |client|
+        allow(client).to receive(:complete_with_schema).and_return(
+          message_double(content: 'I could not find a problem with this.', thinking: nil, thinking_tokens: nil,
+                         input_tokens: nil, output_tokens: nil, tool_calls: {}, cache_read_tokens: nil,
+                         cache_write_tokens: nil, cost: instance_double(RubyLLM::Cost, total: nil), model_info: nil)
+        )
+      end
+    end
+
+    it 'keeps the finding and says the critic did not run', :aggregate_failures do
+      expect(verifier.call(issues)).to eq(issues)
+      expect(verifier.warnings).to include(/Could not verify finding 'keep-me'.*no JSON/)
+    end
+  end
+
+  context 'when deciding whether to tell the critic about the symbol lookup tool' do
+    let(:prompts) { [] }
+    let(:fake_llm_client) do
+      instance_double(Thingie::LlmClient).tap do |client|
+        allow(client).to receive(:complete_with_schema) { |prompt, *_| (prompts << prompt) && verdict('uphold') }
+      end
+    end
+    let(:file_tool) { Thingie::FileTool.new(root: tmp_dir) }
+    let(:symbol_tool) { Thingie::Lsp::SymbolTool.new(client: instance_double(Thingie::Lsp::Client), root: tmp_dir) }
+
+    def critic_prompt_with(tools)
+      described_class.new(config: config, changeset: fake_changeset, llm_client: fake_llm_client, tools: tools,
+                          prompt_builder: Thingie::PromptBuilder.new(Thingie::Configuration.new(root: tmp_dir)))
+                     .call([issue('keep-me')])
+      prompts.last
+    end
+
+    it 'does not mention it when the only tools read files', :aggregate_failures do
+      prompt = critic_prompt_with([file_tool])
+
+      expect(prompt).not_to include('"No definition found" result')
+    end
+
+    it 'mentions it when the symbol tool is there', :aggregate_failures do
+      expect(critic_prompt_with([file_tool, symbol_tool])).to include('"No definition found" result')
+    end
+  end
+
   context 'when the critic supplies a severity/confidence override' do
     let(:issues) { [issue('override-me')] }
     let(:fake_llm_client) do
