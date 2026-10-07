@@ -171,6 +171,16 @@ RSpec.describe Thingie::PromptBuilder do
       expect(prompt).not_to include('materially valuable to a maintainer')
     end
 
+    it 'tells the critic to always grade confidence by how far its check got when the cap comes after it',
+       :aggregate_failures do
+      graded = Thingie::Configuration.new(
+        root: tmp_dir, overrides: { 'post_process' => { 'confidence_after_verify' => true } }
+      )
+      prompt = described_class.new(graded).verify(issue: issue, diff: 'x')
+      expect(prompt).to include('Always give a confidence grade', '"confidence_override": <1-4>,')
+      expect(builder.verify(issue: issue, diff: 'x')).not_to include('Always give a confidence grade')
+    end
+
     it 'keeps the default bar unless told otherwise', :aggregate_failures do
       prompt = builder.verify(issue: issue, diff: 'x')
       expect(prompt).to include('materially valuable to a maintainer')
