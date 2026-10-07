@@ -25,30 +25,29 @@ module Thingie
       @max_severity = Threshold.parse(settings['max_severity'])
     end
 
-    # Keep only the issues at or below the configured `max_severity` threshold. A finding with no evidence
-    # is first graded `unverified_confidence` when `require_evidence` is set, so it cannot pass a strict
-    # `max_confidence` later.
+    # Keep only the issues at or below the configured `max_severity` threshold.
     #
     # @param issues [Array<Thingie::Issue>] issues to filter
     # @return [Array<Thingie::Issue>] the surviving issues
     def call(issues)
-      issues.each { |issue| demote_unverified(issue) } if @require_evidence
       issues.select { |issue| within?(issue.severity, @max_severity) }
     end
 
     # Keep only the issues at or below the configured `max_confidence`, judged on the grade each has
-    # after the critic pass.
+    # after the critic pass. With `require_evidence`, a finding with no evidence is first held to no
+    # better than `unverified_confidence`, so the critic's grade cannot lift it past a strict cap.
     #
     # @param issues [Array<Thingie::Issue>] issues that survived the critic pass
     # @return [Array<Thingie::Issue>] the issues at or below `max_confidence`
     def cap_confidence(issues)
+      issues.each { |issue| demote_unverified(issue) } if @require_evidence
       issues.select { |issue| within?(issue.confidence, @max_confidence) }
     end
 
     private
 
     # A finding the reviewer gave no evidence for cannot claim more confidence than the
-    # unverified grade, whatever number the model wrote.
+    # unverified grade, whatever number the model or the critic wrote.
     def demote_unverified(issue)
       return unless issue.evidence.to_s.strip.empty?
 

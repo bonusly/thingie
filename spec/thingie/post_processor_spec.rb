@@ -49,8 +49,17 @@ RSpec.describe Thingie::PostProcessor do
 
     it 'never raises a finding that is already below the unverified grade' do
       weak = finding(confidence: 4, evidence: nil)
-      described_class.new('require_evidence' => true).call([weak])
+      described_class.new('require_evidence' => true).cap_confidence([weak])
       expect(weak.confidence).to eq(4)
+    end
+
+    it 'holds a finding with no evidence back even when the critic grades it highly', :aggregate_failures do
+      processor = described_class.new('max_confidence' => 2, 'require_evidence' => true)
+      survivors = processor.call([verified, unverified])
+      unverified.apply_override(confidence: 1) # the critic's grade, set after the first pass
+
+      expect(processor.cap_confidence(survivors)).to eq([verified])
+      expect(unverified.confidence).to eq(3)
     end
 
     it 'uses the configured unverified grade' do
