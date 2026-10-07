@@ -35,8 +35,8 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
     allow(client).to receive(:post).and_return({})
   end
 
-  def build_issue(file, start_line, evidence: nil)
-    raw = Thingie::RawIssue.new(title: 'T', severity: 1, confidence: 1, details: 'd', tags: ['bug'],
+  def build_issue(file, start_line, evidence: nil, severity: 1)
+    raw = Thingie::RawIssue.new(title: 'T', severity: severity, confidence: 1, details: 'd', tags: ['bug'],
                                 evidence: evidence)
     range = Thingie::AffectedRange.new(start_line: start_line, end_line: start_line)
     Thingie::Issue.new(id: 1, file: file, raw_issue: raw, affected_lines: [range])
@@ -142,7 +142,7 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
   context 'when resolving stale review threads' do
     let(:stale_thread) do
       {
-        'id' => 'THREAD1', 'isResolved' => false, 'isOutdated' => false,
+        'id' => 'THREAD1', 'isResolved' => false, 'isOutdated' => true,
         'line' => 42, 'path' => 'gone.rb',
         'comments' => { 'nodes' => [{ 'author' => { 'login' => 'bot' },
                                       'body' => "x #{described_class::REVIEW_COMMENT_MARKER}" }] }
@@ -159,11 +159,21 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
       end
     end
 
-    it 'resolves a Thingie thread whose issue is no longer reported, without needing the bot login' do
+    it 'resolves a Thingie thread whose commented code changed, without needing the bot login' do
       commenter.post_review(summary: 'S', report: report_for([build_issue('app.rb', 11)]))
 
       expect(client).to have_received(:post)
         .with('/graphql', a_string_including('resolveReviewThread'))
+    end
+
+    context 'when the code the thread commented on did not change' do
+      let(:stale_thread) { super().merge('isOutdated' => false) }
+
+      it 'leaves it open even though the finding was not repeated' do
+        commenter.post_review(summary: 'S', report: report_for([build_issue('app.rb', 11)]))
+
+        expect(client).not_to have_received(:post).with('/graphql', a_string_including('resolveReviewThread'))
+      end
     end
 
     context 'with a dedicated resolve token' do
@@ -265,6 +275,50 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
       expect { commenter.post_review(summary: 'S', report: report_for([build_issue('app.rb', 11)])) }
         .to output(/Could not check for repeated findings.*model timed out/).to_stderr
       expect(client).to have_received(:create_pull_request_comment).once
+    end
+  end
+
+  context 'with a repeat bar on a re-run' do
+    subject(:commenter) do
+      described_class.new(token: 'token', owner: 'o', repo: 'r', pr_number: 1, repeat_max_severity: 2)
+    end
+
+    let(:comment_class) { Struct.new(:body, :created_at, :original_commit_id) }
+    let(:file_class) { Struct.new(:filename, :patch) }
+    let(:comparison) { Struct.new(:files) }
+    # app.rb line 11 was added since the last review.
+    let(:since_last_review) do
+      comparison.new([file_class.new('app.rb', "@@ -10,2 +10,3 @@\n ctx10\n+added11\n ctx12")])
+    end
+    let(:last_review_comment) do
+      comment_class.new("#{described_class::REVIEW_COMMENT_MARKER}\n\nold", Time.utc(2026, 1, 1), 'last-sha')
+    end
+
+    before do
+      allow(client).to receive_messages(
+        pull_request_comments: [last_review_comment],
+        compare: since_last_review
+      )
+    end
+
+    it 'holds back a less severe finding about code that did not change', :aggregate_failures do
+      expect { commenter.post_review(summary: 'S', report: report_for([build_issue('app.rb', 12, severity: 3)])) }
+        .to output(/Held back 1 new finding/).to_stderr
+      expect(client).not_to have_received(:create_pull_request_comment)
+    end
+
+    it 'still posts a less severe finding about code that is new since the last review' do
+      commenter.post_review(summary: 'S', report: report_for([build_issue('app.rb', 11, severity: 3)]))
+
+      expect(client).to have_received(:create_pull_request_comment)
+        .with('o/r', 1, anything, 'commit-sha', 'app.rb', 11, anything)
+    end
+
+    it 'still posts a severe finding about unchanged code' do
+      commenter.post_review(summary: 'S', report: report_for([build_issue('app.rb', 12, severity: 2)]))
+
+      expect(client).to have_received(:create_pull_request_comment)
+        .with('o/r', 1, anything, 'commit-sha', 'app.rb', 12, anything)
     end
   end
 end
