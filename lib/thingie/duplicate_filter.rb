@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require 'erb'
-
 module Thingie
   # Drops review findings that repeat another finding in the same run, or a
   # review comment that is still open on the pull request, so a re-run does not
@@ -9,14 +7,15 @@ module Thingie
   # list: the wording of a finding changes between runs, so matching by title or
   # line would miss most repeats.
   class DuplicateFilter
-    TEMPLATE = File.expand_path('prompts/duplicates.erb', __dir__)
     TEXT_LIMIT = 600
 
     # Builds a filter that asks the given model whether findings repeat each other.
     #
     # @param llm_client [Thingie::LlmClient] the client used for the duplicate check
-    def initialize(llm_client:)
+    # @param prompt_builder [Thingie::PromptBuilder] renders the duplicate-check prompt
+    def initialize(llm_client:, prompt_builder:)
       @llm_client = llm_client
+      @prompt_builder = prompt_builder
     end
 
     # Returns the findings to post, without the ones that repeat another finding or an open comment.
@@ -38,7 +37,7 @@ module Thingie
     private
 
     def verdicts_for(ranked, open_comments)
-      prompt = render(
+      prompt = @prompt_builder.duplicates(
         existing: open_comments.each_with_index.map { |c, i| describe("E#{i + 1}", c[:file], c[:line], c[:text]) },
         findings: ranked.each_with_index.map do |issue, i|
           describe("N#{i + 1}", issue.file, line_of(issue), summary_of(issue))
@@ -82,11 +81,6 @@ module Thingie
 
     def summary_of(issue)
       "#{issue.title}\n#{issue.details}"
-    end
-
-    def render(existing:, findings:)
-      template = File.read(TEMPLATE, encoding: 'UTF-8')
-      ERB.new(template, trim_mode: '-').result_with_hash(existing: existing, findings: findings)
     end
   end
 end
