@@ -383,7 +383,7 @@ module Thingie
 
         model = settings['model'].to_s.strip
         client = model.empty? ? Thingie::LlmClient.new(config) : Thingie::LlmClient.new(config, model: model)
-        Thingie::DuplicateFilter.new(llm_client: client)
+        Thingie::DuplicateFilter.new(llm_client: client, prompt_builder: Thingie::PromptBuilder.new(config))
       rescue StandardError => e
         warn "Repeated-finding check disabled — #{e.message}"
         nil
