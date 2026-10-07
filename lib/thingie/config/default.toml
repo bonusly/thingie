@@ -184,9 +184,10 @@ prompt = "default"
 # to the reviewer's own grade.
 max_confidence = 2
 max_severity = 4
-# With the "verified" prompt: a finding the reviewer gave no evidence for is
-# graded `unverified_confidence` (default 3) whatever number the model wrote, so it
-# cannot pass a stricter max_confidence.
+# With the "verified" prompt: a finding the reviewer gave no evidence for is held to
+# no better than `unverified_confidence` (default 3), whatever the model or the critic
+# graded it, so it cannot pass a stricter max_confidence. Applied together with that cap,
+# after the critic pass.
 require_evidence = false
 
 [repeat_run]

@@ -374,10 +374,11 @@ filter that already let the finding through to the critic in the first place.
 
 ### Filtering findings (`post_process`)
 
-The model scores every finding on a 1–4 **severity** scale (1 = Critical) and a
-1–4 **confidence** scale (1 = highest). `post_process` is the **SHOW line**: it
-drops anything above your thresholds *before* the critic pass runs, controlling
-whether a finding is surfaced to maintainers as a PR comment at all:
+The model scores every finding on a 1–4 **severity** scale (1 = Critical), and
+the critic grades each finding's **confidence** on a 1–4 scale (1 = highest).
+`post_process` is the **SHOW line**: it controls whether a finding is surfaced to
+maintainers as a PR comment at all. `max_severity` drops findings *before* the
+critic pass runs. `max_confidence` drops them *after* it, on the critic's grade:
 
 ```toml
 [post_process]
@@ -385,8 +386,9 @@ max_confidence = 1   # keep only findings the critic could confirm in the code
 max_severity = 3     # keep Critical/High/Medium, drop Low
 ```
 
-Lower numbers are stricter. An omitted threshold means "no limit". This is a
-cheap first filter; the critic pass is the precision filter on top of it.
+Lower numbers are stricter. An omitted threshold means "no limit". The severity
+cap is a cheap first filter; the critic pass is the precision filter on top of
+it, and its confidence grade is what `max_confidence` is applied to.
 
 This is independent from `approve.max_severity` (the **BLOCK line**, see
 [Auto-approving PRs](#auto-approving-prs)) — a finding can be shown as a
@@ -403,7 +405,7 @@ prompt = "verified"
 
 [post_process]
 max_confidence = 2        # post confirmed and likely findings; hunches are dropped
-require_evidence = true   # a finding with no evidence is graded 3 whatever the model wrote
+require_evidence = true   # a finding with no evidence is held to no better than confidence 3
 
 [confidence_scale]
 1 = "Confirmed: you traced the failing path through the code with your tools and cite it in evidence"
