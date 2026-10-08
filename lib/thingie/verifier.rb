@@ -93,16 +93,18 @@ module Thingie
         issue: issue,
         diff: @changeset.diff_text_for(issue.file),
         file_lines: @changeset.full_content_for(issue.file),
-        symbol_lookup: @tools.any?,
+        symbol_lookup: @tools.any?(Lsp::SymbolTool),
         pr_context: @pr_context.to_s
       )
-      response = @llm_client.complete_with_schema(prompt, Schemas::VERDICT_SCHEMA, tools: @tools)
+      tool_names = []
+      response = @llm_client.complete_with_schema(prompt, Schemas::VERDICT_SCHEMA, tools: @tools, tool_log: tool_names)
       @usage&.record(response)
+      issue.record_tool_calls(critic: tool_names)
       content = parse_content(response)
       verdict = content['verdict'].to_s.strip.downcase
       @debug_output&.critic_call(issue: issue, response: response,
                                  verdict: verdict.empty? ? '(no verdict)' : verdict,
-                                 content: content)
+                                 content: content, tool_names: tool_names)
       {
         keep: verdict != 'reject',
         severity: valid_override(content['severity_override'], @config.severity_scale),
@@ -117,7 +119,11 @@ module Thingie
 
     def parse_content(response)
       content = response&.content
-      content = JSON.parse(content) if content.is_a?(String)
+      if content.is_a?(String)
+        content = JsonExtractor.parse(content)
+        # Say so instead of keeping the finding unchecked in silence: the rescue in #uphold? records a warning.
+        raise JSON::ParserError, 'the critic reply has no JSON' if content.nil?
+      end
       content.is_a?(Hash) ? content.transform_keys(&:to_s) : {}
     end
 

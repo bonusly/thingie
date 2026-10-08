@@ -28,4 +28,70 @@ RSpec.describe Thingie::Issue do
       expect(issue.confidence).to eq(3)
     end
   end
+
+  describe 'evidence' do
+    it 'round-trips through to_h and from_hash' do
+      evidence = 'update only validates when amount changes (award.rb:31)'
+      built = described_class.from_hash('title' => 't', 'severity' => 2, 'confidence' => 1, 'evidence' => evidence,
+                                        'file' => 'a.rb', 'affected_lines' => [{ 'start_line' => 1 }])
+      expect(described_class.from_hash(built.to_h).evidence).to eq(evidence)
+    end
+
+    it 'is nil when the reviewer gave none' do
+      expect(issue.evidence).to be_nil
+    end
+  end
+
+  describe '#evidence_block' do
+    def finding(evidence: nil)
+      described_class.from_hash('title' => 't', 'details' => 'd', 'severity' => 2, 'confidence' => 1,
+                                'tags' => [], 'file' => 'a.rb', 'evidence' => evidence,
+                                'affected_lines' => [{ 'start_line' => 1 }])
+    end
+
+    it 'is nil with no evidence and no tool calls' do
+      expect(finding.evidence_block).to be_nil
+    end
+
+    it 'shows the evidence alone in a collapsed block' do
+      expect(finding(evidence: 'award.rb:31 skips the check').evidence_block)
+        .to eq("<details><summary>Evidence</summary>\n\naward.rb:31 skips the check\n\n</details>")
+    end
+
+    it 'adds the tool calls of the second look and the review pass, repeats counted', :aggregate_failures do
+      issue = finding(evidence: 'award.rb:31 skips the check')
+      issue.record_tool_calls(review: ['search a', 'search a', 'file b.rb'], critic: ['symbol Award'])
+      block = issue.evidence_block
+
+      expect(block).to start_with('<details><summary>Evidence</summary>')
+      expect(block).to include('award.rb:31 skips the check',
+                               "Tool calls, second look (1):\n\n```text\nsymbol Award\n```",
+                               "Tool calls, review pass over this file (3):\n\n```text\nsearch a (x2)\nfile b.rb\n```")
+      expect(block.index('Second look'.downcase)).to be < block.index('review pass')
+    end
+
+    it 'shows the tool calls even when the reviewer gave no evidence' do
+      issue = finding
+      issue.record_tool_calls(critic: ['search a'])
+
+      expect(issue.evidence_block).to include('Tool calls, second look (1)')
+    end
+
+    it 'caps a long list and says how many were left out', :aggregate_failures do
+      issue = finding
+      issue.record_tool_calls(review: (1..30).map { |n| "search term#{n}" })
+      block = issue.evidence_block
+
+      expect(block).to include('search term25', '... and 5 more')
+      expect(block).not_to include('search term26')
+    end
+
+    it 'survives a round trip through the report file' do
+      issue = finding
+      issue.record_tool_calls(review: ['search a'], critic: ['file b.rb'])
+      copy = described_class.from_hash(issue.to_h)
+
+      expect([copy.review_tool_calls, copy.critic_tool_calls]).to eq([['search a'], ['file b.rb']])
+    end
+  end
 end

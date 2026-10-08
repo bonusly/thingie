@@ -124,11 +124,67 @@ RSpec.describe Thingie::PromptBuilder do
     end
   end
 
+  describe '#review prompt style' do
+    def prompt_for(config, symbol_lookup: false)
+      described_class.new(config).review(diff: '+x', file_lines: 'x', symbol_lookup: symbol_lookup)
+    end
+
+    let(:verified_config) do
+      Thingie::Configuration.new(root: tmp_dir, overrides: { 'review' => { 'prompt' => 'verified' } })
+    end
+
+    it 'uses the strict prompt unless told otherwise', :aggregate_failures do
+      prompt = prompt_for(config)
+      expect(prompt).to include('100% confident')
+      expect(prompt).not_to include('VERIFY BEFORE YOU REPORT')
+    end
+
+    it 'asks the verified prompt to check suspicions with the tools and cite evidence', :aggregate_failures do
+      prompt = prompt_for(verified_config)
+      expect(prompt).to include('VERIFY BEFORE YOU REPORT', '"evidence"', 'search tool')
+      expect(prompt).not_to include('100% confident')
+      expect(prompt).to include('- 1 — Highest, 100% confidence')
+    end
+
+    it 'mentions the symbol lookup tool only when it is available', :aggregate_failures do
+      expect(prompt_for(verified_config, symbol_lookup: true)).to include('symbol lookup tool')
+      expect(prompt_for(verified_config, symbol_lookup: false)).not_to include('symbol lookup tool')
+    end
+
+    it 'rejects an unknown prompt style' do
+      bad = Thingie::Configuration.new(root: tmp_dir, overrides: { 'review' => { 'prompt' => 'loose' } })
+      expect { prompt_for(bad) }.to raise_error(ArgumentError, /Unknown \[review\] prompt "loose"/)
+    end
+  end
+
   describe '#verify' do
     let(:issue) do
       Thingie::Issue.from_hash('title' => 'Leaky query', 'details' => 'd', 'severity' => 1,
                                'confidence' => 2, 'tags' => [], 'file' => 'app.rb',
                                'affected_lines' => [{ 'start_line' => 1 }])
+    end
+
+    it 'asks whether it is true and would matter to a user when the bar is user_impact', :aggregate_failures do
+      impact = Thingie::Configuration.new(root: tmp_dir, overrides: { 'verify' => { 'bar' => 'user_impact' } })
+      prompt = described_class.new(impact).verify(issue: issue, diff: 'x')
+      expect(prompt).to include('Would it matter to someone using the product?', 'search and file tools')
+      expect(prompt).not_to include('materially valuable to a maintainer')
+    end
+
+    it 'keeps the default bar unless told otherwise', :aggregate_failures do
+      prompt = builder.verify(issue: issue, diff: 'x')
+      expect(prompt).to include('materially valuable to a maintainer')
+      expect(prompt).not_to include('Would it matter to someone using the product?')
+    end
+
+    it 'shows the critic the evidence the reviewer gave', :aggregate_failures do
+      with_evidence = Thingie::Issue.from_hash('title' => 'Leaky query', 'details' => 'd', 'severity' => 1,
+                                               'confidence' => 2, 'tags' => [], 'file' => 'app.rb',
+                                               'evidence' => 'award.rb:31 skips the check',
+                                               'affected_lines' => [{ 'start_line' => 1 }])
+      expect(builder.verify(issue: with_evidence, diff: 'x'))
+        .to include('Evidence the reviewer gave: award.rb:31 skips')
+      expect(builder.verify(issue: issue, diff: 'x')).not_to include('Evidence the reviewer gave')
     end
 
     it 'shows the PR-wide changes only when there are some', :aggregate_failures do

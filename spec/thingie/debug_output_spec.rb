@@ -69,6 +69,21 @@ RSpec.describe Thingie::DebugOutput do
     end
   end
 
+  describe '#tool_calls' do
+    subject(:debug) { described_class.new(config: config, changeset: changeset, enabled: true) }
+
+    it 'names the tools a call used and how many times', :aggregate_failures do
+      names = %w[thingie--search thingie--file thingie--search]
+      expect { debug.tool_calls(tag: 'REVIEW', label: 'app.rb', names: names) }
+        .to output("[DEBUG][REVIEW] app.rb: tool calls: thingie--search x2, thingie--file x1\n").to_stderr
+    end
+
+    it 'says when a call used none' do
+      expect { debug.tool_calls(tag: 'CRITIC', label: 'Leaky query', names: []) }
+        .to output("[DEBUG][CRITIC] Leaky query: tool calls: none\n").to_stderr
+    end
+  end
+
   describe '#review_error' do
     it 'prints the error class and message' do
       error = JSON::ParserError.new('unexpected token')

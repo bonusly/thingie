@@ -10,9 +10,12 @@ module Thingie
   class PostProcessor
     # Builds a filter from the `[post_process]` config section.
     #
-    # @param settings [Hash, nil] the `[post_process]` config section, e.g. `max_confidence`/`max_severity`
+    # @param settings [Hash, nil] the `[post_process]` config section: `max_confidence`/`max_severity`, and
+    #   `require_evidence` (a finding with no evidence is graded `unverified_confidence`, default 3)
     def initialize(settings)
       settings = (settings || {}).transform_keys(&:to_s)
+      @require_evidence = settings['require_evidence'] == true
+      @unverified_confidence = Integer(settings.fetch('unverified_confidence', 3), exception: false) || 3
       # Parse thresholds once; an absent/invalid value means "no limit".
       @max_confidence = Threshold.parse(settings['max_confidence'])
       @max_severity = Threshold.parse(settings['max_severity'])
@@ -23,10 +26,20 @@ module Thingie
     # @param issues [Array<Thingie::Issue>] issues to filter
     # @return [Array<Thingie::Issue>] the surviving issues
     def call(issues)
+      issues.each { |issue| demote_unverified(issue) } if @require_evidence
       issues.select { |issue| keep?(issue) }
     end
 
     private
+
+    # A finding the reviewer gave no evidence for cannot claim more confidence than the
+    # unverified grade, whatever number the model wrote.
+    def demote_unverified(issue)
+      return unless issue.evidence.to_s.strip.empty?
+
+      current = Integer(issue.confidence, exception: false)
+      issue.apply_override(confidence: @unverified_confidence) if current.nil? || current < @unverified_confidence
+    end
 
     def keep?(issue)
       within?(issue.confidence, @max_confidence) && within?(issue.severity, @max_severity)

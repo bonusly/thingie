@@ -35,8 +35,9 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
     allow(client).to receive(:post).and_return({})
   end
 
-  def build_issue(file, start_line)
-    raw = Thingie::RawIssue.new(title: 'T', severity: 1, confidence: 1, details: 'd', tags: ['bug'])
+  def build_issue(file, start_line, evidence: nil)
+    raw = Thingie::RawIssue.new(title: 'T', severity: 1, confidence: 1, details: 'd', tags: ['bug'],
+                                evidence: evidence)
     range = Thingie::AffectedRange.new(start_line: start_line, end_line: start_line)
     Thingie::Issue.new(id: 1, file: file, raw_issue: raw, affected_lines: [range])
   end
@@ -59,6 +60,22 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
 
     expect(client).to have_received(:create_pull_request_comment)
       .with('o/r', 1, a_string_including('[Critical]'), 'commit-sha', 'app.rb', 11, { side: 'RIGHT' })
+  end
+
+  it 'shows the evidence in the inline comment when the reviewer gave some' do
+    issue = build_issue('app.rb', 11, evidence: 'award.rb:31 skips the check')
+    commenter.post_review(summary: 'S', report: report_for([issue]))
+
+    expect(client).to have_received(:create_pull_request_comment)
+      .with('o/r', 1, a_string_including("<details><summary>Evidence</summary>\n\naward.rb:31 skips the check"),
+            'commit-sha', 'app.rb', 11, { side: 'RIGHT' })
+  end
+
+  it 'posts no evidence line when there is none' do
+    commenter.post_review(summary: 'S', report: report_for([build_issue('app.rb', 11)]))
+
+    expect(client).to have_received(:create_pull_request_comment)
+      .with('o/r', 1, satisfy { |body| !body.include?('Evidence') }, 'commit-sha', 'app.rb', 11, { side: 'RIGHT' })
   end
 
   it 'posts the summary comment only when there are no issues', :aggregate_failures do

@@ -8,7 +8,10 @@ module Thingie
   # configuration values. Skills are not inlined here — they're exposed to
   # the LLM via SkillCatalog's progressive-disclosure tool instead.
   class PromptBuilder
-    REVIEW_TEMPLATE = File.expand_path('prompts/review.erb', __dir__)
+    REVIEW_TEMPLATES = {
+      'default' => File.expand_path('prompts/review.erb', __dir__),
+      'verified' => File.expand_path('prompts/review_verified.erb', __dir__)
+    }.freeze
     VERIFY_TEMPLATE = File.expand_path('prompts/verify.erb', __dir__)
 
     # ERB's result_with_hash raises NameError for any var referenced in a
@@ -38,7 +41,7 @@ module Thingie
     #   switches the prompt guideline from "only changed lines" to "every line"
     # @return [String] the rendered prompt text
     def review(diff:, file_lines: nil, symbol_lookup: false, whole_file: false, pr_context: '')
-      render_template(REVIEW_TEMPLATE, 'input' => diff, 'file_lines' => file_lines, 'pr_context' => pr_context,
+      render_template(review_template, 'input' => diff, 'file_lines' => file_lines, 'pr_context' => pr_context,
                                        'symbol_lookup' => symbol_lookup, 'whole_file' => whole_file,
                                        'severity_scale' => format_scale(@config.severity_scale),
                                        'confidence_scale' => format_scale(@config.confidence_scale),
@@ -58,6 +61,7 @@ module Thingie
       render_template(VERIFY_TEMPLATE, 'input' => diff, 'file_lines' => file_lines, 'pr_context' => pr_context,
                                        'symbol_lookup' => symbol_lookup,
                                        'finding' => format_finding(issue),
+                                       'user_impact' => @config.dig('verify', 'bar') == 'user_impact',
                                        'severity_scale' => format_scale(@config.severity_scale),
                                        'confidence_scale' => format_scale(@config.confidence_scale),
                                        'show_threshold_text' => show_threshold_text,
@@ -65,6 +69,15 @@ module Thingie
     end
 
     private
+
+    # `[review] prompt` picks the bundled review prompt: `default` (strict, report only what is certain)
+    # or `verified` (check suspicions with the tools, cite evidence, grade confidence by verification).
+    def review_template
+      style = @config.dig('review', 'prompt').to_s
+      REVIEW_TEMPLATES.fetch(style.empty? ? 'default' : style) do
+        raise ArgumentError, "Unknown [review] prompt #{style.inspect}; expected #{REVIEW_TEMPLATES.keys.join(' or ')}"
+      end
+    end
 
     def render_template(path, vars)
       ERB.new(template_cache(path), trim_mode: '-').result_with_hash(template_vars.merge(vars))
@@ -97,7 +110,11 @@ module Thingie
       "File: #{issue.file}\nTitle: #{issue.title}\nTags: #{tags}\n" \
         "Severity: #{issue.severity} (#{label_for(@config.severity_scale, issue.severity)})\n" \
         "Confidence: #{issue.confidence} (#{label_for(@config.confidence_scale, issue.confidence)})\n" \
-        "Details: #{issue.details}\nAffected code:\n#{ranges}"
+        "Details: #{issue.details}\n#{evidence_line(issue)}Affected code:\n#{ranges}"
+    end
+
+    def evidence_line(issue)
+      issue.evidence.to_s.strip.empty? ? '' : "Evidence the reviewer gave: #{issue.evidence}\n"
     end
 
     def format_scale(scale)

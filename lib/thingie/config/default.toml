@@ -22,6 +22,12 @@ retries = 3
 # Maximum number of concurrent file reviews (uses fibers).
 max_concurrent_tasks = 10
 
+# Whether to also ask for schema-constrained JSON on calls that have tools. Some
+# models (GLM through OpenRouter) answer straight away instead of calling a tool
+# when a response schema is set, so the review is never verified. Set false for
+# those: the prompt describes the JSON and the reply is parsed instead.
+schema_with_tools = true
+
 # Timeout (in seconds) for a single LLM request, including connection and
 # response. Set lower to fail fast on unreachable providers.
 request_timeout = 120
@@ -153,6 +159,14 @@ json_requirements = """
   format.
 """
 
+[review]
+# Which bundled review prompt the first pass uses.
+#   "default"  - strict: report only what the model is certain of.
+#   "verified" - the model checks each suspicion with its search and file tools,
+#                cites what it confirmed in `evidence`, and grades `confidence`
+#                by how far verification got (see [confidence_scale]).
+prompt = "default"
+
 [post_process]
 # This is the SHOW line: thresholds applied to issues after the LLM returns
 # them, controlling whether a finding is surfaced to maintainers at all (as a
@@ -164,6 +178,10 @@ json_requirements = """
 # prompts (see `severity_rubric` above and `PromptBuilder#show_threshold_text`).
 max_confidence = 1
 max_severity = 4
+# With the "verified" prompt: a finding the reviewer gave no evidence for is
+# graded `unverified_confidence` (default 3) whatever number the model wrote, so it
+# cannot pass a stricter max_confidence.
+require_evidence = false
 
 [verify]
 # Critic / challenge pass: after filtering, re-examine each surviving finding
@@ -172,6 +190,12 @@ max_severity = 4
 # runs on findings that passed the thresholds above, so cost scales with finding
 # count, not file size. Fail-open: a finding is kept if the critic can't run.
 enabled = true
+# What the critic asks. "default": is it true and valuable to a maintainer. "user_impact":
+# is it true AND would someone using the product see a failure, an error, wrong data or
+# something missing (a concrete trigger and consequence)? Nits and maintainability
+# points must clear a much higher bar. Pair with tools (schema_with_tools = false for
+# models that skip tools when a schema is set) so the critic can check the code.
+bar = "default"
 # Optional: run the critic on a stronger model than the review (same provider
 # and API key). Leave empty to reuse the review model.
 # model = "claude-opus-4.8"

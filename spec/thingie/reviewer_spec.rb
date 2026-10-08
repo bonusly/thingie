@@ -51,6 +51,26 @@ RSpec.describe Thingie::Reviewer do
     expect(report.number_of_processed_files).to eq(1)
   end
 
+  context 'when the review pass uses its tools' do
+    let(:fake_llm_client) do
+      issues = [{ 'title' => 'Missing return', 'details' => 'No return value', 'severity' => 2,
+                  'confidence' => 1, 'tags' => ['bug'], 'affected_lines' => [{ 'start_line' => 1 }] }]
+      response = message_double(content: { 'issues' => issues }, input_tokens: 1, output_tokens: 1, tool_calls: {},
+                                cache_read_tokens: nil, cache_write_tokens: nil, cost: nil, model_info: nil,
+                                thinking: nil, thinking_tokens: nil)
+      instance_double(Thingie::LlmClient).tap do |client|
+        allow(client).to receive(:complete_with_schema) do |_prompt, _schema, tool_log: nil, **|
+          tool_log&.push('thingie--search hello')
+          response
+        end
+      end
+    end
+
+    it 'keeps what it asked the tools on each finding from that file' do
+      expect(reviewer.review.issues.first.review_tool_calls).to eq(['thingie--search hello'])
+    end
+  end
+
   it 'accumulates LLM usage and enriches the target with the head commit sha', :aggregate_failures do
     report = reviewer.review
     expect(reviewer.usage).to be_a(Thingie::Stats::Usage)
@@ -59,6 +79,34 @@ RSpec.describe Thingie::Reviewer do
     expect(reviewer.usage.output_tokens).to eq(100)
     expect(reviewer.usage.cost).to be_within(1e-9).of(0.0003)
     expect(report.target.commit_sha).to eq('abc123')
+  end
+
+  context 'when deciding whether to tell the model about the symbol lookup tool' do
+    let(:prompts) { [] }
+    let(:fake_llm_client) do
+      response = message_double(content: { 'issues' => [] }, input_tokens: 1, output_tokens: 1, tool_calls: {},
+                                cache_read_tokens: nil, cache_write_tokens: nil, cost: nil, model_info: nil,
+                                thinking: nil, thinking_tokens: nil)
+      instance_double(Thingie::LlmClient).tap do |client|
+        allow(client).to receive(:complete_with_schema) { |prompt, *_| (prompts << prompt) && response }
+      end
+    end
+    let(:file_tool) { Thingie::FileTool.new(root: tmp_dir) }
+    let(:symbol_tool) { Thingie::Lsp::SymbolTool.new(client: instance_double(Thingie::Lsp::Client), root: tmp_dir) }
+
+    def first_prompt_with(tools)
+      described_class.new(config: config, changeset: fake_changeset, llm_client: fake_llm_client, tools: tools,
+                          prompt_builder: Thingie::PromptBuilder.new(config)).review
+      prompts.first
+    end
+
+    it 'does not mention it when the only tools read and search files' do
+      expect(first_prompt_with([file_tool])).not_to include('symbol lookup')
+    end
+
+    it 'mentions it when the symbol tool is there' do
+      expect(first_prompt_with([file_tool, symbol_tool])).to include('symbol lookup')
+    end
   end
 
   context 'when an issue falls on an unchanged line' do
