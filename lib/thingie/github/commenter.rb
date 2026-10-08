@@ -10,6 +10,7 @@ module Thingie
     class Commenter # rubocop:disable Metrics/ClassLength
       REVIEW_COMMENT_MARKER = '<!-- thingie-review-comment -->'
       OUTDATED_PREFIX = '<details><summary>Outdated review'
+      OPEN_FINDINGS_SHOWN = 5
 
       # Mirrors the default severity_scale in config/default.toml — used only
       # for human-facing labels in comments.
@@ -61,7 +62,7 @@ module Thingie
         collapse_previous_summaries
         if report.issues.empty?
           # Only post the overview comment when there's nothing to flag inline.
-          post_summary_comment(with_open_findings(summary, open_threads))
+          post_summary_comment(rerun_summary(summary, open_threads))
         else
           candidates = repeat_bar.call(report.issues, commit_id)
           off_diff = post_inline_comments(without_repeats(candidates, open_threads), commit_id)
@@ -80,23 +81,33 @@ module Thingie
         issues.reject { |issue| issue.cited_other_file.nil? && post_issue_inline?(issue, commit_id) }
       end
 
-      # The summary describes only this run, so "No changes recommended" would sit above findings from an
-      # earlier run that are still open. Say that they are open instead.
-      def with_open_findings(summary, open_threads)
-        return summary if open_threads.empty?
+      # The summary describes only this run. On a PR Thingie has reviewed before, "No changes recommended"
+      # would read as if nothing had ever been flagged, so it says "No new changes recommended", or says
+      # that earlier findings are still open when they are.
+      def rerun_summary(summary, open_threads)
+        return summary unless open_threads.any? || repeat_bar.reviewed_before?
 
-        count = open_threads.size
-        are = count == 1 ? 'finding is' : 'findings are'
-        list = open_threads.first(5).map { |thread| "- #{open_finding_title(thread)} (`#{thread['path']}`)" }
-        list << "- and #{count - 5} more" if count > 5
-        note = "**⚠️ No new findings, but #{count} earlier #{are} still open**\n\n#{list.join("\n")}"
+        note = ReportRenderer::NO_NEW_CHANGES
+        note = "#{note}\n\n#{open_findings_list(open_threads)}" if open_threads.any?
         return summary.sub(ReportRenderer::NO_CHANGES, note) if summary.include?(ReportRenderer::NO_CHANGES)
 
         "#{summary}\n\n#{note}"
       end
 
-      def open_finding_title(thread)
-        thread.dig('comments', 'nodes', 0, 'body').to_s[/\*\*(\[\w+\] .+?)\*\*/, 1] || 'An earlier finding'
+      # The findings from earlier runs that are still open, each with its severity and a link to its comment.
+      def open_findings_list(open_threads)
+        lines = open_threads.first(OPEN_FINDINGS_SHOWN).map { |thread| open_finding_line(thread) }
+        extra = open_threads.size - OPEN_FINDINGS_SHOWN
+        lines << "- and #{extra} more" if extra.positive?
+        "**Still open from earlier reviews (#{open_threads.size}):**\n\n#{lines.join("\n")}"
+      end
+
+      def open_finding_line(thread)
+        comment = thread.dig('comments', 'nodes', 0) || {}
+        match = comment['body'].to_s.match(/\*\*\[(\w+)\] (.+?)\*\*/)
+        severity, title = match ? match.captures : ['Finding', 'An earlier finding']
+        label = comment['url'] ? "[#{title}](#{comment['url']})" : title
+        "- **#{severity}:** #{label} (`#{thread['path']}`)"
       end
 
       def repeat_bar

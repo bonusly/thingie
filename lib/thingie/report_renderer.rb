@@ -8,6 +8,9 @@ module Thingie
     # The summary line of a report with no findings.
     NO_CHANGES = '**✅ No changes recommended**'
 
+    # The same, on a pull request Thingie has already reviewed.
+    NO_NEW_CHANGES = '**✅ No new changes recommended**'
+
     # Fallback labels used when no severity scale is supplied (e.g. when
     # rendering a saved report via `thingie report` without config context).
     DEFAULT_SEVERITY_SCALE = {

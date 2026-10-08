@@ -47,6 +47,20 @@ RSpec.describe Thingie::GitHub::RepeatBar do # rubocop:disable RSpec/SpecFilePat
       .call(issues, 'head-sha')).to eq(issues)
   end
 
+  describe '#reviewed_before?' do
+    it 'is false when Thingie has not commented yet' do
+      allow(client).to receive_messages(pull_request_comments: [], issue_comments: [])
+
+      expect(bar.reviewed_before?).to be(false)
+    end
+
+    it 'is false when GitHub cannot be asked' do
+      allow(client).to receive(:pull_request_comments).and_raise(Octokit::ServerError)
+
+      expect(bar.reviewed_before?).to be(false)
+    end
+  end
+
   context 'when it is a re-run' do
     let(:minor_on_old_code) { finding('minor, old code', severity: 3, line: 10) }
     let(:severe_on_old_code) { finding('severe, old code', severity: 2, line: 10) }
@@ -120,6 +134,10 @@ RSpec.describe Thingie::GitHub::RepeatBar do # rubocop:disable RSpec/SpecFilePat
         allow(client).to receive(:issue_comments).and_return([collapsed])
 
         expect(bar.call([minor_on_old_code], 'head-sha')).to eq([])
+      end
+
+      it 'knows Thingie has reviewed the PR before' do
+        expect(bar.reviewed_before?).to be(true)
       end
 
       it 'uses the newest review when there are inline comments and summaries', :aggregate_failures do

@@ -27,7 +27,8 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
     allow(client).to receive_messages(
       pull_request: pr,
       pull_request_files: pr_files,
-      issue_comments: []
+      issue_comments: [],
+      pull_request_comments: []
     )
     allow(client).to receive(:create_pull_request_comment)
     allow(client).to receive(:add_comment)
@@ -91,7 +92,8 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
     let(:open_thread) do
       {
         'id' => 'T1', 'isResolved' => false, 'isOutdated' => false, 'line' => 11, 'path' => 'app.rb',
-        'comments' => { 'nodes' => [{ 'author' => { 'login' => 'bot' }, 'body' => thread_body }] }
+        'comments' => { 'nodes' => [{ 'author' => { 'login' => 'bot' }, 'body' => thread_body,
+                                      'url' => 'https://github.com/o/r/pull/1#discussion_r1' }] }
       }
     end
 
@@ -105,23 +107,74 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
       end
     end
 
-    it 'says they are open instead of "No changes recommended"', :aggregate_failures do
+    it 'says there is nothing new and lists the open ones with their severity and a link', :aggregate_failures do
       commenter.post_review(summary: summary, report: report_for([]))
 
       expect(client).to have_received(:add_comment).with(
         'o/r', 1,
-        a_string_including('No new findings, but 1 earlier finding is still open',
-                           '- [Medium] Parser written twice (`app.rb`)', 'Files reviewed (1)')
+        a_string_including('**✅ No new changes recommended**', 'Still open from earlier reviews (1):',
+                           '- **Medium:** [Parser written twice](https://github.com/o/r/pull/1#discussion_r1)',
+                           'Files reviewed (1)')
       )
-      expect(client).not_to have_received(:add_comment).with('o/r', 1, a_string_including('No changes recommended'))
     end
 
-    it 'keeps the summary when the open thread is not Thingie\'s' do
+    it 'lists a finding without its link when GitHub gave none' do
+      open_thread['comments']['nodes'][0].delete('url')
+
+      commenter.post_review(summary: summary, report: report_for([]))
+
+      expect(client).to have_received(:add_comment)
+        .with('o/r', 1, a_string_including('- **Medium:** Parser written twice (`app.rb`)'))
+    end
+
+    it 'keeps the first-review wording when the open thread is not Thingie\'s' do
       open_thread['comments']['nodes'][0]['body'] = 'a human comment'
 
       commenter.post_review(summary: summary, report: report_for([]))
 
-      expect(client).to have_received(:add_comment).with('o/r', 1, a_string_including('No changes recommended'))
+      expect(client).to have_received(:add_comment).with('o/r', 1, a_string_including('**✅ No changes recommended**'))
+    end
+
+    context 'with more than five open' do
+      let(:threads) { Array.new(7) { |n| open_thread.merge('id' => "T#{n}") } }
+
+      before do
+        allow(client).to receive(:post) do |_path, body|
+          if JSON.parse(body)['query'].include?('reviewThreads')
+            { 'data' => { 'repository' => { 'pullRequest' => { 'reviewThreads' => { 'nodes' => threads } } } } }
+          else
+            {}
+          end
+        end
+      end
+
+      it 'shows five and says how many more', :aggregate_failures do
+        commenter.post_review(summary: summary, report: report_for([]))
+
+        expect(client).to have_received(:add_comment)
+          .with('o/r', 1, a_string_including('Still open from earlier reviews (7):', '- and 2 more'))
+      end
+    end
+  end
+
+  context 'when the run has no findings and nothing is open' do
+    let(:summary) { "### Review of `abc1234`\n\n#{Thingie::ReportRenderer::NO_CHANGES}\n\nFiles reviewed (1)" }
+    let(:comment_class) { Struct.new(:body, :created_at, :original_commit_id) }
+
+    it 'says "No changes recommended" on the first review', :aggregate_failures do
+      commenter.post_review(summary: summary, report: report_for([]))
+
+      expect(client).to have_received(:add_comment).with('o/r', 1, a_string_including('**✅ No changes recommended**'))
+    end
+
+    it 'says "No new changes recommended" once Thingie has reviewed the PR before', :aggregate_failures do
+      earlier = comment_class.new("#{described_class::REVIEW_COMMENT_MARKER}\n\nold", Time.utc(2026, 1, 1), 'abc1234')
+      allow(client).to receive(:pull_request_comments).and_return([earlier])
+
+      commenter.post_review(summary: summary, report: report_for([]))
+
+      expect(client).to have_received(:add_comment)
+        .with('o/r', 1, a_string_including('**✅ No new changes recommended**', 'Files reviewed (1)'))
     end
   end
 
@@ -148,8 +201,14 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
 
   context 'with previous summary comments' do
     let(:marker) { Thingie::GitHub::Context::SUMMARY_MARKER }
-    let(:old) { double('comment', id: 7, node_id: 'NODE7', body: "#{marker}\n\n### Review of `abc1234`\n\nAll good") } # rubocop:disable RSpec/VerifiedDoubles
-    let(:collapsed) { double('comment', id: 8, node_id: 'NODE8', body: '<details><summary>Outdated review</summary>') } # rubocop:disable RSpec/VerifiedDoubles
+    let(:old) do
+      double('comment', id: 7, node_id: 'NODE7', created_at: Time.utc(2026, 1, 1), # rubocop:disable RSpec/VerifiedDoubles
+                        body: "#{marker}\n\n### Review of `abc1234`\n\nAll good")
+    end
+    let(:collapsed) do
+      double('comment', id: 8, node_id: 'NODE8', created_at: Time.utc(2026, 1, 2), # rubocop:disable RSpec/VerifiedDoubles
+                        body: '<details><summary>Outdated review</summary>')
+    end
 
     before do
       allow(client).to receive(:issue_comments).and_return([old, collapsed])

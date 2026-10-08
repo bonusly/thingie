@@ -49,6 +49,15 @@ module Thingie
         issues
       end
 
+      # Whether Thingie has reviewed this pull request before. False when that cannot be fetched.
+      #
+      # @return [Boolean] true when an earlier review, inline or summary, is on the PR
+      def reviewed_before?
+        !last_reviewed_commit.nil?
+      rescue Octokit::Error
+        false
+      end
+
       private
 
       # The commit of Thingie's most recent review, from its inline comments or, when a run had no

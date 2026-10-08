@@ -115,6 +115,7 @@ module Thingie
                       nodes {
                         author { login }
                         body
+                        url
                       }
                     }
                   }
