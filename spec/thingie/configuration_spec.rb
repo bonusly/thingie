@@ -22,7 +22,7 @@ RSpec.describe Thingie::Configuration do
   end
 
   it 'exposes the show threshold (post_process)' do
-    expect(config.show_threshold).to eq(max_severity: 4, max_confidence: 1)
+    expect(config.show_threshold).to eq(max_severity: 4, max_confidence: 2)
   end
 
   it 'exposes the block threshold (approve), disabled by default' do

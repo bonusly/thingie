@@ -81,7 +81,7 @@ RSpec.describe Thingie::PromptBuilder do
     it 'states the show-line threshold in terms of the default post_process config' do
       prompt = builder.review(diff: '')
       expect(prompt).to include('severity 4 (Low) or better')
-      expect(prompt).to include('confidence 1 (Highest, 100% confidence) or better')
+      expect(prompt).to include('confidence 2 (Very High) or better')
     end
 
     it 'states that auto-approval is disabled by default' do
@@ -157,6 +157,25 @@ RSpec.describe Thingie::PromptBuilder do
     end
   end
 
+  describe '#duplicates' do
+    let(:open_comment) { { label: 'E1', location: 'a.rb:3', text: 'Query never returns users' } }
+    let(:finding) { { label: 'N1', location: 'a.rb:3', text: 'No users come back' } }
+
+    it 'lists the open comments and the new findings under their labels', :aggregate_failures do
+      prompt = builder.duplicates(existing: [open_comment], findings: [finding])
+
+      expect(prompt).to include('COMMENTS ALREADY OPEN', 'E1 | a.rb:3', 'Query never returns users',
+                                'NEW FINDINGS', 'N1 | a.rb:3', 'No users come back')
+    end
+
+    it 'leaves out the open-comments section when there are none', :aggregate_failures do
+      prompt = builder.duplicates(existing: [], findings: [finding])
+
+      expect(prompt).not_to include('COMMENTS ALREADY OPEN')
+      expect(prompt).to include('N1 | a.rb:3')
+    end
+  end
+
   describe '#verify' do
     let(:issue) do
       Thingie::Issue.from_hash('title' => 'Leaky query', 'details' => 'd', 'severity' => 1,
@@ -169,6 +188,12 @@ RSpec.describe Thingie::PromptBuilder do
       prompt = described_class.new(impact).verify(issue: issue, diff: 'x')
       expect(prompt).to include('Would it matter to someone using the product?', 'search and file tools')
       expect(prompt).not_to include('materially valuable to a maintainer')
+    end
+
+    it 'tells the critic to always grade confidence by how far its own check got', :aggregate_failures do
+      prompt = builder.verify(issue: issue, diff: 'x')
+      expect(prompt).to include('Always give a confidence grade', '"confidence_override": <1-4>,')
+      expect(prompt).not_to include('or null to leave the original grade unchanged>,\n  "reasoning"')
     end
 
     it 'keeps the default bar unless told otherwise', :aggregate_failures do

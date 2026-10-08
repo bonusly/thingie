@@ -238,6 +238,16 @@ The approval needs the workflow's `pull-requests: write` permission (already req
 
 > **Limitation.** "Contributor" is determined from commit author/committer GitHub logins, so a `Co-authored-by:` trailer doesn't count as having committed. If a thread's resolver can't be determined (e.g. a deleted account), Thingie fails safe and does not approve.
 
+### Repeated findings and findings about another file
+
+- **Findings about another file.** A reviewer sometimes reports a problem it found in a different file than the one it was reviewing, so the line number belongs to that other file. When a finding's text cites only other files (`path/to/file.rb:17`) and never the file it is attached to, Thingie does not put it on a line. It lists the finding in the collapsed summary comment under the cited file instead.
+- **Repeats (`[dedupe]`, on by default).** On a re-run, Thingie would otherwise post the same problem again beside the thread that is still open, and models word the same issue several ways within one run. With `[dedupe]` on, one extra model call (no tools) compares the new findings with each other and with the Thingie comments still open on the PR, and drops the repeats. Two different problems on the same line are kept. If the call fails, every finding is posted and a warning is printed. `[dedupe] model` picks the model, and the review model is the default.
+
+```toml
+[dedupe]
+enabled = false   # opt out
+```
+
 ### Configuration options
 
 Thingie reads configuration from layers (later layers override earlier ones):
@@ -261,7 +271,7 @@ Key settings:
 | Log file | stdout | `log_file` | `THINGIE_LOG_FILE` | — |
 | Log level | `info` | `log_level` | `THINGIE_LOG_LEVEL` | — |
 | Max concurrent file reviews | `10` | `max_concurrent_tasks` | `MAX_CONCURRENT_TASKS` | — |
-| Confidence threshold (keep if ≤) | `1` | `post_process.max_confidence` | — | — |
+| Confidence threshold (keep if ≤, applied after the critic) | `2` | `post_process.max_confidence` | — | — |
 | Severity threshold (keep if ≤) | `3` | `post_process.max_severity` | — | — |
 | Critic pass enabled | `true` | `verify.enabled` | — | — |
 | Critic pass model | review model | `verify.model` | — | — |
@@ -363,19 +373,21 @@ filter that already let the finding through to the critic in the first place.
 
 ### Filtering findings (`post_process`)
 
-The model scores every finding on a 1–4 **severity** scale (1 = Critical) and a
-1–4 **confidence** scale (1 = highest). `post_process` is the **SHOW line**: it
-drops anything above your thresholds *before* the critic pass runs, controlling
-whether a finding is surfaced to maintainers as a PR comment at all:
+The model scores every finding on a 1–4 **severity** scale (1 = Critical), and
+the critic grades each finding's **confidence** on a 1–4 scale (1 = highest).
+`post_process` is the **SHOW line**: it controls whether a finding is surfaced to
+maintainers as a PR comment at all. `max_severity` drops findings *before* the
+critic pass runs. `max_confidence` drops them *after* it, on the critic's grade:
 
 ```toml
 [post_process]
-max_confidence = 1   # keep only the model's highest-confidence findings
+max_confidence = 1   # keep only findings the critic could confirm in the code
 max_severity = 3     # keep Critical/High/Medium, drop Low
 ```
 
-Lower numbers are stricter. An omitted threshold means "no limit". This is a
-cheap first filter; the critic pass is the precision filter on top of it.
+Lower numbers are stricter. An omitted threshold means "no limit". The severity
+cap is a cheap first filter; the critic pass is the precision filter on top of
+it, and its confidence grade is what `max_confidence` is applied to.
 
 This is independent from `approve.max_severity` (the **BLOCK line**, see
 [Auto-approving PRs](#auto-approving-prs)) — a finding can be shown as a
@@ -392,7 +404,7 @@ prompt = "verified"
 
 [post_process]
 max_confidence = 2        # post confirmed and likely findings; hunches are dropped
-require_evidence = true   # a finding with no evidence is graded 3 whatever the model wrote
+require_evidence = true   # a finding with no evidence is held to no better than confidence 3
 
 [confidence_scale]
 1 = "Confirmed: you traced the failing path through the code with your tools and cite it in evidence"
@@ -400,6 +412,10 @@ require_evidence = true   # a finding with no evidence is graded 3 whatever the 
 3 = "Suspected: a hunch you could not verify"
 4 = "Speculative: do not report"
 ```
+
+The confidence the first-pass reviewer writes about its own finding comes before any checking, so it tells you little. Thingie therefore applies `max_confidence` after the critic, to the grade the critic gives: the critic always grades confidence by how far its own check with the tools got. Severity is still capped before the critic. If the critic is disabled, `max_confidence` applies to the reviewer's own grade.
+
+On a benchmark of 303 graded findings, a cap of 2 dropped about a quarter of the nits and a seventh of the good findings, a cap of 3 changed almost nothing, and a cap of 1 dropped most of the good findings. The grade says whether the critic could confirm a finding, not whether it matters, so it does not remove true but minor nits.
 
 The evidence shows under each finding (inline comment and report), collapsed, with the tool calls the model made for debugging: what the second look asked its tools, and what the review pass asked for the file (a long list is cut at 25 lines). The evidence is also passed to the critic, so a reader can see why a finding was raised and the critic can check the claim. The search tool is always available to the reviewer and the critic; it is limited to tracked files under the working directory and runs without a shell.
 

@@ -13,6 +13,7 @@ module Thingie
       'verified' => File.expand_path('prompts/review_verified.erb', __dir__)
     }.freeze
     VERIFY_TEMPLATE = File.expand_path('prompts/verify.erb', __dir__)
+    DUPLICATES_TEMPLATE = File.expand_path('prompts/duplicates.erb', __dir__)
 
     # ERB's result_with_hash raises NameError for any var referenced in a
     # template but absent from the hash, so these (used unconditionally in
@@ -66,6 +67,15 @@ module Thingie
                                        'confidence_scale' => format_scale(@config.confidence_scale),
                                        'show_threshold_text' => show_threshold_text,
                                        'block_threshold_text' => block_threshold_text)
+    end
+
+    # Render the repeat-check prompt (`duplicates.erb`) that asks which new findings repeat an earlier one.
+    #
+    # @param existing [Array<Hash>] the comments already open on the PR, each `{ label:, location:, text: }`
+    # @param findings [Array<Hash>] the new findings, each `{ label:, location:, text: }`
+    # @return [String] the rendered prompt text
+    def duplicates(existing:, findings:)
+      render_template(DUPLICATES_TEMPLATE, 'existing' => existing, 'findings' => findings)
     end
 
     private
