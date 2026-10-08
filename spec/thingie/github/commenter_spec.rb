@@ -170,6 +170,93 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
     end
   end
 
+  context 'when the code shows whether the open earlier findings are fixed' do
+    let(:summary) { "### Review of `abc1234`\n\n#{Thingie::ReportRenderer::NO_CHANGES}\n\nFiles reviewed (1)" }
+    let(:check) { instance_double(Thingie::OpenFindingCheck) }
+    let(:commenter) do
+      described_class.new(token: 'token', owner: 'o', repo: 'r', pr_number: 1, open_finding_check: check)
+    end
+    let(:marker) { described_class::REVIEW_COMMENT_MARKER }
+    let(:threads) do
+      [['T1', 'Parser written twice'], ['T2', 'Crash on nil'], ['T3', 'Wrong total']].map do |id, title|
+        {
+          'id' => id, 'isResolved' => false, 'isOutdated' => false, 'line' => 11, 'path' => 'app.rb',
+          'comments' => { 'nodes' => [{ 'author' => { 'login' => 'bot' }, 'url' => "https://example.test/#{id}",
+                                        'body' => "#{marker}\n\n**[Medium] #{title}**\n\nText" }] }
+        }
+      end
+    end
+
+    before do
+      allow(client).to receive(:post) do |_path, body|
+        if JSON.parse(body)['query'].include?('reviewThreads')
+          { 'data' => { 'repository' => { 'pullRequest' => { 'reviewThreads' => { 'nodes' => threads } } } } }
+        else
+          {}
+        end
+      end
+      allow(client).to receive(:contents).with('o/r', path: 'app.rb', ref: 'commit-sha')
+                                         .and_return({ content: ["def total\n  1\nend\n"].pack('m') })
+    end
+
+    it 'drops a fixed finding, notes an unconfirmed one, and counts only what is listed', :aggregate_failures do
+      allow(check).to receive(:call).and_return('T1' => :fixed, 'T2' => :open, 'T3' => :unsure)
+
+      commenter.post_review(summary: summary, report: report_for([]))
+
+      expect(client).to have_received(:add_comment).with(
+        'o/r', 1,
+        a_string_including('Still open from earlier reviews (2):', '[Crash on nil](https://example.test/T2) (`app.rb`)',
+                           '[Wrong total](https://example.test/T3) (`app.rb`), can\'t confirm this is resolved')
+                          .and(satisfy { |body| !body.include?('Parser written twice') })
+      )
+    end
+
+    it 'gives the check the file as of the head commit' do
+      allow(check).to receive(:call) do |_findings, &load_file|
+        expect(load_file.call('app.rb')).to eq("def total\n  1\nend\n")
+        {}
+      end
+
+      commenter.post_review(summary: summary, report: report_for([]))
+
+      expect(check).to have_received(:call).with(array_including(a_hash_including(id: 'T1', file: 'app.rb')))
+    end
+
+    it 'treats a file the commit no longer has as gone' do
+      allow(client).to receive(:contents).and_raise(Octokit::NotFound)
+      allow(check).to receive(:call) do |_findings, &load_file|
+        expect(load_file.call('app.rb')).to be_nil
+        {}
+      end
+
+      commenter.post_review(summary: summary, report: report_for([]))
+
+      expect(check).to have_received(:call)
+    end
+
+    it 'says no new changes and lists nothing when every finding is fixed', :aggregate_failures do
+      allow(check).to receive(:call).and_return('T1' => :fixed, 'T2' => :fixed, 'T3' => :fixed)
+
+      commenter.post_review(summary: summary, report: report_for([]))
+
+      expect(client).to have_received(:add_comment).with(
+        'o/r', 1, a_string_including('**✅ No new changes recommended**').and(satisfy { |b| !b.include?('Still open') })
+      )
+    end
+
+    it 'lists every open finding as it is, and says so, when the check fails', :aggregate_failures do
+      allow(check).to receive(:call).and_raise(ArgumentError, 'no findings list')
+
+      expect { commenter.post_review(summary: summary, report: report_for([])) }
+        .to output(/Could not check whether earlier findings are fixed.*no findings list/).to_stderr
+      expect(client).to have_received(:add_comment).with(
+        'o/r', 1,
+        a_string_including('Still open from earlier reviews (3):').and(satisfy { |b| !b.include?("can't confirm") })
+      )
+    end
+  end
+
   context 'when the run has no findings and nothing is open' do
     let(:summary) { "### Review of `abc1234`\n\n#{Thingie::ReportRenderer::NO_CHANGES}\n\nFiles reviewed (1)" }
     let(:comment_class) { Struct.new(:body, :created_at, :original_commit_id) }

@@ -14,6 +14,7 @@ module Thingie
     }.freeze
     VERIFY_TEMPLATE = File.expand_path('prompts/verify.erb', __dir__)
     DUPLICATES_TEMPLATE = File.expand_path('prompts/duplicates.erb', __dir__)
+    RESOLUTION_TEMPLATE = File.expand_path('prompts/resolution.erb', __dir__)
     COMMENT_STYLE_FILE = File.expand_path('prompts/comment_style.txt', __dir__)
 
     # ERB's result_with_hash raises NameError for any var referenced in a
@@ -77,6 +78,18 @@ module Thingie
     # @return [String] the rendered prompt text
     def duplicates(existing:, findings:)
       render_template(DUPLICATES_TEMPLATE, 'existing' => existing, 'findings' => findings)
+    end
+
+    # Render the resolution-check prompt (`resolution.erb`) that asks whether earlier findings about one file are fixed.
+    #
+    # @param path [String] the file the findings are about
+    # @param content [String] the file's current content, with line numbers
+    # @param truncated [Boolean] whether `content` stops short of the end of the file
+    # @param findings [Array<Hash>] the earlier findings, each `{ label:, location:, text: }`
+    # @return [String] the rendered prompt text
+    def resolution(path:, content:, truncated:, findings:)
+      render_template(RESOLUTION_TEMPLATE, 'path' => path, 'content' => content, 'truncated' => truncated,
+                                           'findings' => findings)
     end
 
     private
