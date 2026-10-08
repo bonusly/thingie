@@ -162,7 +162,7 @@ jobs:
 
 ### Resolving stale review threads
 
-When Thingie re-reviews a PR, it can mark its earlier threads as resolved once the issue is fixed or the line is outdated. This uses the GraphQL `resolveReviewThread` mutation, which **requires a user-to-server token (a personal access token).**
+When Thingie re-reviews a PR, it marks its earlier threads as resolved once the code they commented on changes (GitHub marks the thread outdated). It does not resolve a thread just because the model did not repeat the finding on a later run, since the model mentions a different set of issues each time. This uses the GraphQL `resolveReviewThread` mutation, which **requires a user-to-server token (a personal access token).**
 
 > **The default `GITHUB_TOKEN` cannot do this, and neither can a GitHub App.** Both are *server-to-server* tokens, and `resolveReviewThread` returns `Resource not accessible by integration` for them even with `pull-requests: write` — including the installation token from `actions/create-github-app-token`. Only a user PAT works.
 
@@ -241,6 +241,8 @@ The approval needs the workflow's `pull-requests: write` permission (already req
 ### Repeated findings and findings about another file
 
 - **Findings about another file.** A reviewer sometimes reports a problem it found in a different file than the one it was reviewing, so the line number belongs to that other file. When a finding's text cites only other files (`path/to/file.rb:17`) and never the file it is attached to, Thingie does not put it on a line. It lists the finding in the collapsed summary comment under the cited file instead.
+- **A short summary on every run.** Each run posts one short summary headed "Review of `sha`". With findings it says how many are new; with none, or with only repeats, it says "No new changes recommended" (on the first review, "No changes recommended"). Findings from earlier runs that are still open are listed under it, each with its severity and a link to its comment. A finding that has since been resolved, or whose code has changed, is not listed.
+- **A higher bar on re-runs (`[repeat_run] max_severity = 2`).** The model mentions a different set of issues each run, so re-reviewing a PR after a push can surface new findings about code that has not changed. On a re-run, a new finding about code unchanged since Thingie last commented is posted only if its severity is at or below this (1 = Critical, 2 = High). A finding about new or changed code, such as a new file or method, gets the normal bar. Held-back findings are listed in the log. Set it to 4 to post everything.
 - **Repeats (`[dedupe]`, on by default).** On a re-run, Thingie would otherwise post the same problem again beside the thread that is still open, and models word the same issue several ways within one run. With `[dedupe]` on, one extra model call (no tools) compares the new findings with each other and with the Thingie comments still open on the PR, and drops the repeats. Two different problems on the same line are kept. If the call fails, every finding is posted and a warning is printed. `[dedupe] model` picks the model, and the review model is the default.
 
 ```toml

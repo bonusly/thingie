@@ -5,6 +5,12 @@ require 'json'
 module Thingie
   # Renders a Thingie::Report to Markdown or CLI formats.
   class ReportRenderer
+    # The summary line of a report with no findings.
+    NO_CHANGES = '**✅ No changes recommended**'
+
+    # The same, on a pull request Thingie has already reviewed.
+    NO_NEW_CHANGES = '**✅ No new changes recommended**'
+
     # Fallback labels used when no severity scale is supplied (e.g. when
     # rendering a saved report via `thingie report` without config context).
     DEFAULT_SEVERITY_SCALE = {
@@ -58,7 +64,7 @@ module Thingie
         "**⚠️ #{@report.total_issues} issue(s) found** across " \
           "#{@report.number_of_processed_files} file(s)."
       else
-        '**✅ No changes recommended**'
+        NO_CHANGES
       end
     end
 

@@ -10,6 +10,7 @@ module Thingie
     class Commenter # rubocop:disable Metrics/ClassLength
       REVIEW_COMMENT_MARKER = '<!-- thingie-review-comment -->'
       OUTDATED_PREFIX = '<details><summary>Outdated review'
+      OPEN_FINDINGS_SHOWN = 5
 
       # Mirrors the default severity_scale in config/default.toml — used only
       # for human-facing labels in comments.
@@ -26,8 +27,12 @@ module Thingie
       #   fail for tokens that can't do it, e.g. `GITHUB_TOKEN`)
       # @param duplicate_filter [Thingie::DuplicateFilter, nil] drops findings that repeat another
       #   finding or a comment that is still open; findings are all posted when absent
-      def initialize(token:, owner:, repo:, pr_number:, resolve_token: nil, duplicate_filter: nil)
+      # @param repeat_max_severity [Integer, nil] on a re-run, the least severe grade (1 = Critical) a new
+      #   finding about code unchanged since the last review may have and still be posted; nil disables it
+      def initialize(token:, owner:, repo:, pr_number:, resolve_token: nil, duplicate_filter: nil,
+                     repeat_max_severity: nil)
         @duplicate_filter = duplicate_filter
+        @repeat_max_severity = repeat_max_severity
         # auto_paginate so PRs with many files/comments aren't truncated to the
         # first page when validating diff lines or collapsing old summaries.
         @client = Octokit::Client.new(access_token: token, auto_paginate: true)
@@ -53,14 +58,14 @@ module Thingie
       def post_review(summary:, report:)
         pr = @client.pull_request("#{@owner}/#{@repo}", @pr_number)
         commit_id = pr.head.sha
-        open_threads = resolve_previous_threads(report.issues)
+        open_threads = resolve_previous_threads
         collapse_previous_summaries
         if report.issues.empty?
-          # Only post the overview comment when there's nothing to flag inline.
-          post_summary_comment(summary)
+          post_summary_comment(rerun_summary(summary, open_threads))
         else
-          off_diff = post_inline_comments(without_repeats(report.issues, open_threads), commit_id)
-          post_off_diff_comment(off_diff)
+          new_issues = without_repeats(repeat_bar.call(report.issues, commit_id), open_threads)
+          post_off_diff_comment(post_inline_comments(new_issues, commit_id))
+          post_summary_comment(run_summary(new_issues.size, open_threads, commit_id))
         end
       end
 
@@ -73,6 +78,50 @@ module Thingie
       # its line numbers belong to that other file.
       def post_inline_comments(issues, commit_id)
         issues.reject { |issue| issue.cited_other_file.nil? && post_issue_inline?(issue, commit_id) }
+      end
+
+      # The summary describes only this run. On a PR Thingie has reviewed before, "No changes recommended"
+      # would read as if nothing had ever been flagged, so it says "No new changes recommended", or says
+      # that earlier findings are still open when they are.
+      def rerun_summary(summary, open_threads)
+        return summary unless open_threads.any? || repeat_bar.reviewed_before?
+
+        note = ReportRenderer::NO_NEW_CHANGES
+        note = "#{note}\n\n#{open_findings_list(open_threads)}" if open_threads.any?
+        return summary.sub(ReportRenderer::NO_CHANGES, note) if summary.include?(ReportRenderer::NO_CHANGES)
+
+        "#{summary}\n\n#{note}"
+      end
+
+      # The short summary of a run that had findings. "No new changes recommended" when they were all repeats
+      # or held back, so every push gets a visible result, and the earlier findings that are still open.
+      def run_summary(posted, open_threads, commit_id)
+        findings = posted == 1 ? 'finding' : 'findings'
+        headline = posted.positive? ? "**⚠️ #{posted} new #{findings}, posted as review comments**" : ReportRenderer::NO_NEW_CHANGES
+        parts = ["### Review of `#{commit_id.to_s[0, 7]}`", headline]
+        parts << open_findings_list(open_threads) if open_threads.any?
+        parts.join("\n\n")
+      end
+
+      # The findings from earlier runs that are still open, each with its severity and a link to its comment.
+      def open_findings_list(open_threads)
+        lines = open_threads.first(OPEN_FINDINGS_SHOWN).map { |thread| open_finding_line(thread) }
+        extra = open_threads.size - OPEN_FINDINGS_SHOWN
+        lines << "- and #{extra} more" if extra.positive?
+        "**Still open from earlier reviews (#{open_threads.size}):**\n\n#{lines.join("\n")}"
+      end
+
+      def open_finding_line(thread)
+        comment = thread.dig('comments', 'nodes', 0) || {}
+        match = comment['body'].to_s.match(/\*\*\[(\w+)\] (.+?)\*\*/)
+        severity, title = match ? match.captures : ['Finding', 'An earlier finding']
+        label = comment['url'] ? "[#{title}](#{comment['url']})" : title
+        "- **#{severity}:** #{label} (`#{thread['path']}`)"
+      end
+
+      def repeat_bar
+        RepeatBar.new(client: @client, repo: "#{@owner}/#{@repo}", pr_number: @pr_number,
+                      max_severity: @repeat_max_severity, marker: REVIEW_COMMENT_MARKER)
       end
 
       # Findings that repeat another finding or a comment that is still open are
@@ -162,30 +211,11 @@ module Thingie
 
         files = @client.pull_request_files("#{@owner}/#{@repo}", @pr_number)
         @commentable_lines = files.each_with_object({}) do |file, hash|
-          hash[file.filename] = new_side_lines(file.patch) if file.patch
+          hash[file.filename] = DiffLines.new_side(file.patch) if file.patch
         end
       rescue Octokit::Error => e
         warn "Could not fetch PR diff to validate comment lines — #{e.message}"
         @commentable_lines = nil
-      end
-
-      def new_side_lines(patch)
-        lines = Set.new
-        new_line = nil
-        patch.each_line do |raw|
-          line = raw.chomp
-          if (match = line.match(/^@@ -\d+(?:,\d+)? \+(\d+)/))
-            new_line = match[1].to_i
-          # Skip hunk metadata, "\ No newline" markers, and deletions: none of
-          # these advance or anchor a new-side line number.
-          elsif new_line.nil? || line.start_with?('\\', '-')
-            next
-          else
-            lines << new_line # added ('+') or context (' ') line
-            new_line += 1
-          end
-        end
-        lines
       end
 
       def issue_body(issue)
@@ -199,31 +229,24 @@ module Thingie
         ].compact.join("\n\n")
       end
 
-      # Resolve Thingie's own review threads whose issue is no longer reported
-      # (fixed) or whose anchor line is outdated. Threads are identified by the
-      # REVIEW_COMMENT_MARKER in their first comment, so this works even with the
-      # default Actions GITHUB_TOKEN (which can't read /user to learn the bot's
-      # login). Returns the Thingie threads left open because their line is still reported.
-      def resolve_previous_threads(current_issues)
-        current_lines = current_issue_lines(current_issues)
+      # Resolve Thingie's own review threads whose anchor line is outdated, meaning the code it
+      # commented on changed. A thread is never resolved just because the model did not repeat the
+      # finding on a later run: it samples a different set of issues each time, and the code is
+      # unchanged. Threads are identified by the REVIEW_COMMENT_MARKER in their first comment, so
+      # this works even with the default Actions GITHUB_TOKEN (which can't read /user to learn the
+      # bot's login). Returns the Thingie threads that are still open.
+      def resolve_previous_threads
         # Resolve each thread independently so one failure doesn't strand the
         # rest; tally failures with an explicit loop (not #count) to keep the
         # API side effects out of a query method.
         unresolved = 0
-        still_open = []
-        fetch_review_threads.each do |thread|
-          still_open << thread if open_and_reported?(thread, current_lines)
-          unresolved += 1 unless resolve_thread(thread, current_lines)
-        end
+        threads = fetch_review_threads.select { |thread| thingie_thread?(thread) }
+        threads.each { |thread| unresolved += 1 unless resolve_thread(thread) }
         warn_thread_resolution_failure(unresolved) if unresolved.positive?
-        still_open
+        threads.reject { |thread| thread['isResolved'] || thread['isOutdated'] }
       rescue StandardError => e
         warn "Could not fetch previous review threads — #{e.message}"
         []
-      end
-
-      def open_and_reported?(thread, current_lines)
-        !thread['isResolved'] && thingie_thread?(thread) && line_still_reported?(thread, current_lines)
       end
 
       def warn_thread_resolution_failure(count)
@@ -238,17 +261,6 @@ module Thingie
              'fine-grained PATs are unreliable and need org approval for write. ' \
              'Use a classic PAT with the `repo` scope (SSO-authorized if your ' \
              'org requires it) in --resolve-token / THINGIE_RESOLVE_TOKEN.'
-      end
-
-      def current_issue_lines(issues)
-        issues.each_with_object({}) do |issue, hash|
-          hash[issue.file] ||= []
-          issue.affected_lines.each do |range|
-            next unless range.start_line
-
-            hash[issue.file] << (range.end_line || range.start_line)
-          end
-        end
       end
 
       def graphql_client
@@ -273,10 +285,8 @@ module Thingie
 
       # Returns true when the thread needs no action or was resolved; false (and
       # records the error) when the resolve call itself failed.
-      def resolve_thread(thread, current_lines)
-        return true if thread['isResolved']
-        return true unless thingie_thread?(thread)
-        return true if line_still_reported?(thread, current_lines)
+      def resolve_thread(thread)
+        return true if thread['isResolved'] || !thread['isOutdated']
 
         graphql_client.resolve_thread(thread['id'])
         true
@@ -288,16 +298,6 @@ module Thingie
       def thingie_thread?(thread)
         first_comment = thread.dig('comments', 'nodes', 0)
         first_comment && first_comment['body'].to_s.include?(REVIEW_COMMENT_MARKER)
-      end
-
-      def line_still_reported?(thread, current_lines)
-        return false if thread['isOutdated']
-
-        path = thread['path']
-        line = thread['line']
-        return false if path.nil? || line.nil?
-
-        (current_lines[path] || []).include?(line)
       end
 
       def collapse_previous_summaries

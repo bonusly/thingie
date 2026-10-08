@@ -368,7 +368,8 @@ module Thingie
           owner: repo_owner(context),
           repo: repo_name(context),
           pr_number: options[:pr] || context&.pr_number,
-          duplicate_filter: build_duplicate_filter(config)
+          duplicate_filter: build_duplicate_filter(config),
+          repeat_max_severity: Thingie::Threshold.parse(config.dig('repeat_run', 'max_severity'))
         )
       end
 
