@@ -178,10 +178,70 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
     end
   end
 
-  it 'does not post any PR-level comment when an in-diff issue is found' do
-    commenter.post_review(summary: 'S', report: report_for([build_issue('app.rb', 11)]))
+  it 'posts only a short summary, not the report, when an in-diff issue is found', :aggregate_failures do
+    commenter.post_review(summary: 'THE FULL REPORT', report: report_for([build_issue('app.rb', 11)]))
 
-    expect(client).not_to have_received(:add_comment)
+    expect(client).to have_received(:add_comment).once
+    expect(client).to have_received(:add_comment)
+      .with('o/r', 1, a_string_including('Review of `commit-`', '**⚠️ 1 new finding, posted as review comments**'))
+    expect(client).not_to have_received(:add_comment).with('o/r', 1, a_string_including('THE FULL REPORT'))
+  end
+
+  context 'when every finding is a repeat of one already open' do
+    let(:filter) { instance_double(Thingie::DuplicateFilter, call: []) }
+    let(:commenter) do
+      described_class.new(token: 'token', owner: 'o', repo: 'r', pr_number: 1, duplicate_filter: filter)
+    end
+    let(:thread_body) { "#{described_class::REVIEW_COMMENT_MARKER}\n\n**[High] Crash on nil**\n\nText" }
+    let(:open_thread) do
+      {
+        'id' => 'T1', 'isResolved' => false, 'isOutdated' => false, 'line' => 11, 'path' => 'app.rb',
+        'comments' => { 'nodes' => [{ 'author' => { 'login' => 'bot' }, 'url' => 'https://example.test/c1',
+                                      'body' => thread_body }] }
+      }
+    end
+    let(:threads) { [open_thread] }
+
+    before do
+      allow(client).to receive(:post) do |_path, body|
+        if JSON.parse(body)['query'].include?('reviewThreads')
+          { 'data' => { 'repository' => { 'pullRequest' => { 'reviewThreads' => { 'nodes' => threads } } } } }
+        else
+          {}
+        end
+      end
+    end
+
+    it 'says there is nothing new and lists the one that is still open', :aggregate_failures do
+      commenter.post_review(summary: 'S', report: report_for([build_issue('app.rb', 11)]))
+
+      expect(client).not_to have_received(:create_pull_request_comment)
+      expect(client).to have_received(:add_comment)
+        .with('o/r', 1, a_string_including('**✅ No new changes recommended**', 'Still open from earlier reviews (1):',
+                                           '[Crash on nil](https://example.test/c1)'))
+    end
+
+    context 'when that earlier finding has since been resolved' do
+      let(:threads) { [open_thread.merge('isResolved' => true)] }
+
+      it 'does not list it', :aggregate_failures do
+        commenter.post_review(summary: 'S', report: report_for([build_issue('app.rb', 11)]))
+
+        expect(client).to have_received(:add_comment)
+          .with('o/r', 1, a_string_including('**✅ No new changes recommended**'))
+        expect(client).not_to have_received(:add_comment).with('o/r', 1, a_string_including('Still open'))
+      end
+    end
+
+    context 'when the code it commented on has changed since' do
+      let(:threads) { [open_thread.merge('isOutdated' => true)] }
+
+      it 'does not list it either' do
+        commenter.post_review(summary: 'S', report: report_for([build_issue('app.rb', 11)]))
+
+        expect(client).not_to have_received(:add_comment).with('o/r', 1, a_string_including('Still open'))
+      end
+    end
   end
 
   it 'collapses issues outside the diff into a details comment, not the summary', :aggregate_failures do

@@ -61,12 +61,11 @@ module Thingie
         open_threads = resolve_previous_threads
         collapse_previous_summaries
         if report.issues.empty?
-          # Only post the overview comment when there's nothing to flag inline.
           post_summary_comment(rerun_summary(summary, open_threads))
         else
-          candidates = repeat_bar.call(report.issues, commit_id)
-          off_diff = post_inline_comments(without_repeats(candidates, open_threads), commit_id)
-          post_off_diff_comment(off_diff)
+          new_issues = without_repeats(repeat_bar.call(report.issues, commit_id), open_threads)
+          post_off_diff_comment(post_inline_comments(new_issues, commit_id))
+          post_summary_comment(run_summary(new_issues.size, open_threads, commit_id))
         end
       end
 
@@ -92,6 +91,16 @@ module Thingie
         return summary.sub(ReportRenderer::NO_CHANGES, note) if summary.include?(ReportRenderer::NO_CHANGES)
 
         "#{summary}\n\n#{note}"
+      end
+
+      # The short summary of a run that had findings. "No new changes recommended" when they were all repeats
+      # or held back, so every push gets a visible result, and the earlier findings that are still open.
+      def run_summary(posted, open_threads, commit_id)
+        findings = posted == 1 ? 'finding' : 'findings'
+        headline = posted.positive? ? "**⚠️ #{posted} new #{findings}, posted as review comments**" : ReportRenderer::NO_NEW_CHANGES
+        parts = ["### Review of `#{commit_id.to_s[0, 7]}`", headline]
+        parts << open_findings_list(open_threads) if open_threads.any?
+        parts.join("\n\n")
       end
 
       # The findings from earlier runs that are still open, each with its severity and a link to its comment.
