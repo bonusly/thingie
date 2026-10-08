@@ -86,24 +86,9 @@ module Thingie
           return nil
         end
 
-        files.to_h { |file| [file.filename, file.patch.nil? ? :unknown : added_lines(file.patch)] }
-      end
-
-      def added_lines(patch)
-        lines = Set.new
-        new_line = nil
-        patch.each_line do |raw|
-          line = raw.chomp
-          if (match = line.match(/^@@ -\d+(?:,\d+)? \+(\d+)/))
-            new_line = match[1].to_i
-          elsif new_line.nil? || line.start_with?('\\', '-')
-            next
-          else
-            lines << new_line if line.start_with?('+')
-            new_line += 1
-          end
+        files.to_h do |file|
+          [file.filename, file.patch.nil? ? :unknown : DiffLines.new_side(file.patch, added_only: true)]
         end
-        lines
       end
 
       def keep?(issue, changed)

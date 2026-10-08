@@ -61,7 +61,7 @@ module Thingie
         collapse_previous_summaries
         if report.issues.empty?
           # Only post the overview comment when there's nothing to flag inline.
-          post_summary_comment(summary)
+          post_summary_comment(with_open_findings(summary, open_threads))
         else
           candidates = repeat_bar.call(report.issues, commit_id)
           off_diff = post_inline_comments(without_repeats(candidates, open_threads), commit_id)
@@ -78,6 +78,25 @@ module Thingie
       # its line numbers belong to that other file.
       def post_inline_comments(issues, commit_id)
         issues.reject { |issue| issue.cited_other_file.nil? && post_issue_inline?(issue, commit_id) }
+      end
+
+      # The summary describes only this run, so "No changes recommended" would sit above findings from an
+      # earlier run that are still open. Say that they are open instead.
+      def with_open_findings(summary, open_threads)
+        return summary if open_threads.empty?
+
+        count = open_threads.size
+        are = count == 1 ? 'finding is' : 'findings are'
+        list = open_threads.first(5).map { |thread| "- #{open_finding_title(thread)} (`#{thread['path']}`)" }
+        list << "- and #{count - 5} more" if count > 5
+        note = "**⚠️ No new findings, but #{count} earlier #{are} still open**\n\n#{list.join("\n")}"
+        return summary.sub(ReportRenderer::NO_CHANGES, note) if summary.include?(ReportRenderer::NO_CHANGES)
+
+        "#{summary}\n\n#{note}"
+      end
+
+      def open_finding_title(thread)
+        thread.dig('comments', 'nodes', 0, 'body').to_s[/\*\*(\[\w+\] .+?)\*\*/, 1] || 'An earlier finding'
       end
 
       def repeat_bar
@@ -172,30 +191,11 @@ module Thingie
 
         files = @client.pull_request_files("#{@owner}/#{@repo}", @pr_number)
         @commentable_lines = files.each_with_object({}) do |file, hash|
-          hash[file.filename] = new_side_lines(file.patch) if file.patch
+          hash[file.filename] = DiffLines.new_side(file.patch) if file.patch
         end
       rescue Octokit::Error => e
         warn "Could not fetch PR diff to validate comment lines — #{e.message}"
         @commentable_lines = nil
-      end
-
-      def new_side_lines(patch)
-        lines = Set.new
-        new_line = nil
-        patch.each_line do |raw|
-          line = raw.chomp
-          if (match = line.match(/^@@ -\d+(?:,\d+)? \+(\d+)/))
-            new_line = match[1].to_i
-          # Skip hunk metadata, "\ No newline" markers, and deletions: none of
-          # these advance or anchor a new-side line number.
-          elsif new_line.nil? || line.start_with?('\\', '-')
-            next
-          else
-            lines << new_line # added ('+') or context (' ') line
-            new_line += 1
-          end
-        end
-        lines
       end
 
       def issue_body(issue)

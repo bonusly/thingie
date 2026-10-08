@@ -85,6 +85,46 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
     expect(client).not_to have_received(:create_pull_request_comment)
   end
 
+  context 'when the run has no findings but earlier ones are still open' do
+    let(:summary) { "### Review of `abc1234`\n\n#{Thingie::ReportRenderer::NO_CHANGES}\n\nFiles reviewed (1)" }
+    let(:thread_body) { "#{described_class::REVIEW_COMMENT_MARKER}\n\n**[Medium] Parser written twice**\n\nText" }
+    let(:open_thread) do
+      {
+        'id' => 'T1', 'isResolved' => false, 'isOutdated' => false, 'line' => 11, 'path' => 'app.rb',
+        'comments' => { 'nodes' => [{ 'author' => { 'login' => 'bot' }, 'body' => thread_body }] }
+      }
+    end
+
+    before do
+      allow(client).to receive(:post) do |_path, body|
+        if JSON.parse(body)['query'].include?('reviewThreads')
+          { 'data' => { 'repository' => { 'pullRequest' => { 'reviewThreads' => { 'nodes' => [open_thread] } } } } }
+        else
+          {}
+        end
+      end
+    end
+
+    it 'says they are open instead of "No changes recommended"', :aggregate_failures do
+      commenter.post_review(summary: summary, report: report_for([]))
+
+      expect(client).to have_received(:add_comment).with(
+        'o/r', 1,
+        a_string_including('No new findings, but 1 earlier finding is still open',
+                           '- [Medium] Parser written twice (`app.rb`)', 'Files reviewed (1)')
+      )
+      expect(client).not_to have_received(:add_comment).with('o/r', 1, a_string_including('No changes recommended'))
+    end
+
+    it 'keeps the summary when the open thread is not Thingie\'s' do
+      open_thread['comments']['nodes'][0]['body'] = 'a human comment'
+
+      commenter.post_review(summary: summary, report: report_for([]))
+
+      expect(client).to have_received(:add_comment).with('o/r', 1, a_string_including('No changes recommended'))
+    end
+  end
+
   it 'does not post any PR-level comment when an in-diff issue is found' do
     commenter.post_review(summary: 'S', report: report_for([build_issue('app.rb', 11)]))
 
