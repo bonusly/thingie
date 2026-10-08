@@ -21,8 +21,8 @@ RSpec.describe Thingie::GitHub::RepeatBar do # rubocop:disable RSpec/SpecFilePat
   # Line 20 of a.rb was added since the last review; lines 19 and 21 are context.
   let(:patch) { "@@ -19,2 +19,3 @@\n ctx19\n+added20\n ctx21" }
 
-  def finding(title, severity:, line:, file: 'a.rb')
-    Thingie::Issue.from_hash('title' => title, 'details' => 'd', 'severity' => severity, 'confidence' => 1,
+  def finding(title, severity:, line:, file: 'a.rb', details: 'd')
+    Thingie::Issue.from_hash('title' => title, 'details' => details, 'severity' => severity, 'confidence' => 1,
                              'tags' => [], 'file' => file, 'affected_lines' => [{ 'start_line' => line }])
   end
 
@@ -153,6 +153,44 @@ RSpec.describe Thingie::GitHub::RepeatBar do # rubocop:disable RSpec/SpecFilePat
         allow(client).to receive(:issue_comments).and_return([human])
 
         expect(bar.call([minor_on_old_code], 'head-sha')).to eq([minor_on_old_code])
+      end
+    end
+
+    context 'with a finding whose text is about another file' do
+      # The finding is attached to Gemfile.lock but its line numbers belong to app/lib/x.rb, where only
+      # line 20 was added since the last review.
+      let(:cited_patch) { "@@ -19,2 +19,3 @@\n ctx19\n+added20\n ctx21" }
+
+      before do
+        files = [file_class.new('app/lib/x.rb', cited_patch), file_class.new('Gemfile.lock', "@@ -1 +1 @@\n+one")]
+        allow(client).to receive(:compare).and_return(comparison.new(files))
+      end
+
+      def cross_file(line, cited: 'app/lib/x.rb')
+        details = "#{cited}:#{line} calls a missing method"
+        finding('cross', severity: 3, line: line, file: 'Gemfile.lock', details: details)
+      end
+
+      it 'keeps the normal bar when the cited file has a new line there' do
+        issue = cross_file(20)
+
+        expect(bar.call([issue], 'head-sha')).to eq([issue])
+      end
+
+      it 'holds the finding back when the cited file did not change there', :aggregate_failures do
+        expect(bar.call([cross_file(10)], 'head-sha')).to eq([])
+      end
+
+      it 'matches a file cited by its bare name' do
+        issue = cross_file(20, cited: 'x.rb')
+
+        expect(bar.call([issue], 'head-sha')).to eq([issue])
+      end
+
+      it 'keeps the normal bar when the cited file cannot be matched to a changed file' do
+        issue = cross_file(10, cited: 'app/lib/unknown.rb')
+
+        expect(bar.call([issue], 'head-sha')).to eq([issue])
       end
     end
 

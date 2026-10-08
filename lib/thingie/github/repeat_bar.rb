@@ -105,7 +105,7 @@ module Thingie
       end
 
       def touches_changed_lines?(issue, changed)
-        added = changed[issue.file]
+        added = changed_lines_for(issue, changed)
         return false unless added
         return true if added == :unknown
 
@@ -114,6 +114,22 @@ module Thingie
 
           (range.start_line..(range.end_line || range.start_line)).any? { |line| added.include?(line) }
         end
+      end
+
+      # The changed lines of the file a finding's line numbers belong to: the file its text cites when that
+      # is another file, otherwise its own. A cited file that cannot be matched to a changed file is
+      # :unknown, so the finding keeps the normal bar instead of being held back on a guess.
+      def changed_lines_for(issue, changed)
+        cited = issue.cited_other_file
+        return changed[issue.file] unless cited
+
+        path = changed.keys.find { |name| same_file?(name, cited) }
+        path ? changed[path] : :unknown
+      end
+
+      def same_file?(changed_name, cited)
+        changed_name == cited || changed_name.end_with?("/#{cited}") ||
+          (!cited.include?('/') && File.basename(changed_name) == cited)
       end
 
       def report_held_back(held_back)
