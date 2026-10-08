@@ -187,10 +187,13 @@ RSpec.describe Thingie::GitHub::RepeatBar do # rubocop:disable RSpec/SpecFilePat
         expect(bar.call([issue], 'head-sha')).to eq([issue])
       end
 
-      it 'keeps the normal bar when the cited file cannot be matched to a changed file' do
-        issue = cross_file(10, cited: 'app/lib/unknown.rb')
+      it 'holds the finding back when the cited file is not among the changed files' do
+        expect(bar.call([cross_file(10, cited: 'app/lib/unchanged.rb')], 'head-sha')).to eq([])
+      end
 
-        expect(bar.call([issue], 'head-sha')).to eq([issue])
+      it 'holds it back when nothing was pushed since the last review', :aggregate_failures do
+        expect(bar.call([cross_file(20)], 'last-sha')).to eq([])
+        expect(client).not_to have_received(:compare)
       end
     end
 
