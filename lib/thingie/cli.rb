@@ -396,13 +396,13 @@ module Thingie
       end
 
       # The check that drops fixed findings from the "still open" list is on unless
-      # `[open_findings] check = false`. It uses `[open_findings] model` when set, else the review model.
+      # `[open_findings] enabled = false`. It uses `[open_findings] model` when set, else the review model.
       #
       # @param config [Thingie::Configuration] the loaded configuration
       # @return [Thingie::OpenFindingCheck, nil] the check, or nil when disabled or unavailable
       def build_open_finding_check(config)
         settings = config['open_findings']
-        return unless settings.is_a?(Hash) && settings['check']
+        return unless settings.is_a?(Hash) && settings['enabled']
 
         model = settings['model'].to_s.strip
         client = model.empty? ? Thingie::LlmClient.new(config) : Thingie::LlmClient.new(config, model: model)

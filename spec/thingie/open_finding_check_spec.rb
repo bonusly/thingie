@@ -66,6 +66,12 @@ RSpec.describe Thingie::OpenFindingCheck do
     expect(prompt).to include('cut off')
   end
 
+  it 'lets a failed model call reach the caller, so it can fall back' do
+    allow(llm_client).to receive(:complete_with_schema).and_raise(StandardError, 'boom')
+
+    expect { check.call(findings) { "x\n" } }.to raise_error(StandardError, 'boom')
+  end
+
   it 'raises when the reply has no findings list, so the caller can fall back' do
     allow(llm_client).to receive(:complete_with_schema).and_return(instance_double(RubyLLM::Message, content: '{}'))
 

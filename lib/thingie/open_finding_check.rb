@@ -10,6 +10,7 @@ module Thingie
     UNSURE = :unsure
 
     CONTENT_LIMIT = 60_000
+    TEXT_LIMIT = 600
 
     # Builds a check that asks the given model whether findings are fixed.
     #
@@ -66,7 +67,7 @@ module Thingie
 
     def described(finding, index)
       location = finding[:line] ? "line #{finding[:line]} when it was posted" : 'no line'
-      { label: "F#{index + 1}", location: location, text: finding[:text].to_s.strip[0, DuplicateFilter::TEXT_LIMIT] }
+      { label: "F#{index + 1}", location: location, text: finding[:text].to_s.strip[0, TEXT_LIMIT] }
     end
 
     def numbered(content)
