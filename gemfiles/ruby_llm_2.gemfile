@@ -4,7 +4,8 @@
 #   BUNDLE_GEMFILE=gemfiles/ruby_llm_2.gemfile bundle exec rspec
 eval_gemfile File.expand_path('../Gemfile', __dir__)
 
-gem 'ruby_llm', '~> 2.0'
+# 2.1 defines its own RubyLLM::MCP, which clashes with the ruby_llm-mcp commit below.
+gem 'ruby_llm', '~> 2.0.0'
 gem 'ruby_llm-skills', '0.5.0.pre1'
 # patvice/ruby_llm-mcp#161: RubyLLM 2 support, not released yet.
 gem 'ruby_llm-mcp', github: 'crmne/ruby_llm-mcp', ref: 'a8cc59c1647905b81b56bfda4b82b1db17e7e967'
