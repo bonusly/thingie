@@ -136,6 +136,16 @@ RSpec.describe Thingie::Issue do
       expect(with_details(separate).details_markdown).to eq(separate)
     end
 
+    it 'does not split at a label name that is quoted in backticks', :aggregate_failures do
+      quoted = "**What's wrong:** It hardcodes the labels `**When it happens:**` and `**Fix:**`. " \
+               '**When it happens:** Someone renames one. **Fix:** Share the labels.'
+
+      expect(with_details(quoted).details_markdown).to eq(
+        "**What's wrong:** It hardcodes the labels `**When it happens:**` and `**Fix:**`.\n\n" \
+        "**When it happens:** Someone renames one.\n\n**Fix:** Share the labels."
+      )
+    end
+
     it 'leaves details in any other shape untouched', :aggregate_failures do
       expect(with_details('It crashes for a new user.').details_markdown).to eq('It crashes for a new user.')
       expect(with_details(nil).details_markdown).to be_nil

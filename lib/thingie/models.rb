@@ -170,7 +170,8 @@ module Thingie
 
     TOOL_CALL_LINES = 25
 
-    PART_LABEL = /\s*(\*\*(?:When it happens|Fix):\*\*)/
+    # A label that starts a part. One quoted in backticks, as when a finding talks about the labels, is not one.
+    PART_LABEL = /\s*(?<!`)(\*\*(?:When it happens|Fix):\*\*)/
 
     # The details with each labelled part of the comment style on its own paragraph. Models often write
     # the parts run together on one line, which GitHub shows as a single block.
