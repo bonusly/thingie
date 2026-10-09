@@ -132,8 +132,15 @@ runs:
       env:
         GITHUB_TOKEN: ${{ inputs.github_token || github.token }}
         THINGIE_RESOLVE_TOKEN: ${{ inputs.resolve_token }}
+        # The repeat check, the check of earlier findings against the code and the approval
+        # risk note each make a model call from this step.
+        LLM_API_KEY: ${{ inputs.api_key }}
+        LLM_API_BASE: ${{ inputs.api_base }}
+        LLM_MODEL: ${{ inputs.model }}
+        LLM_PROVIDER: ${{ inputs.provider }}
         OUTPUT_DIR: ${{ inputs.output_dir }}
         THINGIE_CMD: ${{ inputs.thingie_command }}
+        THINGIE_DEBUG: ${{ inputs.debug == 'true' && '1' || '' }}
       run: |
         REPORT="$OUTPUT_DIR/code-review-report.md"
         if [ -f "$REPORT" ]; then
