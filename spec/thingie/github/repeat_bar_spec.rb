@@ -114,7 +114,7 @@ RSpec.describe Thingie::GitHub::RepeatBar do # rubocop:disable RSpec/SpecFilePat
     context 'when the last review posted only a summary comment' do
       let(:summary_class) { Struct.new(:body, :created_at) }
       let(:summary) do
-        body = "### Review of `abc1234`\n\nNo issues.\n\n#{Thingie::GitHub::Context::SUMMARY_MARKER}"
+        body = "<!-- thingie-reviewed abc1234 -->\n\nNo issues.\n\n#{Thingie::GitHub::Context::SUMMARY_MARKER}"
         summary_class.new(body, Time.utc(2026, 1, 5))
       end
 
@@ -127,7 +127,7 @@ RSpec.describe Thingie::GitHub::RepeatBar do # rubocop:disable RSpec/SpecFilePat
         expect(client).to have_received(:compare).with('o/r', 'abc1234', 'head-sha')
       end
 
-      it 'reads a summary that a later run collapsed' do
+      it 'reads a summary that a later run collapsed, also one from before the hidden marker' do
         prefix = Thingie::GitHub::Commenter::OUTDATED_PREFIX
         body = "#{prefix} of `abc1234`</summary>\n\n### Review of `abc1234`\n\n</details>"
         collapsed = summary_class.new(body, Time.utc(2026, 1, 5))
