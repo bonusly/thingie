@@ -13,7 +13,10 @@ RSpec.describe Thingie::OpenFindingCheck do
   end
 
   def reply(pairs)
-    entries = pairs.map { |id, status| { 'id' => id, 'status' => status } }
+    entries = pairs.map do |id, status|
+      status, said = status.is_a?(Array) ? status : [status, 'none']
+      { 'id' => id, 'status' => status, 'reply' => said }
+    end
     instance_double(RubyLLM::Message, content: { 'findings' => entries }.to_json)
   end
 
@@ -24,13 +27,34 @@ RSpec.describe Thingie::OpenFindingCheck do
   it 'maps each finding to what the model said about it' do
     answer_with('F1' => 'fixed', 'F2' => 'still_present')
 
-    expect(check.call(findings) { "x = 1\n" }).to eq('T1' => :fixed, 'T2' => :open)
+    expect(check.call(findings) { "x = 1\n" }.transform_values(&:status)).to eq('T1' => :fixed, 'T2' => :open)
+  end
+
+  it 'reads what the replies on a thread say was done', :aggregate_failures do
+    answer_with('F1' => %w[unsure fixed], 'F2' => %w[still_present skipped])
+
+    results = check.call(findings) { "x = 1\n" }
+
+    expect(results.transform_values(&:reply)).to eq('T1' => :fixed, 'T2' => :skipped)
+    expect(results['T1'].status).to eq(:unsure)
+  end
+
+  it 'shows the model each thread\'s replies, quoted and on one line each' do
+    prompt = nil
+    allow(llm_client).to receive(:complete_with_schema) do |text, _schema|
+      prompt = text
+      reply('F1' => 'unsure')
+    end
+
+    check.call([findings.first.merge(replies: ["paul: renamed it\nin abc123"])]) { "x\n" }
+
+    expect(prompt).to include('Replies on its thread, oldest first:', '> paul: renamed it in abc123')
   end
 
   it 'treats a finding the model skipped or answered oddly as unsure' do
     answer_with('F1' => 'resolved')
 
-    expect(check.call(findings) { "x = 1\n" }).to eq('T1' => :unsure, 'T2' => :unsure)
+    expect(check.call(findings) { "x = 1\n" }.transform_values(&:status)).to eq('T1' => :unsure, 'T2' => :unsure)
   end
 
   it 'makes one call per file and shows the file with line numbers', :aggregate_failures do
@@ -50,7 +74,7 @@ RSpec.describe Thingie::OpenFindingCheck do
   it 'marks every finding fixed, without a model call, when the file is gone', :aggregate_failures do
     allow(llm_client).to receive(:complete_with_schema)
 
-    expect(check.call(findings) { nil }).to eq('T1' => :fixed, 'T2' => :fixed)
+    expect(check.call(findings) { nil }.transform_values(&:status)).to eq('T1' => :fixed, 'T2' => :fixed)
     expect(llm_client).not_to have_received(:complete_with_schema)
   end
 

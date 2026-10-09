@@ -13,6 +13,7 @@ module Thingie
       OPEN_FINDINGS_SHOWN = 5
       NEW_FINDINGS_SHOWN = 10
       UNCONFIRMED_NOTE = "can't confirm this is resolved"
+      REPLIED_FIXED_UNCONFIRMED_NOTE = "replied fixed, can't confirm"
 
       # Mirrors the default severity_scale in config/default.toml — used only
       # for human-facing labels in comments.
@@ -119,25 +120,42 @@ module Thingie
         parts.join("\n\n")
       end
 
-      # The open threads minus the ones the code shows are fixed, each paired with `UNCONFIRMED_NOTE` when the
-      # check could not tell. A failed check lists every thread as it is, and says so.
+      # The open threads minus the ones the code shows are fixed, each paired with a note when the thread's replies
+      # say it was fixed or skipped, or the check could not tell. A failed check lists every thread as it is, and
+      # says so.
       #
-      # @return [Array<Array(Hash, String)>] `[thread, note]` pairs; the note is nil when the problem is confirmed
+      # @return [Array<Array(Hash, String)>] `[thread, note]` pairs; the note is nil when there is nothing to add
       def still_open(open_threads, commit_id)
         return open_threads.map { |thread| [thread, nil] } if open_threads.empty? || @open_finding_check.nil?
 
         statuses = check_open_threads(open_threads, commit_id)
         open_threads.filter_map do |thread|
-          status = statuses[thread['id']]
-          [thread, (UNCONFIRMED_NOTE if status == OpenFindingCheck::UNSURE)] unless status == OpenFindingCheck::FIXED
+          result = statuses[thread['id']]
+          [thread, open_note(result)] unless result&.status == OpenFindingCheck::FIXED
         end
       rescue StandardError => e
         warn "Could not check whether earlier findings are fixed, listing them all as open — #{e.class}: #{e.message}"
         open_threads.map { |thread| [thread, nil] }
       end
 
+      # What to say next to a finding that is still listed: what its thread's last reply claims, and whether the
+      # code backs it up.
+      def open_note(result)
+        return if result.nil?
+
+        case [result.reply, result.status]
+        in [:skipped, _] then 'replied skip'
+        in [:fixed, :unsure] then REPLIED_FIXED_UNCONFIRMED_NOTE
+        in [:fixed, _] then 'replied fixed, still looks open'
+        in [_, :unsure] then UNCONFIRMED_NOTE
+        else nil
+        end
+      end
+
       def check_open_threads(open_threads, commit_id)
-        findings = open_threads.map { |thread| open_comment_for(thread).merge(id: thread['id']) }
+        findings = open_threads.map do |thread|
+          open_comment_for(thread).merge(id: thread['id'], replies: replies_on(thread))
+        end
         @open_finding_check.call(findings) { |path| file_content_at(path, commit_id) }
       end
 
@@ -197,6 +215,14 @@ module Thingie
       rescue StandardError => e
         warn "Could not check for repeated findings, posting all of them — #{e.class}: #{e.message}"
         issues
+      end
+
+      # The replies after the finding's own comment, as `login: text`, leaving out Thingie's own comments.
+      def replies_on(thread)
+        thread.dig('comments', 'nodes').to_a.drop(1).filter_map do |reply|
+          body = reply['body'].to_s
+          "#{reply.dig('author', 'login')}: #{body}" unless body.include?(REVIEW_COMMENT_MARKER)
+        end
       end
 
       def open_comment_for(thread)

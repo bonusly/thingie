@@ -187,6 +187,10 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
       end
     end
 
+    def result(status, reply = nil)
+      Thingie::OpenFindingCheck::Result.new(status, reply)
+    end
+
     before do
       allow(client).to receive(:post) do |_path, body|
         if JSON.parse(body)['query'].include?('reviewThreads')
@@ -200,7 +204,7 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
     end
 
     it 'drops a fixed finding, notes an unconfirmed one, and counts only what is listed', :aggregate_failures do
-      allow(check).to receive(:call).and_return('T1' => :fixed, 'T2' => :open, 'T3' => :unsure)
+      allow(check).to receive(:call).and_return('T1' => result(:fixed), 'T2' => result(:open), 'T3' => result(:unsure))
 
       commenter.post_review(summary: summary, report: report_for([]))
 
@@ -210,6 +214,32 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
                            '[Wrong total](https://example.test/T3) (`app.rb`), can\'t confirm this is resolved')
                           .and(satisfy { |body| !body.include?('Parser written twice') })
       )
+    end
+
+    it 'says what the replies on a thread claim, and whether the code backs it up', :aggregate_failures do
+      allow(check).to receive(:call).and_return('T1' => result(:unsure, :fixed), 'T2' => result(:open, :skipped),
+                                                'T3' => result(:open, :fixed))
+
+      commenter.post_review(summary: summary, report: report_for([]))
+
+      expect(client).to have_received(:add_comment).with(
+        'o/r', 1,
+        a_string_including("Parser written twice](https://example.test/T1) (`app.rb`), replied fixed, can't confirm",
+                           'Crash on nil](https://example.test/T2) (`app.rb`), replied skip',
+                           'Wrong total](https://example.test/T3) (`app.rb`), replied fixed, still looks open')
+      )
+    end
+
+    it 'passes the replies from the thread, leaving out Thingie\'s own comments', :aggregate_failures do
+      replies = [{ 'author' => { 'login' => 'paul' }, 'body' => 'Renamed it in abc123.' },
+                 { 'author' => { 'login' => 'bot' }, 'body' => "#{marker}\n\nanother finding" }]
+      threads[0]['comments']['nodes'].concat(replies)
+      allow(check).to receive(:call).and_return({})
+
+      commenter.post_review(summary: summary, report: report_for([]))
+
+      expect(check).to have_received(:call)
+        .with(array_including(a_hash_including(id: 'T1', replies: ['paul: Renamed it in abc123.'])))
     end
 
     it 'gives the check the file as of the head commit' do
@@ -236,7 +266,7 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
     end
 
     it 'says no new changes and lists nothing when every finding is fixed', :aggregate_failures do
-      allow(check).to receive(:call).and_return('T1' => :fixed, 'T2' => :fixed, 'T3' => :fixed)
+      allow(check).to receive(:call).and_return('T1' => result(:fixed), 'T2' => result(:fixed), 'T3' => result(:fixed))
 
       commenter.post_review(summary: summary, report: report_for([]))
 
