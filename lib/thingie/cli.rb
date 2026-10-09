@@ -408,7 +408,7 @@ module Thingie
         client = model.empty? ? Thingie::LlmClient.new(config) : Thingie::LlmClient.new(config, model: model)
         Thingie::OpenFindingCheck.new(llm_client: client, prompt_builder: Thingie::PromptBuilder.new(config))
       rescue ConfigurationError => e
-        warn "Fixed-finding check disabled — #{e.message}" if debug_enabled?
+        warn "Fixed-finding check disabled — #{e.message}"
         nil
       rescue StandardError => e
         warn "Fixed-finding check disabled — #{e.message}"
