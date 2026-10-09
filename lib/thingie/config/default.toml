@@ -32,6 +32,11 @@ schema_with_tools = true
 # response. Set lower to fail fast on unreachable providers.
 request_timeout = 120
 
+# Longest time (in seconds) one file's review may take in total, including retries and every tool
+# call the model makes. A file that runs past it is reported as failed in the warnings and the rest
+# of the review carries on. 0 means no limit.
+call_timeout = 600
+
 # Path to a log file for RubyLLM request logging. Leave empty to log to stdout.
 # Set to a file path to persist LLM request/response details for debugging.
 log_file = ""
@@ -222,6 +227,9 @@ enabled = true
 # points must clear a much higher bar. Pair with tools (schema_with_tools = false for
 # models that skip tools when a schema is set) so the critic can check the code.
 bar = "default"
+# Longest time (in seconds) the critic may spend on one finding, tool calls included. Past it the
+# finding is kept unchecked and a warning is recorded, like any other critic failure. 0 means no limit.
+timeout = 300
 # Optional: run the critic on a stronger model than the review (same provider
 # and API key). Leave empty to reuse the review model.
 # model = "claude-opus-4.8"

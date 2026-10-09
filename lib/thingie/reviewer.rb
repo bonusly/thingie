@@ -124,7 +124,9 @@ module Thingie
       prompt = @prompt_builder.review(diff: diff, file_lines: full, symbol_lookup: @tools.any?(Lsp::SymbolTool),
                                       whole_file: whole_file, pr_context: @pr_context.to_s)
       tool_names = []
-      response = @llm_client.complete_with_schema(prompt, Schemas::ISSUE_SCHEMA, tools: @tools, tool_log: tool_names)
+      response = Concurrency.with_timeout(@config['call_timeout']) do
+        @llm_client.complete_with_schema(prompt, Schemas::ISSUE_SCHEMA, tools: @tools, tool_log: tool_names)
+      end
       @usage.record(response)
       issues = parse_response(response, file)
       issues.each { |issue| issue.record_tool_calls(review: tool_names) }

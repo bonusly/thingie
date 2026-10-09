@@ -97,7 +97,9 @@ module Thingie
         pr_context: @pr_context.to_s
       )
       tool_names = []
-      response = @llm_client.complete_with_schema(prompt, Schemas::VERDICT_SCHEMA, tools: @tools, tool_log: tool_names)
+      response = Concurrency.with_timeout(settings['timeout']) do
+        @llm_client.complete_with_schema(prompt, Schemas::VERDICT_SCHEMA, tools: @tools, tool_log: tool_names)
+      end
       @usage&.record(response)
       issue.record_tool_calls(critic: tool_names)
       content = parse_content(response)
