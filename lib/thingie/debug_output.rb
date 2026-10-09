@@ -144,6 +144,25 @@ module Thingie
     #
     # @param response [Object, nil] the ruby_llm response object
     # @return [String, nil] a cost string like "cost: $0.000123", or nil
+    # Which provider answered, when the gateway says so (OpenRouter names it in the response body), so a run
+    # that behaves oddly, such as a model that stops calling its tools, can be traced to where it was routed.
+    #
+    # @param response [Object, nil] the ruby_llm response object
+    # @return [String, nil] `via <provider>`, or nil when the response does not say
+    def served_by(response)
+      raw = response.respond_to?(:raw) ? response.raw : nil
+      body = raw.respond_to?(:body) ? raw.body : nil
+      body = parse_json(body) if body.is_a?(String)
+      name = body['provider'] if body.is_a?(Hash)
+      "via #{name}" if name.is_a?(String) && !name.empty?
+    end
+
+    def parse_json(text)
+      JSON.parse(text)
+    rescue JSON::ParserError
+      nil
+    end
+
     def cost_summary(response)
       return nil unless response
 
@@ -268,6 +287,8 @@ module Thingie
       parts = ["#{issues.size} issue(s) found", @detail.token_summary(response)]
       cost = @detail.cost_summary(response)
       parts << cost if cost
+      served = @detail.served_by(response)
+      parts << served if served
       warn "[DEBUG][REVIEW] #{file}: #{parts.join(' | ')}"
       tool_info = @detail.tool_calls_summary(response)
       warn "[DEBUG][REVIEW]   tool calls: #{tool_info}" if tool_info
@@ -368,6 +389,8 @@ module Thingie
       parts = [@detail.token_summary(response)]
       cost = @detail.cost_summary(response)
       parts << cost if cost
+      served = @detail.served_by(response)
+      parts << served if served
       warn "[DEBUG][CRITIC] '#{issue.title}' (#{issue.file}) -> #{verdict} | #{parts.join(' | ')}"
       tool_info = @detail.tool_calls_summary(response)
       warn "[DEBUG][CRITIC]   tool calls: #{tool_info}" if tool_info
