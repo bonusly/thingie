@@ -287,8 +287,9 @@ module Thingie
         )
       end
 
-      # `fast` when the PR has more files than `[large_pr] min_files` and `[large_pr] model` names a faster model
-      # to use, and no model was chosen on the command line; `balanced` otherwise.
+      # `fast` when the PR changes more lines than `[approve] max_changes`, which is a PR that cannot be auto-approved
+      # anyway, `[large_pr] model` names a faster model to use, and no model was chosen on the command line;
+      # `balanced` otherwise.
       #
       # @param config [Thingie::Configuration] the loaded configuration
       # @param changeset [Thingie::Changeset] the changeset to review
@@ -297,8 +298,9 @@ module Thingie
         large = config['large_pr']
         return 'balanced' unless large.is_a?(Hash) && large['model'].to_s.strip != '' && options[:model].nil?
 
-        min_files = large['min_files'].to_i
-        min_files.positive? && changeset.files.size > min_files ? 'fast' : 'balanced'
+        limit = config.dig('approve', 'max_changes').to_i
+        changes = changeset.changed_line_count
+        limit.positive? && changes && changes > limit ? 'fast' : 'balanced'
       end
 
       # One LSP client per configured language whose extensions match a changed

@@ -117,15 +117,17 @@ RSpec.describe Thingie::CLI do
     let(:config) do
       Thingie::Configuration.new(root: tmp_dir, overrides: { 'large_pr' => large_pr })
     end
-    let(:large_pr) { { 'min_files' => 2, 'model' => 'fast-model' } }
+    let(:large_pr) { { 'model' => 'fast-model' } }
     let(:files) { %w[a.rb b.rb c.rb] }
+    let(:changes) { 600 }
     let(:report) do
       target = Thingie::ReviewTarget.new(platform: 'local', repo_url: nil, pr_number: nil, commit_sha: 'deadbeef',
                                          branch: nil, base_ref: 'main', head_ref: 'HEAD', merge_base: false)
       Thingie::Report.new(target: target, model: 'm', issues: [], number_of_processed_files: files.size)
     end
     let(:fake_changeset) do
-      instance_double(Thingie::Changeset, files: files, workdir: tmp_dir, base_ref: 'main', head_ref: 'HEAD')
+      instance_double(Thingie::Changeset, files: files, workdir: tmp_dir, base_ref: 'main', head_ref: 'HEAD',
+                                          changed_line_count: changes)
     end
     let(:fake_reviewer) { instance_double(Thingie::Reviewer, review: report, usage: Thingie::Stats::Usage.new) }
 
@@ -148,8 +150,8 @@ RSpec.describe Thingie::CLI do
       expect(Thingie::Configuration).to have_received(:new).with(overrides: { model: 'fast-model' })
     end
 
-    context 'with no more files than the limit' do
-      let(:files) { %w[a.rb b.rb] }
+    context 'with no more changed lines than [approve] max_changes' do
+      let(:changes) { 500 }
 
       it 'keeps the balanced profile and the review model' do
         run_review
@@ -159,7 +161,7 @@ RSpec.describe Thingie::CLI do
     end
 
     context 'with no faster model set' do
-      let(:large_pr) { { 'min_files' => 2 } }
+      let(:large_pr) { {} }
 
       it 'keeps the balanced profile, so nothing changes' do
         run_review
@@ -168,8 +170,8 @@ RSpec.describe Thingie::CLI do
       end
     end
 
-    context 'when the limit is 0' do
-      let(:large_pr) { { 'min_files' => 0, 'model' => 'fast-model' } }
+    context 'when there is no PR to size, as in --all mode' do
+      let(:changes) { nil }
 
       it 'never switches' do
         run_review

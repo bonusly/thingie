@@ -112,6 +112,16 @@ module Thingie
       @patches ||= diff.patches.to_a
     end
 
+    # Lines added plus lines removed across the whole PR, unfiltered like {#patches}, which is how GitHub counts a PR's
+    # changes.
+    #
+    # @return [Integer, nil] the count, or nil in `all` mode, where there is no PR to size
+    def changed_line_count
+      return nil if @all
+
+      patches.sum { |patch| patch.stat.sum }
+    end
+
     private
 
     # Look up the blob for a path in the head commit's tree. Returns nil when
