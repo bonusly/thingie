@@ -291,6 +291,21 @@ module Thingie
       warn "[DEBUG][#{tag}] #{label}: tool calls: #{summary}"
     end
 
+    # Prints what one model call sent, so a run where the model never calls its tools can be read against the
+    # request: how many tools it had and whether a response schema was attached (some models skip their tools
+    # when one is).
+    #
+    # @param tag [String] `REVIEW` or `CRITIC`
+    # @param label [String] the file or finding the call was about
+    # @param shape [Hash] from `LlmClient#complete_with_schema`'s `request_shape`
+    # @return [void]
+    def request_shape(tag:, label:, shape:)
+      return unless @enabled && shape.any?
+
+      warn "[DEBUG][#{tag}] #{label}: request: model #{shape[:model]}, #{shape[:tools]} tool(s), " \
+           "schema #{shape[:schema] ? 'on' : 'off'} (schema_with_tools=#{shape[:schema_with_tools].inspect})"
+    end
+
     # Says when a model call ran out of tool calls, and how many more it tried to make.
     #
     # @param tag [String] `REVIEW` or `CRITIC`

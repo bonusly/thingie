@@ -126,10 +126,12 @@ module Thingie
                                       whole_file: whole_file, pr_context: @pr_context.to_s,
                                       tool_budget: (budget.limit if budget.active? && @tools.any?))
       tool_names = []
+      shape = {}
       response = Concurrency.with_timeout(@config['call_timeout']) do
         @llm_client.complete_with_schema(prompt, Schemas::ISSUE_SCHEMA, tools: @tools, tool_log: tool_names,
-                                                                        tool_budget: budget)
+                                                                        tool_budget: budget, request_shape: shape)
       end
+      @debug_output.request_shape(tag: 'REVIEW', label: file, shape: shape)
       @debug_output.tool_budget(tag: 'REVIEW', label: file, budget: budget)
       @usage.record(response)
       issues = parse_response(response, file)
