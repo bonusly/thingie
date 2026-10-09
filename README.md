@@ -283,6 +283,7 @@ Key settings:
 | File review time limit (seconds, all tool calls included; `0` for none) | `600` | `call_timeout` | — | — |
 | Critic time limit per finding (seconds; `0` for none) | `300` | `[verify] timeout` | — | — |
 | Tool calls one model call may make (`0` for none) | `5` | `tool_budget` | — | — |
+| OpenRouter: route a call with tools only to providers that support them | `true` | `[openrouter] require_parameters` | — | — |
 | Retries | `3` | `retries` | `LLM_RETRIES` | — |
 | Log file | stdout | `log_file` | `THINGIE_LOG_FILE` | — |
 | Log level | `info` | `log_level` | `THINGIE_LOG_LEVEL` | — |

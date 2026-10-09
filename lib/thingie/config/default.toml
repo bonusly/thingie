@@ -170,6 +170,13 @@ json_requirements = """
   format.
 """
 
+[openrouter]
+# OpenRouter serves one model from many providers, and some of them drop the tools from a request and
+# answer without them: the model then reasons about checking the code and never does. When true, a
+# call that has tools is routed only to providers that support every parameter in the request. Set
+# false to let OpenRouter route freely.
+require_parameters = true
+
 [review]
 # Which bundled review prompt the first pass uses.
 #   "default"  - strict: report only what the model is certain of.
