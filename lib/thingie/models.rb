@@ -248,7 +248,7 @@ module Thingie
   # Collection of issues and metadata produced by a review run.
   class Report
     attr_reader :target, :issues, :processing_warnings, :created_at, :model,
-                :number_of_processed_files, :processed_files
+                :number_of_processed_files, :processed_files, :unreviewed_files
 
     # Loads a `Report` from a saved JSON file.
     #
@@ -281,7 +281,8 @@ module Thingie
         issues: issues,
         processing_warnings: data['processing_warnings'] || [],
         number_of_processed_files: data['number_of_processed_files'],
-        processed_files: data['processed_files'] || []
+        processed_files: data['processed_files'] || [],
+        unreviewed_files: data['unreviewed_files'] || []
       )
     end
 
@@ -294,13 +295,16 @@ module Thingie
     # @param number_of_processed_files [Integer, nil] files processed; defaults to the
     #   unique file count across `issues`
     # @param processed_files [Array<String>] paths of the files that were reviewed
+    # @param unreviewed_files [Array<String>] paths of the files that got no review: the call failed or ran past
+    #   its time limit, or the model answered with no JSON; the approver refuses to approve while any remain
     def initialize(target:, model:, issues: [], processing_warnings: [],
-                   number_of_processed_files: nil, processed_files: [])
+                   number_of_processed_files: nil, processed_files: [], unreviewed_files: [])
       @target = target
       @model = model
       @issues = Array(issues)
       @processing_warnings = Array(processing_warnings)
       @processed_files = Array(processed_files)
+      @unreviewed_files = Array(unreviewed_files)
       @number_of_processed_files = number_of_processed_files || @issues.map(&:file).compact.uniq.size
       @created_at = Time.now.iso8601
     end
@@ -322,6 +326,7 @@ module Thingie
         'issues' => @issues.map(&:to_h),
         'number_of_processed_files' => number_of_processed_files,
         'processed_files' => @processed_files,
+        'unreviewed_files' => @unreviewed_files,
         'total_issues' => total_issues,
         'processing_warnings' => @processing_warnings,
         'created_at' => @created_at

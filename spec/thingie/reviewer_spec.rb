@@ -241,10 +241,11 @@ RSpec.describe Thingie::Reviewer do
       end
     end
 
-    it 'skips the failed file with a warning and reviews the rest', :aggregate_failures do
+    it 'skips the failed file with a warning, lists it as unreviewed, and reviews the rest', :aggregate_failures do
       report = reviewer.review
       expect(report.total_issues).to eq(1)
       expect(report.processing_warnings).to include(/Failed to review other.rb: .*Rate limit exceeded/)
+      expect(report.unreviewed_files).to eq(['other.rb'])
       expect(report.number_of_processed_files).to eq(2)
     end
   end
@@ -285,6 +286,7 @@ RSpec.describe Thingie::Reviewer do
 
       expect(report.total_issues).to eq(1)
       expect(report.processing_warnings).to include(/Failed to review other.rb: .*TimeoutError/)
+      expect(report.unreviewed_files).to eq(['other.rb'])
       expect(elapsed).to be < 2
     end
   end

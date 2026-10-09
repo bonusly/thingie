@@ -24,9 +24,6 @@ module Thingie
       DEFAULT_SKIP_LABEL = 'thingie-skip-approve'
       # The most of the risk summary that is shown, cut at a sentence end. About four lines on GitHub.
       RISK_SUMMARY_LIMIT = 600
-      # Warnings that mean a file got no review at all: its call failed or ran past the time limit, or the
-      # model answered with no JSON. An approval must not stand on a review that skipped part of the change.
-      UNREVIEWED_FILE = /\A(Failed to review|Could not parse LLM response for) (\S+)/
 
       # Inverse of Commenter::SEVERITY_LABELS, to read a thread's severity back
       # out of the comment body Thingie wrote (e.g. "[Critical]").
@@ -147,16 +144,13 @@ module Thingie
         reasons << 'unresolved Thingie findings remain' if unresolved?(threads)
         reasons << 'Thingie findings were resolved by the author or a contributor' if self_resolved?(threads, pr)
         reasons << 'a human reviewer requested changes' if human_requested_changes?
-        reasons << incomplete_reason(report) if unreviewed_files(report).any?
+        reasons << incomplete_reason(report) if report.unreviewed_files.any?
         reasons
       end
 
-      def unreviewed_files(report)
-        report.processing_warnings.filter_map { |warning| warning[UNREVIEWED_FILE, 2]&.delete_suffix(':') }.uniq
-      end
-
+      # An approval must not stand on a review that skipped part of the change.
       def incomplete_reason(report)
-        files = unreviewed_files(report)
+        files = report.unreviewed_files.uniq
         shown = files.first(3)
         shown << '...' if files.size > shown.size
         "#{files.size} file(s) got no review (#{shown.join(', ')})"
