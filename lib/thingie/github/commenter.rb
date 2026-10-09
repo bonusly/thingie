@@ -11,6 +11,7 @@ module Thingie
       REVIEW_COMMENT_MARKER = '<!-- thingie-review-comment -->'
       OUTDATED_PREFIX = '<details><summary>Outdated review'
       OPEN_FINDINGS_SHOWN = 5
+      NEW_FINDINGS_SHOWN = 10
       UNCONFIRMED_NOTE = "can't confirm this is resolved"
 
       # Mirrors the default severity_scale in config/default.toml — used only
@@ -68,8 +69,9 @@ module Thingie
           post_summary_comment(rerun_summary(summary, still_open(open_threads, commit_id), open_threads.any?))
         else
           new_issues = without_repeats(repeat_bar.call(report.issues, commit_id), open_threads)
-          post_off_diff_comment(post_inline_comments(new_issues, commit_id))
-          post_summary_comment(run_summary(new_issues.size, still_open(open_threads, commit_id), commit_id))
+          off_diff, posted = post_inline_comments(new_issues, commit_id)
+          post_off_diff_comment(off_diff)
+          post_summary_comment(run_summary(new_issues, posted, still_open(open_threads, commit_id), commit_id))
         end
       end
 
@@ -77,11 +79,19 @@ module Thingie
 
       # Post one inline comment per affected line that falls inside the PR diff.
       # GitHub's review-comment API only accepts line-based comments on diff
-      # lines; returns the issues that couldn't be posted inline (off-diff). A
-      # finding whose text is about another file is never put on a line, because
-      # its line numbers belong to that other file.
+      # lines; returns the issues that couldn't be posted inline (off-diff), and for the rest a link to the
+      # comment (nil when GitHub gave none). A finding whose text is about another file is never put on a line,
+      # because its line numbers belong to that other file.
+      #
+      # @return [Array(Array<Thingie::Issue>, Hash{Thingie::Issue => String, nil})] `[off_diff, links]`
       def post_inline_comments(issues, commit_id)
-        issues.reject { |issue| issue.cited_other_file.nil? && post_issue_inline?(issue, commit_id) }
+        links = {}
+        off_diff = issues.reject do |issue|
+          posted = issue.cited_other_file.nil? && post_issue_inline(issue, commit_id)
+          links[issue] = (posted if posted.is_a?(String)) if posted
+          posted
+        end
+        [off_diff, links]
       end
 
       # The summary describes only this run. On a PR Thingie has reviewed before, "No changes recommended"
@@ -99,10 +109,12 @@ module Thingie
 
       # The short summary of a run that had findings. "No new changes recommended" when they were all repeats
       # or held back, so every push gets a visible result, and the earlier findings that are still open.
-      def run_summary(posted, open_findings, commit_id)
+      def run_summary(new_issues, links, open_findings, commit_id)
+        posted = new_issues.size
         findings = posted == 1 ? 'finding' : 'findings'
         headline = posted.positive? ? "**⚠️ #{posted} new #{findings}, posted as review comments**" : ReportRenderer::NO_NEW_CHANGES
         parts = ["### Review of `#{commit_id.to_s[0, 7]}`", headline]
+        parts << new_findings_list(new_issues, links) if posted.positive?
         parts << open_findings_list(open_findings) if open_findings.any?
         parts.join("\n\n")
       end
@@ -135,6 +147,22 @@ module Thingie
         file[:content].to_s.unpack1('m').force_encoding('UTF-8').scrub
       rescue Octokit::NotFound
         nil
+      end
+
+      # The findings this run posted, each with its severity and a link to its comment. One that is not on a
+      # line of the diff has no comment of its own, so it points at the collapsed comment instead.
+      def new_findings_list(new_issues, links)
+        lines = new_issues.first(NEW_FINDINGS_SHOWN).map { |issue| new_finding_line(issue, links) }
+        extra = new_issues.size - NEW_FINDINGS_SHOWN
+        lines << "- and #{extra} more" if extra.positive?
+        lines.join("\n")
+      end
+
+      def new_finding_line(issue, links)
+        url = links[issue]
+        title = url ? "[#{issue.title}](#{url})" : issue.title
+        place = links.key?(issue) ? '' : ', in the collapsed comment'
+        "- **#{severity_label(issue.severity)}:** #{title} (`#{issue.cited_other_file || issue.file}`)#{place}"
       end
 
       # The findings from earlier runs that are still open, each with its severity and a link to its comment.
@@ -194,19 +222,20 @@ module Thingie
         "- **#{severity_label(issue.severity)}** `#{location}` — #{issue.title}"
       end
 
-      def post_issue_inline?(issue, commit_id)
+      # @return [String, true, nil] the link to the first comment posted, true when it had none, nil when
+      #   the finding is not on a line of the diff
+      def post_issue_inline(issue, commit_id)
         issue.affected_lines.filter_map do |range|
           next unless range.start_line
 
           line = range.end_line || range.start_line
           next unless line_in_diff?(issue.file, line)
 
-          create_inline_comment(issue, commit_id, line)
-          true
+          create_inline_comment(issue, commit_id, line)&.html_url || true
         rescue Octokit::UnprocessableEntity => e
           warn "Could not post comment on #{issue.file}:#{line} — #{e.message}"
           nil
-        end.any?
+        end.first
       end
 
       def create_inline_comment(issue, commit_id, line)

@@ -287,6 +287,43 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
     expect(client).not_to have_received(:add_comment).with('o/r', 1, a_string_including('THE FULL REPORT'))
   end
 
+  context 'when the run posts new findings' do
+    let(:comment) { Struct.new(:html_url) }
+
+    it 'lists each with its severity and a link, and the off-diff one without', :aggregate_failures do
+      allow(client).to receive(:create_pull_request_comment).and_return(comment.new('https://example.test/c1'))
+      issues = [build_issue('app.rb', 11, severity: 2), build_issue('changed.rb', 99, severity: 3)]
+
+      commenter.post_review(summary: 'THE FULL REPORT', report: report_for(issues))
+
+      expect(client).to have_received(:add_comment).with(
+        'o/r', 1,
+        a_string_including('**⚠️ 2 new findings, posted as review comments**',
+                           '- **High:** [T](https://example.test/c1) (`app.rb`)',
+                           '- **Medium:** T (`changed.rb`), in the collapsed comment')
+      )
+    end
+
+    it 'lists a posted finding without a link when GitHub gave none' do
+      commenter.post_review(summary: 'THE FULL REPORT', report: report_for([build_issue('app.rb', 11)]))
+
+      expect(client).to have_received(:add_comment).with(
+        'o/r', 1,
+        a_string_including("- **Critical:** T (`app.rb`)\n").and(satisfy { |body| !body.include?('collapsed') })
+      )
+    end
+
+    it 'shows ten and says how many more', :aggregate_failures do
+      issues = Array.new(12) do |n|
+        build_issue('app.rb', 11).tap { |issue| issue.instance_variable_set(:@title, "Finding #{n}") }
+      end
+
+      commenter.post_review(summary: 'THE FULL REPORT', report: report_for(issues))
+
+      expect(client).to have_received(:add_comment).with('o/r', 1, a_string_including('Finding 9', '- and 2 more'))
+    end
+  end
+
   context 'when every finding is a repeat of one already open' do
     let(:filter) { instance_double(Thingie::DuplicateFilter, call: []) }
     let(:commenter) do
