@@ -65,6 +65,7 @@ module Thingie
       tools = tool_budget.wrap(tools) if tool_budget
       c = chat
       c = c.with_tools(*tools) unless tools.empty?
+      c = LlmCompat.with_request_params(c, provider: { require_parameters: true }) if tool_capable_routing?(tools)
       c = LlmCompat.on_tool_call(c, ->(call) { tool_log << tool_call_label(call) }) if tool_log
       c = c.with_schema(schema) unless tools.any? && @config['schema_with_tools'] == false
       c.ask(prompt)
@@ -89,6 +90,12 @@ module Thingie
     end
 
     private
+
+    # OpenRouter spreads one model over many providers, and some of them drop the tools from a request
+    # and answer without them. `require_parameters` keeps a call with tools on providers that take them.
+    def tool_capable_routing?(tools)
+      tools.any? && provider == 'openrouter' && @config.dig('openrouter', 'require_parameters') != false
+    end
 
     # The tool name and its arguments on one line, trimmed, for the debugging record of a finding.
     def tool_call_label(call)
