@@ -113,6 +113,78 @@ RSpec.describe Thingie::CLI do
     end
   end
 
+  context 'when running a review of a large PR' do
+    let(:config) do
+      Thingie::Configuration.new(root: tmp_dir, overrides: { 'large_pr' => large_pr })
+    end
+    let(:large_pr) { { 'min_files' => 2, 'model' => 'fast-model' } }
+    let(:files) { %w[a.rb b.rb c.rb] }
+    let(:report) do
+      target = Thingie::ReviewTarget.new(platform: 'local', repo_url: nil, pr_number: nil, commit_sha: 'deadbeef',
+                                         branch: nil, base_ref: 'main', head_ref: 'HEAD', merge_base: false)
+      Thingie::Report.new(target: target, model: 'm', issues: [], number_of_processed_files: files.size)
+    end
+    let(:fake_changeset) do
+      instance_double(Thingie::Changeset, files: files, workdir: tmp_dir, base_ref: 'main', head_ref: 'HEAD')
+    end
+    let(:fake_reviewer) { instance_double(Thingie::Reviewer, review: report, usage: Thingie::Stats::Usage.new) }
+
+    before do
+      allow(Thingie::Configuration).to receive(:new).and_return(config)
+      allow(Thingie::Changeset).to receive(:new).and_return(fake_changeset)
+      allow(Thingie::Reviewer).to receive(:new).and_return(fake_reviewer)
+      allow(Thingie::LlmClient).to receive(:new)
+      allow(Thingie::SkillCatalog).to receive(:tool).and_return(nil)
+    end
+
+    def run_review(*args)
+      Thingie::CLI.start(['review', *args])
+    end
+
+    it 'reviews on the faster model and records the fast profile', :aggregate_failures do
+      run_review
+
+      expect(Thingie::Reviewer).to have_received(:new).with(hash_including(profile: 'fast'))
+      expect(Thingie::Configuration).to have_received(:new).with(overrides: { model: 'fast-model' })
+    end
+
+    context 'with no more files than the limit' do
+      let(:files) { %w[a.rb b.rb] }
+
+      it 'keeps the balanced profile and the review model' do
+        run_review
+
+        expect(Thingie::Reviewer).to have_received(:new).with(hash_including(profile: 'balanced'))
+      end
+    end
+
+    context 'with no faster model set' do
+      let(:large_pr) { { 'min_files' => 2 } }
+
+      it 'keeps the balanced profile, so nothing changes' do
+        run_review
+
+        expect(Thingie::Reviewer).to have_received(:new).with(hash_including(profile: 'balanced'))
+      end
+    end
+
+    context 'when the limit is 0' do
+      let(:large_pr) { { 'min_files' => 0, 'model' => 'fast-model' } }
+
+      it 'never switches' do
+        run_review
+
+        expect(Thingie::Reviewer).to have_received(:new).with(hash_including(profile: 'balanced'))
+      end
+    end
+
+    it 'keeps the model chosen on the command line' do
+      run_review('--model', 'chosen')
+
+      expect(Thingie::Reviewer).to have_received(:new).with(hash_including(profile: 'balanced'))
+    end
+  end
+
   context 'when running github-comment with approve and stats enabled' do
     let(:sink_path) { File.join(tmp_dir, 'stats.jsonl') }
     let(:config) do

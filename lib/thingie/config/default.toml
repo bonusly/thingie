@@ -172,6 +172,15 @@ json_requirements = """
 #                by how far verification got (see [confidence_scale]).
 prompt = "default"
 
+[large_pr]
+# A review of more files than this runs on the faster model below, so a big PR does not take an hour.
+# Auto-approval is then blocked, with the reason in the approval comment, because a faster model
+# looks less carefully. 0 turns it off.
+min_files = 20
+# The model for those reviews, same provider and API key. Leave unset to keep the review model, in
+# which case nothing changes: no switch and no approval block.
+# model = "deepseek/deepseek-v4-flash-0731"
+
 [post_process]
 # This is the SHOW line: thresholds applied to issues after the LLM returns
 # them, controlling whether a finding is surfaced to maintainers at all (as a

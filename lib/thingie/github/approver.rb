@@ -142,7 +142,16 @@ module Thingie
         reasons << 'unresolved Thingie findings remain' if unresolved?(threads)
         reasons << 'Thingie findings were resolved by the author or a contributor' if self_resolved?(threads, pr)
         reasons << 'a human reviewer requested changes' if human_requested_changes?
+        reasons << fast_review_reason(report) if report.profile == 'fast'
         reasons
+      end
+
+      # A large PR is reviewed on a faster model so the review finishes, which looks less carefully, so a person
+      # should look too.
+      def fast_review_reason(report)
+        model = report.model.to_s.strip
+        which = model.empty? ? '' : " (#{model})"
+        "large PR (#{report.number_of_processed_files} files) reviewed with a faster model#{which}"
       end
 
       # Obfuscation findings are a hard block regardless of [approve] max_severity:

@@ -242,6 +242,18 @@ RSpec.describe Thingie::GitHub::Approver do # rubocop:disable RSpec/SpecFilePath
     expect(client).to have_received(:create_pull_request_review)
   end
 
+  it 'blocks and says why when the review ran on the faster model', :aggregate_failures do
+    stub_threads([])
+    report = Thingie::Report.new(target: report_for([]).target, model: 'fast-model', issues: [],
+                                 number_of_processed_files: 34, profile: 'fast')
+
+    approver.run(report)
+
+    expect(client).not_to have_received(:create_pull_request_review)
+    expect(client).to have_received(:add_comment)
+      .with(anything, anything, a_string_including('large PR (34 files) reviewed with a faster model (fast-model)'))
+  end
+
   it 'blocks on an unresolved qualifying Thingie thread' do
     stub_threads([thingie_thread(resolved: false)])
     approver.run(report_for([]))

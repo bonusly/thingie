@@ -87,8 +87,13 @@ module Thingie
     # @return [void]
     def review(*)
       # Thor passes positional args we don't use; accept and ignore them.
-      config = Thingie::Configuration.new(overrides: { model: options[:model], provider: options[:provider] }.compact)
+      overrides = { model: options[:model], provider: options[:provider] }.compact
+      config = Thingie::Configuration.new(overrides: overrides)
       changeset = build_changeset(config)
+      profile = review_profile(config, changeset)
+      if profile == 'fast'
+        config = Thingie::Configuration.new(overrides: overrides.merge(model: config.dig('large_pr', 'model')))
+      end
       clients = build_lsp_clients(config, changeset)
       tools = clients.map { |client| Thingie::Lsp::SymbolTool.new(client: client, root: changeset.workdir) }
       tools << Thingie::FileTool.new(root: changeset.workdir)
@@ -98,7 +103,7 @@ module Thingie
       mcp_toolset = Thingie::Mcp::Toolset.build(config)
       mcp_toolset.warnings.each { |w| warn "[thingie] #{w}" }
       tools.concat(mcp_toolset.tools)
-      reviewer = build_reviewer(config, changeset, tools)
+      reviewer = build_reviewer(config, changeset, tools, profile)
       started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
       report = reviewer.review
       duration_ms = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - started) * 1000).round
@@ -268,16 +273,32 @@ module Thingie
       # @param config [Thingie::Configuration] the loaded configuration
       # @param changeset [Thingie::Changeset] the changeset to review
       # @param tools [Array] RubyLLM tools to make available to the LLM
+      # @param profile [String] `balanced` or `fast`, recorded in the report
       # @return [Thingie::Reviewer] the configured reviewer
-      def build_reviewer(config, changeset, tools = [])
+      def build_reviewer(config, changeset, tools = [], profile = 'balanced')
         Thingie::Reviewer.new(
           config: config,
           changeset: changeset,
           prompt_builder: Thingie::PromptBuilder.new(config),
           llm_client: Thingie::LlmClient.new(config),
           tools: tools,
-          debug: debug_enabled?
+          debug: debug_enabled?,
+          profile: profile
         )
+      end
+
+      # `fast` when the PR has more files than `[large_pr] min_files` and `[large_pr] model` names a faster model
+      # to use, and no model was chosen on the command line; `balanced` otherwise.
+      #
+      # @param config [Thingie::Configuration] the loaded configuration
+      # @param changeset [Thingie::Changeset] the changeset to review
+      # @return [String] `fast` or `balanced`
+      def review_profile(config, changeset)
+        large = config['large_pr']
+        return 'balanced' unless large.is_a?(Hash) && large['model'].to_s.strip != '' && options[:model].nil?
+
+        min_files = large['min_files'].to_i
+        min_files.positive? && changeset.files.size > min_files ? 'fast' : 'balanced'
       end
 
       # One LSP client per configured language whose extensions match a changed

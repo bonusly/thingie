@@ -16,8 +16,10 @@ module Thingie
     # @param llm_client [Thingie::LlmClient] wraps the LLM used for review calls
     # @param tools [Array, nil] `ruby_llm` tools (e.g. LSP symbol lookup) made available to the LLM
     # @param debug [Boolean] enable verbose debug output during the pipeline
-    def initialize(config:, changeset:, prompt_builder:, llm_client:, tools: [], debug: false)
+    # @param profile [String] `balanced` or `fast`, recorded in the report so the approver knows which one ran
+    def initialize(config:, changeset:, prompt_builder:, llm_client:, tools: [], debug: false, profile: 'balanced')
       @config = config
+      @profile = profile
       @changeset = changeset
       @prompt_builder = prompt_builder
       @llm_client = llm_client
@@ -70,7 +72,8 @@ module Thingie
         issues: issues,
         processing_warnings: @warnings,
         number_of_processed_files: @changeset.files.size,
-        processed_files: @changeset.files
+        processed_files: @changeset.files,
+        profile: @profile
       )
     end
 

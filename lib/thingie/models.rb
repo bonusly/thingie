@@ -229,7 +229,7 @@ module Thingie
   # Collection of issues and metadata produced by a review run.
   class Report
     attr_reader :target, :issues, :processing_warnings, :created_at, :model,
-                :number_of_processed_files, :processed_files
+                :number_of_processed_files, :processed_files, :profile
 
     # Loads a `Report` from a saved JSON file.
     #
@@ -262,7 +262,8 @@ module Thingie
         issues: issues,
         processing_warnings: data['processing_warnings'] || [],
         number_of_processed_files: data['number_of_processed_files'],
-        processed_files: data['processed_files'] || []
+        processed_files: data['processed_files'] || [],
+        profile: data['profile'] || 'balanced'
       )
     end
 
@@ -275,13 +276,15 @@ module Thingie
     # @param number_of_processed_files [Integer, nil] files processed; defaults to the
     #   unique file count across `issues`
     # @param processed_files [Array<String>] paths of the files that were reviewed
+    # @param profile [String] `balanced` or `fast`: the setup the review ran with (see `[fast]` in the config)
     def initialize(target:, model:, issues: [], processing_warnings: [],
-                   number_of_processed_files: nil, processed_files: [])
+                   number_of_processed_files: nil, processed_files: [], profile: 'balanced')
       @target = target
       @model = model
       @issues = Array(issues)
       @processing_warnings = Array(processing_warnings)
       @processed_files = Array(processed_files)
+      @profile = profile
       @number_of_processed_files = number_of_processed_files || @issues.map(&:file).compact.uniq.size
       @created_at = Time.now.iso8601
     end
@@ -303,6 +306,7 @@ module Thingie
         'issues' => @issues.map(&:to_h),
         'number_of_processed_files' => number_of_processed_files,
         'processed_files' => @processed_files,
+        'profile' => @profile,
         'total_issues' => total_issues,
         'processing_warnings' => @processing_warnings,
         'created_at' => @created_at
