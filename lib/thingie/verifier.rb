@@ -60,6 +60,10 @@ module Thingie
     # finding, unchanged.
     FAIL_OPEN_RESULT = { keep: true, severity: nil, confidence: nil }.freeze
 
+    # Errors worth one more try: a call that ran past the time limit, or a reply with no JSON in it. Both come
+    # and go at random, so a second call usually succeeds, and a finding checked late beats one posted unchecked.
+    RETRIABLE = [Async::TimeoutError, JSON::ParserError].freeze
+
     private
 
     def settings
@@ -98,15 +102,8 @@ module Thingie
         pr_context: @pr_context.to_s,
         tool_budget: (budget.limit if budget.active? && @tools.any?)
       )
-      tool_names = []
-      response = Concurrency.with_timeout(settings['timeout']) do
-        @llm_client.complete_with_schema(prompt, Schemas::VERDICT_SCHEMA, tools: @tools, tool_log: tool_names,
-                                                                          tool_budget: budget)
-      end
-      @debug_output&.tool_budget(tag: 'CRITIC', label: issue.title, budget: budget)
-      @usage&.record(response)
+      response, content, tool_names = ask_critic(prompt, issue)
       issue.record_tool_calls(critic: tool_names)
-      content = parse_content(response)
       verdict = content['verdict'].to_s.strip.downcase
       @debug_output&.critic_call(issue: issue, response: response,
                                  verdict: verdict.empty? ? '(no verdict)' : verdict,
@@ -121,6 +118,29 @@ module Thingie
       @warnings << "Could not verify finding '#{issue.title}' (#{issue.file}): #{e.class}: #{e.message}"
       @debug_output&.critic_error(issue: issue, error: e)
       FAIL_OPEN_RESULT
+    end
+
+    # @return [Array(Object, Hash, Array<String>)] the response, its parsed content and the tool calls made
+    def ask_critic(prompt, issue)
+      tries = 0
+      begin
+        tries += 1
+        budget = ToolBudget.new(@config['tool_budget'])
+        tool_names = []
+        response = Concurrency.with_timeout(settings['timeout']) do
+          @llm_client.complete_with_schema(prompt, Schemas::VERDICT_SCHEMA, tools: @tools, tool_log: tool_names,
+                                                                            tool_budget: budget)
+        end
+        @debug_output&.tool_budget(tag: 'CRITIC', label: issue.title, budget: budget)
+        @usage&.record(response)
+        [response, parse_content(response), tool_names]
+      rescue *RETRIABLE => e
+        raise if tries > 1
+
+        @warnings << "Retried the second look at '#{issue.title}' (#{issue.file}) after #{e.class}: #{e.message}"
+        @debug_output&.critic_retry(issue: issue, error: e)
+        retry
+      end
     end
 
     def parse_content(response)

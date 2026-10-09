@@ -230,6 +230,34 @@ RSpec.describe Thingie::Verifier do
     end
   end
 
+  context 'when a critic call fails once and then works' do
+    let(:config) do
+      Thingie::Configuration.new(root: tmp_dir, overrides: { 'verify' => { 'enabled' => true, 'timeout' => 0.05 },
+                                                             'max_concurrent_tasks' => 4 })
+    end
+    let(:calls) { Hash.new(0) }
+    let(:fake_llm_client) do
+      instance_double(Thingie::LlmClient).tap do |client|
+        allow(client).to receive(:complete_with_schema) do |prompt, *_|
+          calls[prompt] += 1
+          if calls[prompt] == 1
+            prompt.include?('stuck') ? sleep(5) : (next instance_double(RubyLLM::Message, content: 'no json here'))
+          end
+          verdict('reject')
+        end
+      end
+    end
+
+    it 'tries once more after a time limit or a reply with no JSON, then uses the answer', :aggregate_failures do
+      kept = verifier.call([issue('stuck'), issue('garbled')])
+
+      expect(kept).to be_empty
+      expect(calls.values).to all(eq(2))
+      expect(verifier.warnings).to contain_exactly(a_string_matching(/Retried .*'stuck'.*TimeoutError/),
+                                                   a_string_matching(/Retried .*'garbled'.*ParserError/))
+    end
+  end
+
   context 'when debug_output is provided' do
     subject(:debug_verifier) do
       described_class.new(
@@ -243,7 +271,7 @@ RSpec.describe Thingie::Verifier do
 
     let(:fake_debug_output) { instance_double(Thingie::DebugOutput) }
 
-    before { allow(fake_debug_output).to receive_messages(critic_call: nil, tool_budget: nil) }
+    before { allow(fake_debug_output).to receive_messages(critic_call: nil, tool_budget: nil, critic_retry: nil) }
 
     it 'calls critic_call with the issue, response, verdict, and content for each finding' do
       debug_verifier.call(issues)
