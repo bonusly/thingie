@@ -26,6 +26,16 @@ RSpec.describe Thingie::DebugOutput do
   end
 
   describe '#review_call' do
+    it 'names the provider that served the call when the gateway reports one' do
+      raw = instance_double(Faraday::Response, body: { 'provider' => 'DeepInfra' })
+      served = message_double(content: nil, input_tokens: 1, output_tokens: 1, tool_calls: {}, cache_read_tokens: nil,
+                              cache_write_tokens: nil, cost: nil, model_info: nil, thinking: nil, thinking_tokens: nil,
+                              raw: raw)
+
+      expect { debug_output.review_call(file: 'app.rb', response: served, issues: []) }
+        .to output(/app\.rb: 0 issue\(s\) found \| .*via DeepInfra/).to_stderr
+    end
+
     it 'includes context-window usage when the model info is available' do
       resp = response(input: 1000, output: 500, context_window: 10_000)
 
