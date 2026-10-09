@@ -9,6 +9,15 @@ RSpec.describe Thingie::Issue do
                               'affected_lines' => [{ 'start_line' => 1 }])
   end
 
+  describe '#mark_unchecked' do
+    it 'is off by default and survives a round trip through the report', :aggregate_failures do
+      expect(issue).not_to be_unchecked
+      issue.mark_unchecked
+      expect(issue).to be_unchecked
+      expect(described_class.from_hash(issue.to_h)).to be_unchecked
+    end
+  end
+
   describe '#apply_override' do
     it 'overrides severity and confidence when given', :aggregate_failures do
       issue.apply_override(severity: 1, confidence: 4)

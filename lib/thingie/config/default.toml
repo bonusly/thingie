@@ -242,9 +242,11 @@ enabled = true
 # points must clear a much higher bar. Pair with tools (schema_with_tools = false for
 # models that skip tools when a schema is set) so the critic can check the code.
 bar = "default"
-# Longest time (in seconds) the critic may spend on one finding, tool calls included. Past it the
-# finding is kept unchecked and a warning is recorded, like any other critic failure. 0 means no limit.
-timeout = 300
+# Longest time (in seconds) the critic may spend on one finding, tool calls and any retry included.
+# A call normally takes well under a minute. One that answers with no verdict is tried once more in
+# the time left; one that ran out the clock is not. A finding the critic could not grade is posted
+# unchecked and a warning is recorded. 0 means no limit.
+timeout = 120
 # Optional: run the critic on a stronger model than the review (same provider
 # and API key). Leave empty to reuse the review model.
 # model = "claude-opus-4.8"

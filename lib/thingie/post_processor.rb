@@ -37,11 +37,14 @@ module Thingie
     # after the critic pass. With `require_evidence`, a finding with no evidence is first held to no
     # better than `unverified_confidence`, so the critic's grade cannot lift it past a strict cap.
     #
+    # A finding the critic never graded is kept whatever its first-pass confidence: the cap judges the
+    # critic's grade, and dropping an unchecked finding would hide it from the reader and the approver.
+    #
     # @param issues [Array<Thingie::Issue>] issues that survived the critic pass
-    # @return [Array<Thingie::Issue>] the issues at or below `max_confidence`
+    # @return [Array<Thingie::Issue>] the issues at or below `max_confidence`, plus any left unchecked
     def cap_confidence(issues)
       issues.each { |issue| demote_unverified(issue) } if @require_evidence
-      issues.select { |issue| within?(issue.confidence, @max_confidence) }
+      issues.select { |issue| issue.unchecked? || within?(issue.confidence, @max_confidence) }
     end
 
     private

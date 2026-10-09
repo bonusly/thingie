@@ -29,6 +29,8 @@ module Thingie
       # file with a warning; failures on every file abort the run (see
       # #raise_if_total_failure). Same cooperative-single-thread guarantee.
       @file_failures = []
+      # Files that got no review at all, for the report: the approver will not approve while any remain.
+      @unreviewed_files = []
       @debug_output = DebugOutput.new(config: config, changeset: changeset, enabled: debug)
       @usage = Stats::Usage.new
       @pr_context = PrContext.new(changeset)
@@ -70,7 +72,8 @@ module Thingie
         issues: issues,
         processing_warnings: @warnings,
         number_of_processed_files: @changeset.files.size,
-        processed_files: @changeset.files
+        processed_files: @changeset.files,
+        unreviewed_files: @unreviewed_files
       )
     end
 
@@ -138,11 +141,13 @@ module Thingie
       only_changed_lines(issues, file)
     rescue JSON::ParserError => e
       @warnings << "Could not parse LLM response for #{file}: #{e.message}"
+      @unreviewed_files << file
       @debug_output.review_error(file: file, error: e)
       []
     rescue StandardError => e
       @warnings << "Failed to review #{file}: #{e.class}: #{e.message}"
       @file_failures << [file, e]
+      @unreviewed_files << file
       @debug_output.review_error(file: file, error: e)
       []
     end
@@ -165,7 +170,8 @@ module Thingie
 
     def parse_response(response, file)
       content = response&.content
-      return [] if content.nil? || (content.is_a?(String) && content.strip.empty?)
+      # An empty reply is not "no issues": the model said nothing, so the file got no review.
+      raise JSON::ParserError, 'the reply is empty' if content.nil? || (content.is_a?(String) && content.strip.empty?)
 
       parsed = content.is_a?(String) ? JsonExtractor.parse(content) : content
       raise JSON::ParserError, 'no valid JSON found in response' if parsed.nil?

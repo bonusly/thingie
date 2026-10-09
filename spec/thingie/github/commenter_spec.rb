@@ -308,6 +308,15 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
     end
   end
 
+  it 'says when a finding was never checked by the second look' do
+    issue = build_issue('app.rb', 11).tap(&:mark_unchecked)
+
+    commenter.post_review(summary: 'S', report: report_for([issue]))
+
+    expect(client).to have_received(:create_pull_request_comment)
+      .with('o/r', 1, a_string_including(described_class::UNCHECKED_NOTE), 'commit-sha', 'app.rb', 11, anything)
+  end
+
   it 'posts only a short summary, not the report, when an in-diff issue is found', :aggregate_failures do
     commenter.post_review(summary: 'THE FULL REPORT', report: report_for([build_issue('app.rb', 11)]))
 
@@ -331,7 +340,7 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
         'o/r', 1,
         a_string_including('**⚠️ 2 new findings, posted as review comments**',
                            '- **High:** [T](https://example.test/c1) (`app.rb`)',
-                           '- **Medium:** T (`changed.rb`), in the collapsed comment')
+                           '- **Medium:** T (`changed.rb`), not on a changed line')
       )
     end
 
@@ -417,7 +426,8 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
 
     expect(client).not_to have_received(:create_pull_request_comment)
     expect(client).to have_received(:add_comment)
-      .with('o/r', 1, a_string_including('<details>', 'outside this diff', 'app.rb:999'))
+      .with('o/r', 1, a_string_including(described_class::OFF_DIFF_MARKER, '**[Critical] T** (`app.rb:999`)')
+                                 .and(satisfy { |body| !body.include?('<details>') }))
   end
 
   it 'posts the marker once when the summary already carries it' do
@@ -437,32 +447,33 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
       double('comment', id: 8, node_id: 'NODE8', created_at: Time.utc(2026, 1, 2), # rubocop:disable RSpec/VerifiedDoubles
                         body: '<details><summary>Outdated review</summary>')
     end
+    let(:off_diff) do
+      double('comment', id: 9, node_id: 'NODE9', created_at: Time.utc(2026, 1, 3), # rubocop:disable RSpec/VerifiedDoubles
+                        body: "#{described_class::OFF_DIFF_MARKER}\n\n**[High] T** (`a.rb:3`)")
+    end
+    let(:human) do
+      double('comment', id: 10, node_id: 'NODE10', created_at: Time.utc(2026, 1, 4), # rubocop:disable RSpec/VerifiedDoubles
+                        body: 'looks fine to me')
+    end
 
     before do
-      allow(client).to receive(:issue_comments).and_return([old, collapsed])
+      allow(client).to receive(:issue_comments).and_return([old, collapsed, off_diff, human])
       allow(client).to receive(:update_comment)
     end
 
-    it 'collapses the old summary under a label naming its commit, without mentioning Thingie', :aggregate_failures do
+    it 'hides the old summary and off-diff comment as outdated, without rewriting them', :aggregate_failures do
       commenter.post_review(summary: 'S', report: report_for([]))
 
-      expect(client).to have_received(:update_comment)
-        .with('o/r', 7, a_string_starting_with('<details><summary>Outdated review of `abc1234`</summary>'))
-      expect(client).not_to have_received(:update_comment).with('o/r', 8, anything)
+      expect(client).to have_received(:post).with('/graphql', a_string_including('minimizeComment', 'NODE7'))
+      expect(client).to have_received(:post).with('/graphql', a_string_including('minimizeComment', 'NODE9'))
+      expect(client).not_to have_received(:update_comment)
     end
 
-    it 'hides the collapsed summary, and only that one', :aggregate_failures do
+    it 'leaves a summary an older run already wrapped, and a human comment, alone', :aggregate_failures do
       commenter.post_review(summary: 'S', report: report_for([]))
 
-      expect(client).to have_received(:post)
-        .with('/graphql', a_string_including('minimizeComment', 'NODE7', 'OUTDATED'))
       expect(client).not_to have_received(:post).with('/graphql', a_string_including('NODE8'))
-    end
-
-    it 'leaves no marker behind, so the next run cannot collapse it again' do
-      commenter.post_review(summary: 'S', report: report_for([]))
-
-      expect(client).to have_received(:update_comment).with('o/r', 7, satisfy { |body| !body.include?(marker) })
+      expect(client).not_to have_received(:post).with('/graphql', a_string_including('NODE10'))
     end
   end
 
@@ -546,7 +557,7 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
 
       expect(client).not_to have_received(:create_pull_request_comment)
       expect(client).to have_received(:add_comment)
-        .with('o/r', 1, a_string_including('outside this diff or about another file', '`other.rb`',
+        .with('o/r', 1, a_string_including(described_class::OFF_DIFF_MARKER, '`other.rb`',
                                            'Query always returns empty'))
     end
   end

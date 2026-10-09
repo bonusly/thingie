@@ -376,6 +376,17 @@ module Thingie
       @detail.verdict(content, tag: 'CRITIC')
     end
 
+    # Called when a critic call is tried once more after a time limit or a reply with no JSON.
+    #
+    # @param issue [Thingie::Issue] the finding being verified
+    # @param error [StandardError] what the first try failed with
+    # @return [void]
+    def critic_retry(issue:, error:)
+      return unless @enabled
+
+      warn "[DEBUG][CRITIC] RETRY '#{issue.title}' (#{issue.file}): #{error.class}: #{error.message}"
+    end
+
     # Called when a critic/verifier LLM call fails with an exception.
     #
     # @param issue [Thingie::Issue] the finding that was being verified

@@ -225,8 +225,58 @@ RSpec.describe Thingie::Verifier do
       elapsed = Benchmark.realtime { kept = verifier.call([issue('stuck'), issue('quick')]) }
 
       expect(kept.map(&:title)).to eq(['stuck'])
+      expect(kept.first).to be_unchecked
       expect(verifier.warnings).to include(/Could not verify finding 'stuck'.*TimeoutError/)
       expect(elapsed).to be < 2
+    end
+  end
+
+  context 'when the critic reply has no verdict in it' do
+    let(:fake_llm_client) do
+      instance_double(Thingie::LlmClient).tap do |client|
+        allow(client).to receive(:complete_with_schema)
+          .and_return(instance_double(RubyLLM::Message, content: nil),
+                      instance_double(RubyLLM::Message, content: { 'reasoning' => 'hmm' }))
+      end
+    end
+
+    it 'retries, then keeps the finding marked unchecked with a warning', :aggregate_failures do
+      kept = verifier.call([issue('keep-me')])
+
+      expect(kept.map(&:title)).to eq(['keep-me'])
+      expect(kept.first).to be_unchecked
+      expect(verifier.warnings).to include(/Retried .*'keep-me'.*no verdict/,
+                                           /Could not verify finding 'keep-me'.*no verdict/)
+    end
+  end
+
+  context 'when a critic call fails once and then works' do
+    let(:config) do
+      Thingie::Configuration.new(root: tmp_dir, overrides: { 'verify' => { 'enabled' => true, 'timeout' => 0.05 },
+                                                             'max_concurrent_tasks' => 4 })
+    end
+    let(:calls) { Hash.new(0) }
+    let(:fake_llm_client) do
+      instance_double(Thingie::LlmClient).tap do |client|
+        allow(client).to receive(:complete_with_schema) do |prompt, *_|
+          calls[prompt] += 1
+          if calls[prompt] == 1
+            prompt.include?('stuck') ? sleep(5) : (next instance_double(RubyLLM::Message, content: 'no json here'))
+          end
+          verdict('reject')
+        end
+      end
+    end
+
+    it 'retries a reply with no JSON in the time left, but not a call that used the time up', :aggregate_failures do
+      kept = verifier.call([issue('stuck'), issue('garbled')])
+
+      expect(kept.map(&:title)).to eq(['stuck'])
+      expect(kept.first).to be_unchecked
+      expect(calls.select { |prompt, _| prompt.include?('garbled') }.values).to eq([2])
+      expect(calls.select { |prompt, _| prompt.include?('stuck') }.values).to eq([1])
+      expect(verifier.warnings).to contain_exactly(a_string_matching(/Could not verify finding 'stuck'.*TimeoutError/),
+                                                   a_string_matching(/Retried .*'garbled'.*ParserError/))
     end
   end
 
@@ -243,7 +293,7 @@ RSpec.describe Thingie::Verifier do
 
     let(:fake_debug_output) { instance_double(Thingie::DebugOutput) }
 
-    before { allow(fake_debug_output).to receive_messages(critic_call: nil, tool_budget: nil) }
+    before { allow(fake_debug_output).to receive_messages(critic_call: nil, tool_budget: nil, critic_retry: nil) }
 
     it 'calls critic_call with the issue, response, verdict, and content for each finding' do
       debug_verifier.call(issues)

@@ -36,7 +36,15 @@ RSpec.describe Thingie::Reviewer do
                               input_tokens: 100, output_tokens: 50, tool_calls: {},
                               cache_read_tokens: nil, cache_write_tokens: nil, cost: cost_stub,
                               model_info: nil, thinking: nil, thinking_tokens: nil)
-    instance_double(Thingie::LlmClient, complete_with_schema: response)
+    verdict = message_double(content: { 'verdict' => 'uphold' },
+                             input_tokens: 100, output_tokens: 50, tool_calls: {},
+                             cache_read_tokens: nil, cache_write_tokens: nil, cost: cost_stub,
+                             model_info: nil, thinking: nil, thinking_tokens: nil)
+    instance_double(Thingie::LlmClient).tap do |client|
+      allow(client).to receive(:complete_with_schema) do |prompt, *|
+        prompt.include?('FINDING TO CHALLENGE') ? verdict : response
+      end
+    end
   end
 
   after do
@@ -233,10 +241,11 @@ RSpec.describe Thingie::Reviewer do
       end
     end
 
-    it 'skips the failed file with a warning and reviews the rest', :aggregate_failures do
+    it 'skips the failed file with a warning, lists it as unreviewed, and reviews the rest', :aggregate_failures do
       report = reviewer.review
       expect(report.total_issues).to eq(1)
       expect(report.processing_warnings).to include(/Failed to review other.rb: .*Rate limit exceeded/)
+      expect(report.unreviewed_files).to eq(['other.rb'])
       expect(report.number_of_processed_files).to eq(2)
     end
   end
@@ -277,6 +286,7 @@ RSpec.describe Thingie::Reviewer do
 
       expect(report.total_issues).to eq(1)
       expect(report.processing_warnings).to include(/Failed to review other.rb: .*TimeoutError/)
+      expect(report.unreviewed_files).to eq(['other.rb'])
       expect(elapsed).to be < 2
     end
   end
@@ -379,8 +389,12 @@ RSpec.describe Thingie::Reviewer do
       instance_double(Thingie::LlmClient, complete_with_schema: nil)
     end
 
-    it 'treats the file as having no issues' do
-      expect(reviewer.review.total_issues).to eq(0)
+    it 'treats the file as unreviewed, with a warning, not as having no issues', :aggregate_failures do
+      report = reviewer.review
+
+      expect(report.total_issues).to eq(0)
+      expect(report.unreviewed_files).to eq(['app.rb'])
+      expect(report.processing_warnings).to include(/Could not parse LLM response for app.rb: the reply is empty/)
     end
   end
 
