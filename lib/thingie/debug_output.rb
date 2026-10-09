@@ -291,6 +291,18 @@ module Thingie
       warn "[DEBUG][#{tag}] #{label}: tool calls: #{summary}"
     end
 
+    # Says when a model call ran out of tool calls, and how many more it tried to make.
+    #
+    # @param tag [String] `REVIEW` or `CRITIC`
+    # @param label [String] the file or finding the call was about
+    # @param budget [Thingie::ToolBudget] the budget of the call
+    # @return [void]
+    def tool_budget(tag:, label:, budget:)
+      return unless @enabled && budget.refused.positive?
+
+      warn "[DEBUG][#{tag}] #{label}: tool budget of #{budget.limit} spent, #{budget.refused} more call(s) refused"
+    end
+
     # Called when a file review's LLM response can't be parsed.
     #
     # @param file [String] the file whose review failed

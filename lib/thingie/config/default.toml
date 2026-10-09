@@ -28,6 +28,12 @@ max_concurrent_tasks = 10
 # those: the prompt describes the JSON and the reply is parsed instead.
 schema_with_tools = true
 
+# Most tool calls one model call may make, for a file review and for the second look at a
+# finding. The prompt tells the model the number so it spends them on what matters; past it, a
+# tool call returns a note to answer now instead of running. Without a cap, one file review made
+# 60 tool calls and took 22 minutes. 0 means no cap.
+tool_budget = 5
+
 # Timeout (in seconds) for a single LLM request, including connection and
 # response. Set lower to fail fast on unreachable providers.
 request_timeout = 120

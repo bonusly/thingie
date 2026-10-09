@@ -67,6 +67,10 @@ When you are uncertain whether it matters, reject.
 - Reject it if the claim is not grounded in the actual code shown, is vague, restates style preference as a defect, or is about software versions / unreleased details.
 - When you are uncertain, reject. A dropped real issue is cheaper than a stream of false positives that trains maintainers to ignore the tool.
 <%- end -%>
+<%- if tool_budget -%>
+You have at most <%= tool_budget %> tool calls for this finding. Use a tool only when its answer decides the
+verdict, and ask the most important question first. When the calls are spent, answer with what you have.
+<%- end -%>
 <%- if symbol_lookup -%>
 - If the finding claims a method, class, or constant is undefined/misspelled, or
   that a third-party library API is misused, confirm it with the symbol lookup

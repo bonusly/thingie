@@ -282,6 +282,7 @@ Key settings:
 | Request timeout (seconds) | `120` | `request_timeout` | `LLM_REQUEST_TIMEOUT` | — |
 | File review time limit (seconds, all tool calls included; `0` for none) | `600` | `call_timeout` | — | — |
 | Critic time limit per finding (seconds; `0` for none) | `300` | `[verify] timeout` | — | — |
+| Tool calls one model call may make (`0` for none) | `5` | `tool_budget` | — | — |
 | Retries | `3` | `retries` | `LLM_RETRIES` | — |
 | Log file | stdout | `log_file` | `THINGIE_LOG_FILE` | — |
 | Log level | `info` | `log_level` | `THINGIE_LOG_LEVEL` | — |

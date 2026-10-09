@@ -39,6 +39,12 @@ search tool to find callers, usages and existing guards, and the file tool to re
 related files<%= symbol_lookup ? ', and the symbol lookup tool to confirm how a method or constant is defined' : '' %>.
 Look for the code that would already prevent the problem; if it exists, drop the
 finding.
+<%- if tool_budget -%>
+You have at most <%= tool_budget %> tool calls for this file. Use a tool only when its answer decides
+whether to report something, and answer the most important questions first: a suspected crash, wrong
+data or security gap before anything about style. Read a file once rather than in pieces. When the
+calls are spent, answer with what you have and grade whatever you could not check at a lower confidence.
+<%- end -%>
 
 For each finding, write `evidence`: what you confirmed and where, as file:line facts
 (for example "update only validates when amount changes (award.rb:31); no other

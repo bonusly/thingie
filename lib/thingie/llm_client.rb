@@ -59,8 +59,10 @@ module Thingie
     # @param tools [Array<Object>] optional `ruby_llm` tools to make available for tool-use
     # @param tool_log [Array<String>, nil] filled with a label for each tool call the model makes: the tool name
     #   and what it was asked, for example `search amounts_within_max`
+    # @param tool_budget [Thingie::ToolBudget, nil] caps the tool calls this one call may make
     # @return [Object] the `ruby_llm` response
-    def complete_with_schema(prompt, schema, tools: [], tool_log: nil)
+    def complete_with_schema(prompt, schema, tools: [], tool_log: nil, tool_budget: nil)
+      tools = tool_budget.wrap(tools) if tool_budget
       c = chat
       c = c.with_tools(*tools) unless tools.empty?
       c = LlmCompat.on_tool_call(c, ->(call) { tool_log << tool_call_label(call) }) if tool_log
