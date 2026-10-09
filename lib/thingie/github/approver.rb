@@ -22,6 +22,8 @@ module Thingie
       DEFAULT_MAX_CHANGES = 500
       DEFAULT_MAX_SEVERITY = 3
       DEFAULT_SKIP_LABEL = 'thingie-skip-approve'
+      # The most of the risk summary that is shown, cut at a sentence end. About four lines on GitHub.
+      RISK_SUMMARY_LIMIT = 600
       # Warnings that mean a file got no review at all: its call failed or ran past the time limit, or the
       # model answered with no JSON. An approval must not stand on a review that skipped part of the change.
       UNREVIEWED_FILE = /\A(Failed to review|Could not parse LLM response for) (\S+)/
@@ -383,13 +385,19 @@ module Thingie
         ].compact.join("\n\n")
       end
 
+      # The risk read is the part a person reads, so it comes first and stays short; the rule and check
+      # lists are there for the record and fold away.
       def approval_details(pr, report)
         [
+          risk_assessment_section(pr, report),
           passed_rules_section(pr),
           external_checks_section,
-          risk_assessment_section(pr, report),
           details_section(report)
         ]
+      end
+
+      def folded(title, lines)
+        "<details><summary>#{title}</summary>\n\n#{lines.map { |line| "- #{line}" }.join("\n")}\n\n</details>"
       end
 
       # Deterministic list of the gates that were satisfied for this approval.
@@ -402,7 +410,7 @@ module Thingie
         checks << 'No human reviewer requested changes'
         checks << 'Every file was reviewed'
         checks << "Author is a member of #{approval_team}" unless approval_team.empty?
-        "**Checks passed**\n\n#{checks.map { |c| "- #{c}" }.join("\n")}"
+        folded('Checks passed', checks)
       end
 
       def severity_label(severity)
@@ -416,8 +424,7 @@ module Thingie
         checks = Array(@config['external_checks']).map(&:to_s).reject(&:empty?)
         return nil if checks.empty?
 
-        list = checks.map { |c| "- #{c}" }.join("\n")
-        "**Other checks that must pass before merge** (not evaluated by Thingie)\n\n#{list}"
+        folded('Other checks that must pass before merge (not evaluated by Thingie)', checks)
       end
 
       def change_size_check(pr)
@@ -438,10 +445,19 @@ module Thingie
         summary = content['summary'] || content[:summary]
         return nil if level.to_s.strip.empty? || summary.to_s.strip.empty?
 
-        "**Risk assessment: #{level}**\n\n#{summary}"
+        "**Risk assessment: #{level}**\n\n#{clip(summary.to_s.strip)}"
       rescue StandardError => e
         warn "Risk assessment skipped — #{e.message}"
         nil
+      end
+
+      # Cuts a long summary at the last sentence end before the limit.
+      def clip(text)
+        return text if text.length <= RISK_SUMMARY_LIMIT
+
+        head = text[0, RISK_SUMMARY_LIMIT]
+        stop = head.rindex(/[.!?](\s|\z)/)
+        stop ? head[0..stop] : head
       end
 
       def risk_assessment(pr, report)
@@ -468,9 +484,9 @@ module Thingie
           #{@review_summary[0, 3000]}
 
           Auto-approval is appropriate for Low or Medium risk. Return risk_level of "Low"
-          or "Medium" and a one-to-three sentence reason that justifies the approval,
-          grounded in the code change (call out any regression, downtime, or security
-          concern you do see, even if you still rate it Medium).
+          or "Medium" and a reason of two to four sentences, under 90 words, that justifies
+          the approval, grounded in the code change (call out any regression, downtime, or
+          security concern you do see, even if you still rate it Medium).
         PROMPT
       end
 

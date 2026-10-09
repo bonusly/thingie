@@ -61,8 +61,9 @@ module Thingie
     # finding, unchanged.
     FAIL_OPEN_RESULT = { keep: true, severity: nil, confidence: nil, unchecked: true }.freeze
 
-    # Errors worth one more try: a call that ran past the time limit, or a reply with no JSON in it. Both come
-    # and go at random, so a second call usually succeeds, and a finding checked late beats one posted unchecked.
+    # Errors worth one more try while the finding's time allows: a call that ran past the limit, or a reply
+    # with no verdict in it. Both come and go at random, so a second call usually succeeds, and a finding
+    # checked late beats one posted unchecked.
     RETRIABLE = [Async::TimeoutError, JSON::ParserError].freeze
 
     private
@@ -121,14 +122,19 @@ module Thingie
       FAIL_OPEN_RESULT
     end
 
+    # `[verify] timeout` is a budget for the whole finding: the first call gets all of it, and a second call
+    # only happens in whatever is left, so a call that used it all up is not tried again.
+    #
     # @return [Array(Object, Hash, Array<String>)] the response, its parsed content and the tool calls made
     def ask_critic(prompt, issue)
+      limit = settings['timeout'].to_f
+      deadline = (now + limit if limit.positive?)
       tries = 0
       begin
         tries += 1
         budget = ToolBudget.new(@config['tool_budget'])
         tool_names = []
-        response = Concurrency.with_timeout(settings['timeout']) do
+        response = Concurrency.with_timeout(deadline && (deadline - now)) do
           @llm_client.complete_with_schema(prompt, Schemas::VERDICT_SCHEMA, tools: @tools, tool_log: tool_names,
                                                                             tool_budget: budget)
         end
@@ -136,12 +142,16 @@ module Thingie
         @usage&.record(response)
         [response, parse_content(response), tool_names]
       rescue *RETRIABLE => e
-        raise if tries > 1
+        raise if tries > 1 || (deadline && now >= deadline)
 
         @warnings << "Retried the second look at '#{issue.title}' (#{issue.file}) after #{e.class}: #{e.message}"
         @debug_output&.critic_retry(issue: issue, error: e)
         retry
       end
+    end
+
+    def now
+      Process.clock_gettime(Process::CLOCK_MONOTONIC)
     end
 
     def parse_content(response)
@@ -151,7 +161,10 @@ module Thingie
         # Say so instead of keeping the finding unchecked in silence: the rescue in #uphold? records a warning.
         raise JSON::ParserError, 'the critic reply has no JSON' if content.nil?
       end
-      content.is_a?(Hash) ? content.transform_keys(&:to_s) : {}
+      content = content.is_a?(Hash) ? content.transform_keys(&:to_s) : {}
+      raise JSON::ParserError, 'the critic reply has no verdict' unless content.key?('verdict')
+
+      content
     end
 
     # A malformed or out-of-range override is a no-op rather than an error —

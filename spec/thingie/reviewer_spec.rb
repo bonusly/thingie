@@ -36,7 +36,15 @@ RSpec.describe Thingie::Reviewer do
                               input_tokens: 100, output_tokens: 50, tool_calls: {},
                               cache_read_tokens: nil, cache_write_tokens: nil, cost: cost_stub,
                               model_info: nil, thinking: nil, thinking_tokens: nil)
-    instance_double(Thingie::LlmClient, complete_with_schema: response)
+    verdict = message_double(content: { 'verdict' => 'uphold' },
+                             input_tokens: 100, output_tokens: 50, tool_calls: {},
+                             cache_read_tokens: nil, cache_write_tokens: nil, cost: cost_stub,
+                             model_info: nil, thinking: nil, thinking_tokens: nil)
+    instance_double(Thingie::LlmClient).tap do |client|
+      allow(client).to receive(:complete_with_schema) do |prompt, *|
+        prompt.include?('FINDING TO CHALLENGE') ? verdict : response
+      end
+    end
   end
 
   after do

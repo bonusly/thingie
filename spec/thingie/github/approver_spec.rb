@@ -242,6 +242,26 @@ RSpec.describe Thingie::GitHub::Approver do # rubocop:disable RSpec/SpecFilePath
     expect(client).to have_received(:create_pull_request_review)
   end
 
+  it 'folds the check lists away and keeps the risk read short', :aggregate_failures do
+    stub_threads([])
+    long = (['The change narrows one parse path and touches no query or permission surface.'] * 12).join(' ')
+    response = double('resp', content: { 'risk_level' => 'Low', 'summary' => long }) # rubocop:disable RSpec/VerifiedDoubles
+    client_with_llm = instance_double(Thingie::LlmClient, complete_with_schema: response)
+    with_llm = described_class.new(token: 'token', owner: 'o', repo: 'r', pr_number: 1, llm_client: client_with_llm,
+                                   config: { 'external_checks' => ['RSpec test suite'] })
+
+    with_llm.run(report_for([]))
+
+    expect(client).to have_received(:create_pull_request_review).with('o/r', 1, hash_including(body: satisfy { |body|
+      risk = body[/\*\*Risk assessment: Low\*\*\n\n(.*?)\n\n</m, 1]
+      other = 'Other checks that must pass before merge (not evaluated by Thingie)'
+      body.include?('<details><summary>Checks passed</summary>') &&
+        body.include?("<details><summary>#{other}</summary>") &&
+        body.index('Risk assessment') < body.index('Checks passed') &&
+        risk.length <= described_class::RISK_SUMMARY_LIMIT && risk.end_with?('.')
+    }))
+  end
+
   it 'blocks, and says which files, when the review skipped a file', :aggregate_failures do
     stub_threads([])
     warnings = ['Failed to review app.rb: Async::TimeoutError: execution expired',
