@@ -170,6 +170,123 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
     end
   end
 
+  context 'when the code shows whether the open earlier findings are fixed' do
+    let(:summary) { "### Review of `abc1234`\n\n#{Thingie::ReportRenderer::NO_CHANGES}\n\nFiles reviewed (1)" }
+    let(:check) { instance_double(Thingie::OpenFindingCheck) }
+    let(:commenter) do
+      described_class.new(token: 'token', owner: 'o', repo: 'r', pr_number: 1, open_finding_check: check)
+    end
+    let(:marker) { described_class::REVIEW_COMMENT_MARKER }
+    let(:threads) do
+      [['T1', 'Parser written twice'], ['T2', 'Crash on nil'], ['T3', 'Wrong total']].map do |id, title|
+        {
+          'id' => id, 'isResolved' => false, 'isOutdated' => false, 'line' => 11, 'path' => 'app.rb',
+          'comments' => { 'nodes' => [{ 'author' => { 'login' => 'bot' }, 'url' => "https://example.test/#{id}",
+                                        'body' => "#{marker}\n\n**[Medium] #{title}**\n\nText" }] }
+        }
+      end
+    end
+
+    def result(status, reply = nil)
+      Thingie::OpenFindingCheck::Result.new(status, reply)
+    end
+
+    before do
+      allow(client).to receive(:post) do |_path, body|
+        if JSON.parse(body)['query'].include?('reviewThreads')
+          { 'data' => { 'repository' => { 'pullRequest' => { 'reviewThreads' => { 'nodes' => threads } } } } }
+        else
+          {}
+        end
+      end
+      allow(client).to receive(:contents).with('o/r', path: 'app.rb', ref: 'commit-sha')
+                                         .and_return({ content: ["def total\n  1\nend\n"].pack('m') })
+    end
+
+    it 'drops a fixed finding, notes an unconfirmed one, and counts only what is listed', :aggregate_failures do
+      allow(check).to receive(:call).and_return('T1' => result(:fixed), 'T2' => result(:open), 'T3' => result(:unsure))
+
+      commenter.post_review(summary: summary, report: report_for([]))
+
+      expect(client).to have_received(:add_comment).with(
+        'o/r', 1,
+        a_string_including('Still open from earlier reviews (2):', '[Crash on nil](https://example.test/T2) (`app.rb`)',
+                           '[Wrong total](https://example.test/T3) (`app.rb`), can\'t confirm this is resolved')
+                          .and(satisfy { |body| !body.include?('Parser written twice') })
+      )
+    end
+
+    it 'says what the replies on a thread claim, and whether the code backs it up', :aggregate_failures do
+      allow(check).to receive(:call).and_return('T1' => result(:unsure, :fixed), 'T2' => result(:open, :skipped),
+                                                'T3' => result(:open, :fixed))
+
+      commenter.post_review(summary: summary, report: report_for([]))
+
+      expect(client).to have_received(:add_comment).with(
+        'o/r', 1,
+        a_string_including("Parser written twice](https://example.test/T1) (`app.rb`), replied fixed, can't confirm",
+                           'Crash on nil](https://example.test/T2) (`app.rb`), replied skip',
+                           'Wrong total](https://example.test/T3) (`app.rb`), replied fixed, still looks open')
+      )
+    end
+
+    it 'passes the replies from the thread, leaving out Thingie\'s own comments', :aggregate_failures do
+      replies = [{ 'author' => { 'login' => 'paul' }, 'body' => 'Renamed it in abc123.' },
+                 { 'author' => { 'login' => 'bot' }, 'body' => "#{marker}\n\nanother finding" }]
+      threads[0]['comments']['nodes'].concat(replies)
+      allow(check).to receive(:call).and_return({})
+
+      commenter.post_review(summary: summary, report: report_for([]))
+
+      expect(check).to have_received(:call)
+        .with(array_including(a_hash_including(id: 'T1', replies: ['paul: Renamed it in abc123.'])))
+    end
+
+    it 'gives the check the file as of the head commit' do
+      allow(check).to receive(:call) do |_findings, &load_file|
+        expect(load_file.call('app.rb')).to eq("def total\n  1\nend\n")
+        {}
+      end
+
+      commenter.post_review(summary: summary, report: report_for([]))
+
+      expect(check).to have_received(:call).with(array_including(a_hash_including(id: 'T1', file: 'app.rb')))
+    end
+
+    it 'treats a file the commit no longer has as gone' do
+      allow(client).to receive(:contents).and_raise(Octokit::NotFound)
+      allow(check).to receive(:call) do |_findings, &load_file|
+        expect(load_file.call('app.rb')).to be_nil
+        {}
+      end
+
+      commenter.post_review(summary: summary, report: report_for([]))
+
+      expect(check).to have_received(:call)
+    end
+
+    it 'says no new changes and lists nothing when every finding is fixed', :aggregate_failures do
+      allow(check).to receive(:call).and_return('T1' => result(:fixed), 'T2' => result(:fixed), 'T3' => result(:fixed))
+
+      commenter.post_review(summary: summary, report: report_for([]))
+
+      expect(client).to have_received(:add_comment).with(
+        'o/r', 1, a_string_including('**✅ No new changes recommended**').and(satisfy { |b| !b.include?('Still open') })
+      )
+    end
+
+    it 'lists every open finding as it is, and says so, when the check fails', :aggregate_failures do
+      allow(check).to receive(:call).and_raise(ArgumentError, 'no findings list')
+
+      expect { commenter.post_review(summary: summary, report: report_for([])) }
+        .to output(/Could not check whether earlier findings are fixed.*no findings list/).to_stderr
+      expect(client).to have_received(:add_comment).with(
+        'o/r', 1,
+        a_string_including('Still open from earlier reviews (3):').and(satisfy { |b| !b.include?("can't confirm") })
+      )
+    end
+  end
+
   context 'when the run has no findings and nothing is open' do
     let(:summary) { "### Review of `abc1234`\n\n#{Thingie::ReportRenderer::NO_CHANGES}\n\nFiles reviewed (1)" }
     let(:comment_class) { Struct.new(:body, :created_at, :original_commit_id) }
@@ -196,8 +313,46 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
 
     expect(client).to have_received(:add_comment).once
     expect(client).to have_received(:add_comment)
-      .with('o/r', 1, a_string_including('Review of `commit-`', '**⚠️ 1 new finding, posted as review comments**'))
+      .with('o/r', 1, a_string_including('<!-- thingie-reviewed commit- -->',
+                                         '**⚠️ 1 new finding, posted as review comments**'))
     expect(client).not_to have_received(:add_comment).with('o/r', 1, a_string_including('THE FULL REPORT'))
+  end
+
+  context 'when the run posts new findings' do
+    let(:comment) { Struct.new(:html_url) }
+
+    it 'lists each with its severity and a link, and the off-diff one without', :aggregate_failures do
+      allow(client).to receive(:create_pull_request_comment).and_return(comment.new('https://example.test/c1'))
+      issues = [build_issue('app.rb', 11, severity: 2), build_issue('changed.rb', 99, severity: 3)]
+
+      commenter.post_review(summary: 'THE FULL REPORT', report: report_for(issues))
+
+      expect(client).to have_received(:add_comment).with(
+        'o/r', 1,
+        a_string_including('**⚠️ 2 new findings, posted as review comments**',
+                           '- **High:** [T](https://example.test/c1) (`app.rb`)',
+                           '- **Medium:** T (`changed.rb`), in the collapsed comment')
+      )
+    end
+
+    it 'lists a posted finding without a link when GitHub gave none' do
+      commenter.post_review(summary: 'THE FULL REPORT', report: report_for([build_issue('app.rb', 11)]))
+
+      expect(client).to have_received(:add_comment).with(
+        'o/r', 1,
+        a_string_including("- **Critical:** T (`app.rb`)\n").and(satisfy { |body| !body.include?('collapsed') })
+      )
+    end
+
+    it 'shows ten and says how many more', :aggregate_failures do
+      issues = Array.new(12) do |n|
+        build_issue('app.rb', 11).tap { |issue| issue.instance_variable_set(:@title, "Finding #{n}") }
+      end
+
+      commenter.post_review(summary: 'THE FULL REPORT', report: report_for(issues))
+
+      expect(client).to have_received(:add_comment).with('o/r', 1, a_string_including('Finding 9', '- and 2 more'))
+    end
   end
 
   context 'when every finding is a repeat of one already open' do

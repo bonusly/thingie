@@ -14,6 +14,7 @@ module Thingie
     }.freeze
     VERIFY_TEMPLATE = File.expand_path('prompts/verify.erb', __dir__)
     DUPLICATES_TEMPLATE = File.expand_path('prompts/duplicates.erb', __dir__)
+    RESOLUTION_TEMPLATE = File.expand_path('prompts/resolution.erb', __dir__)
     COMMENT_STYLE_FILE = File.expand_path('prompts/comment_style.txt', __dir__)
 
     # ERB's result_with_hash raises NameError for any var referenced in a
@@ -41,10 +42,12 @@ module Thingie
     # @param pr_context [String] the list of files the PR touches (see PrContext)
     # @param whole_file [Boolean] whether this is a whole-file review (`--all` mode, no diff);
     #   switches the prompt guideline from "only changed lines" to "every line"
+    # @param tool_budget [Integer, nil] the most tool calls the model may make, told to it; nil for no cap
     # @return [String] the rendered prompt text
-    def review(diff:, file_lines: nil, symbol_lookup: false, whole_file: false, pr_context: '')
+    def review(diff:, file_lines: nil, symbol_lookup: false, whole_file: false, pr_context: '', tool_budget: nil)
       render_template(review_template, 'input' => diff, 'file_lines' => file_lines, 'pr_context' => pr_context,
                                        'symbol_lookup' => symbol_lookup, 'whole_file' => whole_file,
+                                       'tool_budget' => tool_budget,
                                        'severity_scale' => format_scale(@config.severity_scale),
                                        'confidence_scale' => format_scale(@config.confidence_scale),
                                        'show_threshold_text' => show_threshold_text,
@@ -58,10 +61,11 @@ module Thingie
     # @param file_lines [String, nil] the full file content, given as extra context to the LLM
     # @param symbol_lookup [Boolean] whether the LSP symbol-lookup tool is available to the LLM
     # @param pr_context [String] the list of files the PR touches (see PrContext)
+    # @param tool_budget [Integer, nil] the most tool calls the model may make, told to it; nil for no cap
     # @return [String] the rendered prompt text
-    def verify(issue:, diff:, file_lines: nil, symbol_lookup: false, pr_context: '')
+    def verify(issue:, diff:, file_lines: nil, symbol_lookup: false, pr_context: '', tool_budget: nil)
       render_template(VERIFY_TEMPLATE, 'input' => diff, 'file_lines' => file_lines, 'pr_context' => pr_context,
-                                       'symbol_lookup' => symbol_lookup,
+                                       'symbol_lookup' => symbol_lookup, 'tool_budget' => tool_budget,
                                        'finding' => format_finding(issue),
                                        'user_impact' => @config.dig('verify', 'bar') == 'user_impact',
                                        'severity_scale' => format_scale(@config.severity_scale),
@@ -77,6 +81,18 @@ module Thingie
     # @return [String] the rendered prompt text
     def duplicates(existing:, findings:)
       render_template(DUPLICATES_TEMPLATE, 'existing' => existing, 'findings' => findings)
+    end
+
+    # Render the resolution-check prompt (`resolution.erb`) that asks whether earlier findings about one file are fixed.
+    #
+    # @param path [String] the file the findings are about
+    # @param content [String] the file's current content, with line numbers
+    # @param truncated [Boolean] whether `content` stops short of the end of the file
+    # @param findings [Array<Hash>] the earlier findings, each `{ label:, location:, text: }`
+    # @return [String] the rendered prompt text
+    def resolution(path:, content:, truncated:, findings:)
+      render_template(RESOLUTION_TEMPLATE, 'path' => path, 'content' => content, 'truncated' => truncated,
+                                           'findings' => findings)
     end
 
     private

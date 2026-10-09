@@ -59,9 +59,10 @@ RSpec.describe Thingie::ReportRenderer do
       )
     end
 
-    it 'names the commit, lists the files and records the run', :aggregate_failures do
+    it 'names the commit out of sight, lists the files and records the run', :aggregate_failures do
       output = renderer.to_md
-      expect(output).to include('### Review of `abc1234`')
+      expect(output).to include('<!-- thingie-reviewed abc1234 -->')
+      expect(output).not_to include('Review of')
       expect(output).to include('Files reviewed (2)', '- `app.rb`', '- `lib/foo.rb`')
       expect(output).to include('Thingie details', "Thingie version: #{Thingie::VERSION}",
                                 'Review model: gpt-4o', 'Base: `c3d89f5`', 'UTC')

@@ -61,8 +61,8 @@ module Thingie
       private
 
       # The commit of Thingie's most recent review, from its inline comments or, when a run had no
-      # inline findings, from the "Review of `sha`" heading of its summary comment (which a later
-      # run collapses but keeps). Nil when Thingie has not reviewed the PR yet.
+      # inline findings, from the hidden commit marker of its summary comment (which a later run
+      # collapses but keeps). Nil when Thingie has not reviewed the PR yet.
       def last_reviewed_commit
         (inline_reviews + summary_reviews).max_by(&:first)&.last
       end
@@ -78,7 +78,7 @@ module Thingie
           body = comment.body.to_s
           next unless body.include?(Context::SUMMARY_MARKER) || body.start_with?(Commenter::OUTDATED_PREFIX)
 
-          sha = body[/Review of `(\h+)`/, 1]
+          sha = Context.reviewed_commit(body)
           [comment.created_at, sha] if sha
         end
       end

@@ -72,6 +72,34 @@ RSpec.describe Thingie::Reviewer do
     end
   end
 
+  context 'with the default tool budget' do
+    let(:seen) { {} }
+    let(:fake_llm_client) do
+      instance_double(Thingie::LlmClient).tap do |client|
+        allow(client).to receive(:complete_with_schema) do |prompt, _schema, tool_budget: nil, **|
+          seen[:prompt] = prompt
+          seen[:budget] = tool_budget
+          message_double(content: { 'issues' => [] }, input_tokens: 1, output_tokens: 1, tool_calls: {},
+                         cache_read_tokens: nil, cache_write_tokens: nil, cost: nil, model_info: nil,
+                         thinking: nil, thinking_tokens: nil)
+        end
+      end
+    end
+
+    it 'gives each file review a budget of 5, and says so only when there are tools', :aggregate_failures do
+      reviewer.review
+
+      expect(seen[:budget]).to be_a(Thingie::ToolBudget)
+      expect(seen[:budget].limit).to eq(5)
+      expect(seen[:prompt]).not_to include('tool calls for this file')
+
+      described_class.new(config: config, changeset: fake_changeset, prompt_builder: Thingie::PromptBuilder.new(config),
+                          llm_client: fake_llm_client, tools: [instance_double(RubyLLM::Tool)]).review
+
+      expect(seen[:prompt]).to include('at most 5 tool calls for this file')
+    end
+  end
+
   it 'accumulates LLM usage and enriches the target with the head commit sha', :aggregate_failures do
     report = reviewer.review
     expect(reviewer.usage).to be_a(Thingie::Stats::Usage)
@@ -278,7 +306,8 @@ RSpec.describe Thingie::Reviewer do
     it 'marks the prompt as whole-file and does not duplicate the content' do
       reviewer.review
       expect(prompt_builder).to have_received(:review)
-        .with(diff: "def hello\nend\n", file_lines: nil, symbol_lookup: false, whole_file: true, pr_context: '')
+        .with(diff: "def hello\nend\n", file_lines: nil, symbol_lookup: false, whole_file: true, pr_context: '',
+              tool_budget: nil)
     end
   end
 

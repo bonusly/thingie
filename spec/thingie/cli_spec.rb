@@ -222,8 +222,9 @@ RSpec.describe Thingie::CLI do
     context 'when there is no LLM key in the comment step' do
       let(:overrides) { { provider: 'openai', llm_api_key: '' } }
 
-      it 'goes without the repeat check and says so', :aggregate_failures do
-        expect { run_github_comment }.to output(/Repeated-finding check disabled.*LLM_API_KEY/).to_stderr
+      it 'goes without either LLM check and says so', :aggregate_failures do
+        expect { run_github_comment }
+          .to output(/Repeated-finding check disabled.*LLM_API_KEY.*Fixed-finding check disabled.*LLM_API_KEY/m).to_stderr
         expect(passed_filter).to be_nil
       end
     end

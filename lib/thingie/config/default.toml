@@ -28,6 +28,12 @@ max_concurrent_tasks = 10
 # those: the prompt describes the JSON and the reply is parsed instead.
 schema_with_tools = true
 
+# Most tool calls one model call may make, for a file review and for the second look at a
+# finding. The prompt tells the model the number so it spends them on what matters; past it, a
+# tool call returns a note to answer now instead of running. Without a cap, one file review made
+# 60 tool calls and took 22 minutes. 0 means no cap.
+tool_budget = 5
+
 # Timeout (in seconds) for a single LLM request, including connection and
 # response. Set lower to fail fast on unreachable providers.
 request_timeout = 120
@@ -210,6 +216,15 @@ max_severity = 2
 # comment that is still open on the pull request, so a re-run does not post the same
 # problem twice. One extra model call (no tools) per run, over the whole list. If the
 # call fails, every finding is posted and a warning is printed.
+enabled = true
+# Model for that call; defaults to the review model.
+# model = "..."
+
+[open_findings]
+# The summary lists earlier findings that are still open. Before listing them, check each one against
+# the current code: drop the ones that are fixed (even on a different line from the comment), and mark
+# the ones it cannot confirm as "can't confirm this is resolved". One model call (no tools) per file
+# with open findings. If the call fails, every open finding is listed as before and a warning is printed.
 enabled = true
 # Model for that call; defaults to the review model.
 # model = "..."

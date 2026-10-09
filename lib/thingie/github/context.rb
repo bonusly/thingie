@@ -8,6 +8,23 @@ module Thingie
     class Context
       SUMMARY_MARKER = '<!-- thingie-summary -->'
 
+      # Names the commit a summary covers, out of sight, so a later run can tell which push was last reviewed.
+      #
+      # @param sha [String] the reviewed commit
+      # @return [String] the hidden marker
+      def self.reviewed_marker(sha)
+        "<!-- thingie-reviewed #{sha.to_s[0, 7]} -->"
+      end
+
+      # The commit a summary comment covers, from the hidden marker or, in summaries posted before it
+      # existed, the "Review of `sha`" heading.
+      #
+      # @param body [String] the comment body
+      # @return [String, nil] the short sha, or nil when the comment names none
+      def self.reviewed_commit(body)
+        body[/<!-- thingie-reviewed (\h+) -->/, 1] || body[/Review of `(\h+)`/, 1]
+      end
+
       # Builds a Context from the standard GitHub Actions environment variables
       # (`GITHUB_REPOSITORY`, `GITHUB_EVENT_PATH`, `PR_NUMBER_FROM_WORKFLOW_DISPATCH`).
       #

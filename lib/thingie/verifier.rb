@@ -89,17 +89,21 @@ module Thingie
     # @return [Hash] `{ keep:, severity:, confidence: }` — `severity`/`confidence`
     #   are non-nil only when the critic supplied a validated override.
     def uphold?(issue)
+      budget = ToolBudget.new(@config['tool_budget'])
       prompt = @prompt_builder.verify(
         issue: issue,
         diff: @changeset.diff_text_for(issue.file),
         file_lines: @changeset.full_content_for(issue.file),
         symbol_lookup: @tools.any?(Lsp::SymbolTool),
-        pr_context: @pr_context.to_s
+        pr_context: @pr_context.to_s,
+        tool_budget: (budget.limit if budget.active? && @tools.any?)
       )
       tool_names = []
       response = Concurrency.with_timeout(settings['timeout']) do
-        @llm_client.complete_with_schema(prompt, Schemas::VERDICT_SCHEMA, tools: @tools, tool_log: tool_names)
+        @llm_client.complete_with_schema(prompt, Schemas::VERDICT_SCHEMA, tools: @tools, tool_log: tool_names,
+                                                                          tool_budget: budget)
       end
+      @debug_output&.tool_budget(tag: 'CRITIC', label: issue.title, budget: budget)
       @usage&.record(response)
       issue.record_tool_calls(critic: tool_names)
       content = parse_content(response)
