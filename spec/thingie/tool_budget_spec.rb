@@ -6,15 +6,15 @@ RSpec.describe Thingie::ToolBudget do
   # Only `dup` and `call` matter to the budget, so a plain object stands in for a ruby_llm tool.
   let(:tool_class) do
     Class.new do
-      attr_reader :runs
+      attr_reader :calls
 
       def initialize
-        @runs = 0
+        @calls = []
       end
 
       def call(*args, **options)
-        @runs += 1
-        "ran with #{args.inspect} #{options.inspect}"
+        @calls << [args, options]
+        'ran'
       end
     end
   end
@@ -26,7 +26,7 @@ RSpec.describe Thingie::ToolBudget do
 
     results = Array.new(3) { copy.call({ path: 'a.rb' }) }
 
-    expect(results.first(2)).to all(include('ran with'))
+    expect(results.first(2)).to all(eq('ran'))
     expect(results.last).to eq(described_class::SPENT)
     expect(budget.used).to eq(2)
     expect(budget.refused).to eq(1)
@@ -35,8 +35,10 @@ RSpec.describe Thingie::ToolBudget do
   it 'passes the arguments through in either ruby_llm style', :aggregate_failures do
     copy = described_class.new(5).wrap([tool]).first
 
-    expect(copy.call({ path: 'a.rb' })).to eq('ran with [{path: "a.rb"}] {}')
-    expect(copy.call(path: 'a.rb', tool_call: :tc)).to eq('ran with [] {path: "a.rb", tool_call: :tc}')
+    copy.call({ path: 'a.rb' })
+    copy.call(path: 'a.rb', tool_call: :tc)
+
+    expect(tool.calls).to eq([[[{ path: 'a.rb' }], {}], [[], { path: 'a.rb', tool_call: :tc }]])
   end
 
   it 'leaves the original tool alone, so the next call starts fresh', :aggregate_failures do
@@ -45,8 +47,8 @@ RSpec.describe Thingie::ToolBudget do
     copy.call({})
     copy.call({})
 
-    expect(tool.call({})).to include('ran with')
-    expect(described_class.new(1).wrap([tool]).first.call({})).to include('ran with')
+    expect(tool.call({})).to eq('ran')
+    expect(described_class.new(1).wrap([tool]).first.call({})).to eq('ran')
   end
 
   it 'is no cap at all for 0 or nil', :aggregate_failures do
