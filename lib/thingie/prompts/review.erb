@@ -47,12 +47,13 @@ contents to confirm a finding.
 <%= requirements %>
 <%= json_requirements %>
 
+<%= comment_style %>
 Respond with a JSON object containing an "issues" array following this schema:
 {
   "issues": [
     {
-      "title": "<issue_title>",
-      "details": "<issue_description>",
+      "title": "<short plain title>",
+      "details": "<what's wrong, when it happens, and the fix, as described above>",
       "tags": ["<tag1>", "<tag2>", ...],
       "severity": <1-4>,
       "confidence": <1-4>,

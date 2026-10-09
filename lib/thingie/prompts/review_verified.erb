@@ -50,12 +50,13 @@ plausible, partly verified problem back.
 
 Skip style, naming, comment wording and documentation.
 
+<%= comment_style %>
 Respond with a JSON object containing an "issues" array:
 {
   "issues": [
     {
-      "title": "<issue_title>",
-      "details": "<what goes wrong, and when>",
+      "title": "<short plain title>",
+      "details": "<what's wrong, when it happens, and the fix, as described above>",
       "evidence": "<what you confirmed with the tools, with file:line>",
       "tags": ["<tag1>", ...],
       "severity": <1-4>,

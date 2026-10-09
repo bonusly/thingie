@@ -72,6 +72,19 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
             'commit-sha', 'app.rb', 11, { side: 'RIGHT' })
   end
 
+  it 'puts the parts of a finding on separate paragraphs in the inline comment' do
+    run_together = "**What's wrong:** It crashes. **When it happens:** On a new user. **Fix:** Skip them."
+    raw = Thingie::RawIssue.new(title: 'T', severity: 1, confidence: 1, tags: [], details: run_together)
+    range = Thingie::AffectedRange.new(start_line: 11, end_line: 11)
+    issue = Thingie::Issue.new(id: 1, file: 'app.rb', raw_issue: raw, affected_lines: [range])
+
+    commenter.post_review(summary: 'S', report: report_for([issue]))
+
+    expect(client).to have_received(:create_pull_request_comment)
+      .with('o/r', 1, a_string_including("It crashes.\n\n**When it happens:** On a new user.\n\n**Fix:** Skip them."),
+            'commit-sha', 'app.rb', 11, { side: 'RIGHT' })
+  end
+
   it 'posts no evidence line when there is none' do
     commenter.post_review(summary: 'S', report: report_for([build_issue('app.rb', 11)]))
 

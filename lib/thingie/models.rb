@@ -170,6 +170,17 @@ module Thingie
 
     TOOL_CALL_LINES = 25
 
+    # A label that starts a part. One quoted in backticks, as when a finding talks about the labels, is not one.
+    PART_LABEL = /\s*(?<!`)(\*\*(?:When it happens|Fix):\*\*)/
+
+    # The details with each labelled part of the comment style on its own paragraph. Models often write
+    # the parts run together on one line, which GitHub shows as a single block.
+    #
+    # @return [String, nil] the details in markdown, or nil when there are none
+    def details_markdown
+      @details&.gsub(PART_LABEL, "\n\n\\1")&.strip
+    end
+
     # What the model confirmed, and the tool calls it made to confirm it, as a collapsed GitHub block, so the
     # comment reads short and the proof is one click away. The tool calls are there for debugging.
     #
