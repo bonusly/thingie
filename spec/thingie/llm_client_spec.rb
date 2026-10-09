@@ -164,6 +164,20 @@ RSpec.describe Thingie::LlmClient do
       expect(log.last).to eq("thingie--search #{'x' * 97}...")
     end
 
+    it 'reports the shape of the request it sent', :aggregate_failures do
+      client = described_class.new(config)
+      chat_double = instance_double(RubyLLM::Chat, with_schema: instance_double(RubyLLM::Chat, ask: 'response'))
+      allow(chat_double).to receive(:with_tools).and_return(chat_double)
+      allow(client.llm_context).to receive(:chat).and_return(chat_double)
+      shape = {}
+
+      client.complete_with_schema('prompt', { type: 'object' }, tools: [instance_double(RubyLLM::Tool)],
+                                                                request_shape: shape)
+
+      expect(shape).to include(tools: 1, schema: true, schema_with_tools: true)
+      expect(shape[:model]).to be_a(String)
+    end
+
     it 'gives the chat the budgeted copies of the tools, not the tools themselves', :aggregate_failures do
       client = described_class.new(config)
       chat_double = instance_double(RubyLLM::Chat, with_schema: instance_double(RubyLLM::Chat, ask: 'response'))

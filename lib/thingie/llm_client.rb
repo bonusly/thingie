@@ -60,13 +60,18 @@ module Thingie
     # @param tool_log [Array<String>, nil] filled with a label for each tool call the model makes: the tool name
     #   and what it was asked, for example `search amounts_within_max`
     # @param tool_budget [Thingie::ToolBudget, nil] caps the tool calls this one call may make
+    # @param request_shape [Hash, nil] filled with what was sent: the model, the number of tools, whether a response
+    #   schema was attached, and the `schema_with_tools` setting as read, for the debug log
     # @return [Object] the `ruby_llm` response
-    def complete_with_schema(prompt, schema, tools: [], tool_log: nil, tool_budget: nil)
+    def complete_with_schema(prompt, schema, tools: [], tool_log: nil, tool_budget: nil, request_shape: nil)
       tools = tool_budget.wrap(tools) if tool_budget
       c = chat
       c = c.with_tools(*tools) unless tools.empty?
       c = LlmCompat.on_tool_call(c, ->(call) { tool_log << tool_call_label(call) }) if tool_log
-      c = c.with_schema(schema) unless tools.any? && @config['schema_with_tools'] == false
+      with_schema = !(tools.any? && @config['schema_with_tools'] == false)
+      c = c.with_schema(schema) if with_schema
+      request_shape&.merge!(model: @model, tools: tools.size, schema: with_schema,
+                            schema_with_tools: @config['schema_with_tools'])
       c.ask(prompt)
     end
 

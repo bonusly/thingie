@@ -99,10 +99,12 @@ module Thingie
         tool_budget: (budget.limit if budget.active? && @tools.any?)
       )
       tool_names = []
+      shape = {}
       response = Concurrency.with_timeout(settings['timeout']) do
         @llm_client.complete_with_schema(prompt, Schemas::VERDICT_SCHEMA, tools: @tools, tool_log: tool_names,
-                                                                          tool_budget: budget)
+                                                                          tool_budget: budget, request_shape: shape)
       end
+      @debug_output&.request_shape(tag: 'CRITIC', label: issue.title, shape: shape)
       @debug_output&.tool_budget(tag: 'CRITIC', label: issue.title, budget: budget)
       @usage&.record(response)
       issue.record_tool_calls(critic: tool_names)
