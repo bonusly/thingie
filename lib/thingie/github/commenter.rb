@@ -11,6 +11,9 @@ module Thingie
       REVIEW_COMMENT_MARKER = '<!-- thingie-review-comment -->'
       OUTDATED_PREFIX = '<details><summary>Outdated review'
       OPEN_FINDINGS_SHOWN = 5
+      NEW_FINDINGS_SHOWN = 10
+      UNCONFIRMED_NOTE = "can't confirm this is resolved"
+      REPLIED_FIXED_UNCONFIRMED_NOTE = "replied fixed, can't confirm"
 
       # Mirrors the default severity_scale in config/default.toml — used only
       # for human-facing labels in comments.
@@ -27,11 +30,14 @@ module Thingie
       #   fail for tokens that can't do it, e.g. `GITHUB_TOKEN`)
       # @param duplicate_filter [Thingie::DuplicateFilter, nil] drops findings that repeat another
       #   finding or a comment that is still open; findings are all posted when absent
+      # @param open_finding_check [Thingie::OpenFindingCheck, nil] checks earlier findings that are still open
+      #   against the current code, so fixed ones are not listed; every open finding is listed as is when absent
       # @param repeat_max_severity [Integer, nil] on a re-run, the least severe grade (1 = Critical) a new
       #   finding about code unchanged since the last review may have and still be posted; nil disables it
       def initialize(token:, owner:, repo:, pr_number:, resolve_token: nil, duplicate_filter: nil,
-                     repeat_max_severity: nil)
+                     open_finding_check: nil, repeat_max_severity: nil)
         @duplicate_filter = duplicate_filter
+        @open_finding_check = open_finding_check
         @repeat_max_severity = repeat_max_severity
         # auto_paginate so PRs with many files/comments aren't truncated to the
         # first page when validating diff lines or collapsing old summaries.
@@ -61,11 +67,12 @@ module Thingie
         open_threads = resolve_previous_threads
         collapse_previous_summaries
         if report.issues.empty?
-          post_summary_comment(rerun_summary(summary, open_threads))
+          post_summary_comment(rerun_summary(summary, still_open(open_threads, commit_id), open_threads.any?))
         else
           new_issues = without_repeats(repeat_bar.call(report.issues, commit_id), open_threads)
-          post_off_diff_comment(post_inline_comments(new_issues, commit_id))
-          post_summary_comment(run_summary(new_issues.size, open_threads, commit_id))
+          off_diff, posted = post_inline_comments(new_issues, commit_id)
+          post_off_diff_comment(off_diff)
+          post_summary_comment(run_summary(new_issues, posted, still_open(open_threads, commit_id), commit_id))
         end
       end
 
@@ -73,21 +80,29 @@ module Thingie
 
       # Post one inline comment per affected line that falls inside the PR diff.
       # GitHub's review-comment API only accepts line-based comments on diff
-      # lines; returns the issues that couldn't be posted inline (off-diff). A
-      # finding whose text is about another file is never put on a line, because
-      # its line numbers belong to that other file.
+      # lines; returns the issues that couldn't be posted inline (off-diff), and for the rest a link to the
+      # comment (nil when GitHub gave none). A finding whose text is about another file is never put on a line,
+      # because its line numbers belong to that other file.
+      #
+      # @return [Array(Array<Thingie::Issue>, Hash{Thingie::Issue => String, nil})] `[off_diff, links]`
       def post_inline_comments(issues, commit_id)
-        issues.reject { |issue| issue.cited_other_file.nil? && post_issue_inline?(issue, commit_id) }
+        links = {}
+        off_diff = issues.reject do |issue|
+          posted = issue.cited_other_file.nil? && post_issue_inline(issue, commit_id)
+          links[issue] = (posted if posted.is_a?(String)) if posted
+          posted
+        end
+        [off_diff, links]
       end
 
       # The summary describes only this run. On a PR Thingie has reviewed before, "No changes recommended"
       # would read as if nothing had ever been flagged, so it says "No new changes recommended", or says
       # that earlier findings are still open when they are.
-      def rerun_summary(summary, open_threads)
-        return summary unless open_threads.any? || repeat_bar.reviewed_before?
+      def rerun_summary(summary, open_findings, had_open_threads)
+        return summary unless had_open_threads || repeat_bar.reviewed_before?
 
         note = ReportRenderer::NO_NEW_CHANGES
-        note = "#{note}\n\n#{open_findings_list(open_threads)}" if open_threads.any?
+        note = "#{note}\n\n#{open_findings_list(open_findings)}" if open_findings.any?
         return summary.sub(ReportRenderer::NO_CHANGES, note) if summary.include?(ReportRenderer::NO_CHANGES)
 
         "#{summary}\n\n#{note}"
@@ -95,28 +110,94 @@ module Thingie
 
       # The short summary of a run that had findings. "No new changes recommended" when they were all repeats
       # or held back, so every push gets a visible result, and the earlier findings that are still open.
-      def run_summary(posted, open_threads, commit_id)
+      def run_summary(new_issues, links, open_findings, commit_id)
+        posted = new_issues.size
         findings = posted == 1 ? 'finding' : 'findings'
         headline = posted.positive? ? "**⚠️ #{posted} new #{findings}, posted as review comments**" : ReportRenderer::NO_NEW_CHANGES
         parts = [Context.reviewed_marker(commit_id), headline]
-        parts << open_findings_list(open_threads) if open_threads.any?
+        parts << new_findings_list(new_issues, links) if posted.positive?
+        parts << open_findings_list(open_findings) if open_findings.any?
         parts.join("\n\n")
       end
 
-      # The findings from earlier runs that are still open, each with its severity and a link to its comment.
-      def open_findings_list(open_threads)
-        lines = open_threads.first(OPEN_FINDINGS_SHOWN).map { |thread| open_finding_line(thread) }
-        extra = open_threads.size - OPEN_FINDINGS_SHOWN
-        lines << "- and #{extra} more" if extra.positive?
-        "**Still open from earlier reviews (#{open_threads.size}):**\n\n#{lines.join("\n")}"
+      # The open threads minus the ones the code shows are fixed, each paired with a note when the thread's replies
+      # say it was fixed or skipped, or the check could not tell. A failed check lists every thread as it is, and
+      # says so.
+      #
+      # @return [Array<Array(Hash, String)>] `[thread, note]` pairs; the note is nil when there is nothing to add
+      def still_open(open_threads, commit_id)
+        return open_threads.map { |thread| [thread, nil] } if open_threads.empty? || @open_finding_check.nil?
+
+        statuses = check_open_threads(open_threads, commit_id)
+        open_threads.filter_map do |thread|
+          result = statuses[thread['id']]
+          [thread, open_note(result)] unless result&.status == OpenFindingCheck::FIXED
+        end
+      rescue StandardError => e
+        warn "Could not check whether earlier findings are fixed, listing them all as open — #{e.class}: #{e.message}"
+        open_threads.map { |thread| [thread, nil] }
       end
 
-      def open_finding_line(thread)
+      # What to say next to a finding that is still listed: what its thread's last reply claims, and whether the
+      # code backs it up.
+      def open_note(result)
+        return if result.nil?
+
+        case [result.reply, result.status]
+        in [:skipped, _] then 'replied skip'
+        in [:fixed, :unsure] then REPLIED_FIXED_UNCONFIRMED_NOTE
+        in [:fixed, _] then 'replied fixed, still looks open'
+        in [_, :unsure] then UNCONFIRMED_NOTE
+        else nil
+        end
+      end
+
+      def check_open_threads(open_threads, commit_id)
+        findings = open_threads.map do |thread|
+          open_comment_for(thread).merge(id: thread['id'], replies: replies_on(thread))
+        end
+        @open_finding_check.call(findings) { |path| file_content_at(path, commit_id) }
+      end
+
+      # @return [String, nil] the file as of the commit, or nil when the commit has no such file
+      def file_content_at(path, commit_id)
+        file = @client.contents("#{@owner}/#{@repo}", path: path, ref: commit_id)
+        file[:content].to_s.unpack1('m').force_encoding('UTF-8').scrub
+      rescue Octokit::NotFound
+        nil
+      end
+
+      # The findings this run posted, each with its severity and a link to its comment. One that is not on a
+      # line of the diff has no comment of its own, so it points at the collapsed comment instead.
+      def new_findings_list(new_issues, links)
+        lines = new_issues.first(NEW_FINDINGS_SHOWN).map { |issue| new_finding_line(issue, links) }
+        extra = new_issues.size - NEW_FINDINGS_SHOWN
+        lines << "- and #{extra} more" if extra.positive?
+        lines.join("\n")
+      end
+
+      def new_finding_line(issue, links)
+        url = links[issue]
+        title = url ? "[#{issue.title}](#{url})" : issue.title
+        place = links.key?(issue) ? '' : ', in the collapsed comment'
+        "- **#{severity_label(issue.severity)}:** #{title} (`#{issue.cited_other_file || issue.file}`)#{place}"
+      end
+
+      # The findings from earlier runs that are still open, each with its severity and a link to its comment.
+      def open_findings_list(open_findings)
+        lines = open_findings.first(OPEN_FINDINGS_SHOWN).map { |thread, note| open_finding_line(thread, note) }
+        extra = open_findings.size - OPEN_FINDINGS_SHOWN
+        lines << "- and #{extra} more" if extra.positive?
+        "**Still open from earlier reviews (#{open_findings.size}):**\n\n#{lines.join("\n")}"
+      end
+
+      def open_finding_line(thread, note)
         comment = thread.dig('comments', 'nodes', 0) || {}
         match = comment['body'].to_s.match(/\*\*\[(\w+)\] (.+?)\*\*/)
         severity, title = match ? match.captures : ['Finding', 'An earlier finding']
         label = comment['url'] ? "[#{title}](#{comment['url']})" : title
-        "- **#{severity}:** #{label} (`#{thread['path']}`)"
+        line = "- **#{severity}:** #{label} (`#{thread['path']}`)"
+        note ? "#{line}, #{note}" : line
       end
 
       def repeat_bar
@@ -134,6 +215,14 @@ module Thingie
       rescue StandardError => e
         warn "Could not check for repeated findings, posting all of them — #{e.class}: #{e.message}"
         issues
+      end
+
+      # The replies after the finding's own comment, as `login: text`, leaving out Thingie's own comments.
+      def replies_on(thread)
+        thread.dig('comments', 'nodes').to_a.drop(1).filter_map do |reply|
+          body = reply['body'].to_s
+          "#{reply.dig('author', 'login')}: #{body}" unless body.include?(REVIEW_COMMENT_MARKER)
+        end
       end
 
       def open_comment_for(thread)
@@ -159,19 +248,20 @@ module Thingie
         "- **#{severity_label(issue.severity)}** `#{location}` — #{issue.title}"
       end
 
-      def post_issue_inline?(issue, commit_id)
+      # @return [String, true, nil] the link to the first comment posted, true when it had none, nil when
+      #   the finding is not on a line of the diff
+      def post_issue_inline(issue, commit_id)
         issue.affected_lines.filter_map do |range|
           next unless range.start_line
 
           line = range.end_line || range.start_line
           next unless line_in_diff?(issue.file, line)
 
-          create_inline_comment(issue, commit_id, line)
-          true
+          create_inline_comment(issue, commit_id, line)&.html_url || true
         rescue Octokit::UnprocessableEntity => e
           warn "Could not post comment on #{issue.file}:#{line} — #{e.message}"
           nil
-        end.any?
+        end.first
       end
 
       def create_inline_comment(issue, commit_id, line)

@@ -220,6 +220,15 @@ enabled = true
 # Model for that call; defaults to the review model.
 # model = "..."
 
+[open_findings]
+# The summary lists earlier findings that are still open. Before listing them, check each one against
+# the current code: drop the ones that are fixed (even on a different line from the comment), and mark
+# the ones it cannot confirm as "can't confirm this is resolved". One model call (no tools) per file
+# with open findings. If the call fails, every open finding is listed as before and a warning is printed.
+enabled = true
+# Model for that call; defaults to the review model.
+# model = "..."
+
 [verify]
 # Critic / challenge pass: after filtering, re-examine each surviving finding
 # with a fresh, adversarially-framed LLM call that must ground the issue in the
