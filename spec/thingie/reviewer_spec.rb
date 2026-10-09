@@ -389,8 +389,12 @@ RSpec.describe Thingie::Reviewer do
       instance_double(Thingie::LlmClient, complete_with_schema: nil)
     end
 
-    it 'treats the file as having no issues' do
-      expect(reviewer.review.total_issues).to eq(0)
+    it 'treats the file as unreviewed, with a warning, not as having no issues', :aggregate_failures do
+      report = reviewer.review
+
+      expect(report.total_issues).to eq(0)
+      expect(report.unreviewed_files).to eq(['app.rb'])
+      expect(report.processing_warnings).to include(/Could not parse LLM response for app.rb: the reply is empty/)
     end
   end
 

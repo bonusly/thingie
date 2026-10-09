@@ -134,7 +134,7 @@ module Thingie
         tries += 1
         budget = ToolBudget.new(@config['tool_budget'])
         tool_names = []
-        response = Concurrency.with_timeout(deadline && (deadline - now)) do
+        response = Concurrency.with_timeout(deadline && [deadline - now, 0.001].max) do
           @llm_client.complete_with_schema(prompt, Schemas::VERDICT_SCHEMA, tools: @tools, tool_log: tool_names,
                                                                             tool_budget: budget)
         end

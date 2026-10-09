@@ -9,6 +9,9 @@ module Thingie
     # posting new feedback.
     class Commenter # rubocop:disable Metrics/ClassLength
       REVIEW_COMMENT_MARKER = '<!-- thingie-review-comment -->'
+      # Marks the comment that states findings with no line of the diff to sit on, so a later run can hide it.
+      OFF_DIFF_MARKER = '<!-- thingie-off-diff -->'
+      # Older runs wrapped a superseded summary in this; the repeat bar still reads those.
       OUTDATED_PREFIX = '<details><summary>Outdated review'
       OPEN_FINDINGS_SHOWN = 5
       UNCHECKED_NOTE = '_The second look at this finding did not complete, so it is posted as the first pass wrote it._'
@@ -66,7 +69,7 @@ module Thingie
         pr = @client.pull_request("#{@owner}/#{@repo}", @pr_number)
         commit_id = pr.head.sha
         open_threads = resolve_previous_threads
-        collapse_previous_summaries
+        hide_previous_summaries
         if report.issues.empty?
           post_summary_comment(rerun_summary(summary, still_open(open_threads, commit_id), open_threads.any?))
         else
@@ -180,7 +183,7 @@ module Thingie
       def new_finding_line(issue, links)
         url = links[issue]
         title = url ? "[#{issue.title}](#{url})" : issue.title
-        place = links.key?(issue) ? '' : ', in the collapsed comment'
+        place = links.key?(issue) ? '' : ', not on a changed line'
         "- **#{severity_label(issue.severity)}:** #{title} (`#{issue.cited_other_file || issue.file}`)#{place}"
       end
 
@@ -231,22 +234,21 @@ module Thingie
         { file: thread['path'], line: thread['line'], text: body.sub(%r{<details>.*?</details>}m, '').strip }
       end
 
-      # Issues outside the diff can't be inline comments. Collect them into a
-      # single collapsed comment so the feedback isn't lost or noisy.
+      # Issues outside the diff can't be inline comments. State them plainly in one comment, each with the
+      # place it is about; a later run hides the comment the way GitHub hides an outdated one.
       def post_off_diff_comment(issues)
         return if issues.empty?
 
-        rows = issues.map { |issue| off_diff_row(issue) }
-        body = "<details><summary>#{issues.size} finding(s) outside this diff or about another file</summary>\n\n" \
-               "#{rows.join("\n")}\n\n</details>\n\n#{Context::SUMMARY_MARKER}"
+        body = [OFF_DIFF_MARKER, *issues.map { |issue| off_diff_entry(issue) }].join("\n\n")
         @client.add_comment("#{@owner}/#{@repo}", @pr_number, body)
       end
 
-      def off_diff_row(issue)
+      def off_diff_entry(issue)
         cited = issue.cited_other_file
         line = issue.affected_lines.first&.start_line
         location = cited || [issue.file, line].compact.join(':')
-        "- **#{severity_label(issue.severity)}** `#{location}` — #{issue.title}"
+        heading = "**[#{severity_label(issue.severity)}] #{issue.title}** (`#{location}`)"
+        [heading, issue.details_markdown].compact.join("\n\n")
       end
 
       # @return [String, true, nil] the link to the first comment posted, true when it had none, nil when
@@ -392,33 +394,22 @@ module Thingie
         first_comment && first_comment['body'].to_s.include?(REVIEW_COMMENT_MARKER)
       end
 
-      def collapse_previous_summaries
-        comments = @client.issue_comments("#{@owner}/#{@repo}", @pr_number)
-        comments.each do |comment|
-          next unless comment.body.include?(Context::SUMMARY_MARKER)
-          next if comment.body.start_with?(OUTDATED_PREFIX)
+      # An earlier run's summary and off-diff comments are hidden behind GitHub's own "outdated" toggle,
+      # and otherwise left as they were, so the thread shows one summary without wrapping older ones.
+      def hide_previous_summaries
+        @client.issue_comments("#{@owner}/#{@repo}", @pr_number).each do |comment|
+          body = comment.body.to_s
+          next if body.start_with?(OUTDATED_PREFIX)
+          next unless body.include?(Context::SUMMARY_MARKER) || body.start_with?(OFF_DIFF_MARKER)
 
-          @client.update_comment("#{@owner}/#{@repo}", comment.id, outdated_body(comment.body))
           minimize_comment(comment)
-        rescue Octokit::Forbidden => e
-          # Only the comment's author (our bot) can edit it; skip others.
-          warn "Could not collapse previous summary ##{comment.id} — #{e.message}"
         end
       end
 
-      # Collapsing alone still leaves a stack of "Outdated review" rows in the
-      # thread; minimizing tucks each one behind GitHub's "Show comment" toggle.
       def minimize_comment(comment)
         graphql_client.minimize_comment(comment.node_id)
       rescue StandardError => e
         warn "Could not hide previous summary ##{comment.id} — #{e.message}"
-      end
-
-      def outdated_body(body)
-        stripped = body.gsub(Context::SUMMARY_MARKER, '').strip
-        sha = Context.reviewed_commit(stripped)
-        label = sha ? " of `#{sha}`" : ''
-        "#{OUTDATED_PREFIX}#{label}</summary>\n\n#{stripped}\n\n</details>"
       end
     end
   end

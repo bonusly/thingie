@@ -170,7 +170,8 @@ module Thingie
 
     def parse_response(response, file)
       content = response&.content
-      return [] if content.nil? || (content.is_a?(String) && content.strip.empty?)
+      # An empty reply is not "no issues": the model said nothing, so the file got no review.
+      raise JSON::ParserError, 'the reply is empty' if content.nil? || (content.is_a?(String) && content.strip.empty?)
 
       parsed = content.is_a?(String) ? JsonExtractor.parse(content) : content
       raise JSON::ParserError, 'no valid JSON found in response' if parsed.nil?
