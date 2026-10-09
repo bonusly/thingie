@@ -3,6 +3,7 @@
 require 'spec_helper'
 require 'tmpdir'
 require 'fileutils'
+require 'benchmark'
 
 RSpec.describe Thingie::Verifier do
   subject(:verifier) do
@@ -205,6 +206,30 @@ RSpec.describe Thingie::Verifier do
     end
   end
 
+  context 'when a critic call runs past the time limit' do
+    let(:config) do
+      Thingie::Configuration.new(root: tmp_dir, overrides: { 'verify' => { 'enabled' => true, 'timeout' => 0.05 },
+                                                             'max_concurrent_tasks' => 4 })
+    end
+    let(:fake_llm_client) do
+      instance_double(Thingie::LlmClient).tap do |client|
+        allow(client).to receive(:complete_with_schema) do |prompt, *_|
+          sleep(5) if prompt.include?('stuck')
+          verdict('reject')
+        end
+      end
+    end
+
+    it 'keeps the stuck finding unchecked with a warning, and still checks the others', :aggregate_failures do
+      kept = nil
+      elapsed = Benchmark.realtime { kept = verifier.call([issue('stuck'), issue('quick')]) }
+
+      expect(kept.map(&:title)).to eq(['stuck'])
+      expect(verifier.warnings).to include(/Could not verify finding 'stuck'.*TimeoutError/)
+      expect(elapsed).to be < 2
+    end
+  end
+
   context 'when debug_output is provided' do
     subject(:debug_verifier) do
       described_class.new(
@@ -218,7 +243,7 @@ RSpec.describe Thingie::Verifier do
 
     let(:fake_debug_output) { instance_double(Thingie::DebugOutput) }
 
-    before { allow(fake_debug_output).to receive(:critic_call) }
+    before { allow(fake_debug_output).to receive_messages(critic_call: nil, tool_budget: nil) }
 
     it 'calls critic_call with the issue, response, verdict, and content for each finding' do
       debug_verifier.call(issues)
