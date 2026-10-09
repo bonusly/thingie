@@ -140,29 +140,21 @@ module Thingie
       "tokens: #{parts.join(' / ')}"
     end
 
-    # Formats the cost from a ruby_llm response, or nil if unavailable.
-    #
-    # @param response [Object, nil] the ruby_llm response object
-    # @return [String, nil] a cost string like "cost: $0.000123", or nil
     # Which provider answered, when the gateway says so (OpenRouter names it in the response body), so a run
     # that behaves oddly, such as a model that stops calling its tools, can be traced to where it was routed.
     #
     # @param response [Object, nil] the ruby_llm response object
     # @return [String, nil] `via <provider>`, or nil when the response does not say
     def served_by(response)
-      raw = response.respond_to?(:raw) ? response.raw : nil
-      body = raw.respond_to?(:body) ? raw.body : nil
-      body = parse_json(body) if body.is_a?(String)
+      body = response.respond_to?(:raw) ? response.raw&.body : nil
       name = body['provider'] if body.is_a?(Hash)
-      "via #{name}" if name.is_a?(String) && !name.empty?
+      "via #{name}" unless name.to_s.empty?
     end
 
-    def parse_json(text)
-      JSON.parse(text)
-    rescue JSON::ParserError
-      nil
-    end
-
+    # Formats the cost from a ruby_llm response, or nil if unavailable.
+    #
+    # @param response [Object, nil] the ruby_llm response object
+    # @return [String, nil] a cost string like "cost: $0.000123", or nil
     def cost_summary(response)
       return nil unless response
 
