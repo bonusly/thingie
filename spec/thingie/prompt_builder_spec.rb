@@ -41,6 +41,15 @@ RSpec.describe Thingie::PromptBuilder do
       expect(builder.review(diff: '', symbol_lookup: true)).to include('symbol lookup tool')
     end
 
+    it 'tells the model its tool budget, in both review prompts, only when there is one', :aggregate_failures do
+      config = Thingie::Configuration.new(root: tmp_dir, overrides: { 'review' => { 'prompt' => 'verified' } })
+      [builder, described_class.new(config)].each do |b|
+        expect(b.review(diff: '', tool_budget: 5))
+          .to include('at most 5 tool calls for this file', 'most important questions first')
+        expect(b.review(diff: '')).not_to include('tool calls for this file')
+      end
+    end
+
     it 'inverts the diff-only guideline for whole-file reviews', :aggregate_failures do
       diff_prompt = builder.review(diff: "+ def hello\n", file_lines: "def hello\nend\n")
       expect(diff_prompt).to include('Only report issues on lines added or modified in the diff above')
@@ -204,6 +213,11 @@ RSpec.describe Thingie::PromptBuilder do
       Thingie::Issue.from_hash('title' => 'Leaky query', 'details' => 'd', 'severity' => 1,
                                'confidence' => 2, 'tags' => [], 'file' => 'app.rb',
                                'affected_lines' => [{ 'start_line' => 1 }])
+    end
+
+    it 'tells the model its tool budget only when there is one', :aggregate_failures do
+      expect(builder.verify(issue: issue, diff: '', tool_budget: 5)).to include('at most 5 tool calls for this finding')
+      expect(builder.verify(issue: issue, diff: '')).not_to include('tool calls for this finding')
     end
 
     it 'asks whether it is true and would matter to a user when the bar is user_impact', :aggregate_failures do

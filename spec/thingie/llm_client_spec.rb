@@ -164,6 +164,21 @@ RSpec.describe Thingie::LlmClient do
       expect(log.last).to eq("thingie--search #{'x' * 97}...")
     end
 
+    it 'gives the chat the budgeted copies of the tools, not the tools themselves', :aggregate_failures do
+      client = described_class.new(config)
+      chat_double = instance_double(RubyLLM::Chat, with_schema: instance_double(RubyLLM::Chat, ask: 'response'))
+      allow(chat_double).to receive(:with_tools).and_return(chat_double)
+      allow(client.llm_context).to receive(:chat).and_return(chat_double)
+      tool = instance_double(RubyLLM::Tool)
+      copy = instance_double(RubyLLM::Tool)
+      budget = instance_double(Thingie::ToolBudget)
+      allow(budget).to receive(:wrap).with([tool]).and_return([copy])
+
+      client.complete_with_schema('prompt', { type: 'object' }, tools: [tool], tool_budget: budget)
+
+      expect(chat_double).to have_received(:with_tools).with(copy)
+    end
+
     context 'when the model cannot combine tools with a response schema' do
       let(:config) do
         Thingie::Configuration.new(root: tmp_dir, overrides: { provider: 'openai', llm_api_key: 'secret',

@@ -44,6 +44,11 @@ contents to confirm a finding.
   C-extension and other native gem methods often have no indexable definition.
   When you cannot verify a third-party API, do not report it.
 <%- end -%>
+<%- if tool_budget -%>
+- You have at most <%= tool_budget %> tool calls for this file. Use a tool only when its answer
+  decides whether to report something, and answer the most important questions first. When the
+  calls are spent, answer with what you have.
+<%- end -%>
 <%= requirements %>
 <%= json_requirements %>
 

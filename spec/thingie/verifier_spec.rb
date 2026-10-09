@@ -243,7 +243,7 @@ RSpec.describe Thingie::Verifier do
 
     let(:fake_debug_output) { instance_double(Thingie::DebugOutput) }
 
-    before { allow(fake_debug_output).to receive(:critic_call) }
+    before { allow(fake_debug_output).to receive_messages(critic_call: nil, tool_budget: nil) }
 
     it 'calls critic_call with the issue, response, verdict, and content for each finding' do
       debug_verifier.call(issues)

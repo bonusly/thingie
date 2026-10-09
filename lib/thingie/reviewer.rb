@@ -121,12 +121,16 @@ module Thingie
       whole_file = @changeset.all?
       diff = @changeset.diff_text_for(file)
       full = whole_file ? nil : @changeset.full_content_for(file)
+      budget = ToolBudget.new(@config['tool_budget'])
       prompt = @prompt_builder.review(diff: diff, file_lines: full, symbol_lookup: @tools.any?(Lsp::SymbolTool),
-                                      whole_file: whole_file, pr_context: @pr_context.to_s)
+                                      whole_file: whole_file, pr_context: @pr_context.to_s,
+                                      tool_budget: (budget.limit if budget.active? && @tools.any?))
       tool_names = []
       response = Concurrency.with_timeout(@config['call_timeout']) do
-        @llm_client.complete_with_schema(prompt, Schemas::ISSUE_SCHEMA, tools: @tools, tool_log: tool_names)
+        @llm_client.complete_with_schema(prompt, Schemas::ISSUE_SCHEMA, tools: @tools, tool_log: tool_names,
+                                                                        tool_budget: budget)
       end
+      @debug_output.tool_budget(tag: 'REVIEW', label: file, budget: budget)
       @usage.record(response)
       issues = parse_response(response, file)
       issues.each { |issue| issue.record_tool_calls(review: tool_names) }
