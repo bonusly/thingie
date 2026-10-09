@@ -164,6 +164,30 @@ RSpec.describe Thingie::LlmClient do
       expect(log.last).to eq("thingie--search #{'x' * 97}...")
     end
 
+    it 'tells the timeline when each tool call starts and finishes', :aggregate_failures do
+      client = described_class.new(config)
+      chat_double = instance_double(RubyLLM::Chat, with_schema: instance_double(RubyLLM::Chat, ask: 'response'))
+      hooks = {}
+      allow(chat_double).to receive(:with_tools).and_return(chat_double)
+      %i[before_tool_call after_tool_result].each do |name|
+        allow(chat_double).to receive(name) do |&block|
+          hooks[name] = block
+          chat_double
+        end
+      end
+      allow(client.llm_context).to receive(:chat).and_return(chat_double)
+      timeline = instance_double(Thingie::CallTimeline, tool_started: nil, tool_finished: nil)
+
+      client.complete_with_schema('prompt', { type: 'object' }, tools: [instance_double(RubyLLM::Tool)],
+                                                                timeline: timeline)
+      call = instance_double(RubyLLM::ToolCall, name: 'thingie--file', arguments: { path: 'a.rb' })
+      hooks[:before_tool_call].call(call)
+      hooks[:after_tool_result].call('result')
+
+      expect(timeline).to have_received(:tool_started).with('thingie--file a.rb')
+      expect(timeline).to have_received(:tool_finished)
+    end
+
     context 'when the model cannot combine tools with a response schema' do
       let(:config) do
         Thingie::Configuration.new(root: tmp_dir, overrides: { provider: 'openai', llm_api_key: 'secret',

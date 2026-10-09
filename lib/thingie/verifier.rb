@@ -60,6 +60,9 @@ module Thingie
     # finding, unchanged.
     FAIL_OPEN_RESULT = { keep: true, severity: nil, confidence: nil }.freeze
 
+    # How much of a reply with no JSON in it is quoted in the warning, so a reader can see what came back.
+    REPLY_SNIPPET = 300
+
     private
 
     def settings
@@ -97,8 +100,10 @@ module Thingie
         pr_context: @pr_context.to_s
       )
       tool_names = []
+      timeline = CallTimeline.new
       response = Concurrency.with_timeout(settings['timeout']) do
-        @llm_client.complete_with_schema(prompt, Schemas::VERDICT_SCHEMA, tools: @tools, tool_log: tool_names)
+        @llm_client.complete_with_schema(prompt, Schemas::VERDICT_SCHEMA, tools: @tools, tool_log: tool_names,
+                                                                          timeline: timeline)
       end
       @usage&.record(response)
       issue.record_tool_calls(critic: tool_names)
@@ -107,6 +112,7 @@ module Thingie
       @debug_output&.critic_call(issue: issue, response: response,
                                  verdict: verdict.empty? ? '(no verdict)' : verdict,
                                  content: content, tool_names: tool_names)
+      @debug_output&.timing(tag: 'CRITIC', label: issue.title, timeline: timeline)
       {
         keep: verdict != 'reject',
         severity: valid_override(content['severity_override'], @config.severity_scale),
@@ -116,15 +122,18 @@ module Thingie
       # Fail open: keep the finding unchanged, but surface that the critic didn't run.
       @warnings << "Could not verify finding '#{issue.title}' (#{issue.file}): #{e.class}: #{e.message}"
       @debug_output&.critic_error(issue: issue, error: e)
+      @debug_output&.timing(tag: 'CRITIC', label: issue.title, timeline: timeline)
       FAIL_OPEN_RESULT
     end
 
     def parse_content(response)
-      content = response&.content
+      content = reply = response&.content
       if content.is_a?(String)
         content = JsonExtractor.parse(content)
         # Say so instead of keeping the finding unchecked in silence: the rescue in #uphold? records a warning.
-        raise JSON::ParserError, 'the critic reply has no JSON' if content.nil?
+        if content.nil?
+          raise JSON::ParserError, "the critic reply has no JSON, it starts: #{reply[0, REPLY_SNIPPET].inspect}"
+        end
       end
       content.is_a?(Hash) ? content.transform_keys(&:to_s) : {}
     end

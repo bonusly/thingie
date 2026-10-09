@@ -230,6 +230,23 @@ RSpec.describe Thingie::Verifier do
     end
   end
 
+  context 'when the critic reply has no JSON' do
+    let(:fake_llm_client) do
+      instance_double(Thingie::LlmClient).tap do |client|
+        allow(client).to receive(:complete_with_schema)
+          .and_return(instance_double(RubyLLM::Message, content: 'I could not decide. ' * 40))
+      end
+    end
+
+    it 'keeps the finding and quotes the start of the reply in the warning', :aggregate_failures do
+      kept = verifier.call([issue('keep-me')])
+
+      expect(kept.map(&:title)).to eq(['keep-me'])
+      expect(verifier.warnings.first).to include('has no JSON, it starts: "I could not decide. I could')
+      expect(verifier.warnings.first.length).to be < 500
+    end
+  end
+
   context 'when debug_output is provided' do
     subject(:debug_verifier) do
       described_class.new(
@@ -243,7 +260,7 @@ RSpec.describe Thingie::Verifier do
 
     let(:fake_debug_output) { instance_double(Thingie::DebugOutput) }
 
-    before { allow(fake_debug_output).to receive(:critic_call) }
+    before { allow(fake_debug_output).to receive_messages(critic_call: nil, timing: nil) }
 
     it 'calls critic_call with the issue, response, verdict, and content for each finding' do
       debug_verifier.call(issues)

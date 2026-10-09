@@ -291,6 +291,19 @@ module Thingie
       warn "[DEBUG][#{tag}] #{label}: tool calls: #{summary}"
     end
 
+    # Prints how long a model call took and how much of that was spent in tools, also for a call that failed or
+    # timed out, so a slow review can be told apart from a stuck one.
+    #
+    # @param tag [String] `REVIEW` or `CRITIC`
+    # @param label [String] the file or finding the call was about
+    # @param timeline [Thingie::CallTimeline, nil] the timeline of the call
+    # @return [void]
+    def timing(tag:, label:, timeline:)
+      return unless @enabled && timeline
+
+      warn "[DEBUG][#{tag}] #{label}: timing: #{timeline.summary}"
+    end
+
     # Called when a file review's LLM response can't be parsed.
     #
     # @param file [String] the file whose review failed

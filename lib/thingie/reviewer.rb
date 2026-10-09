@@ -124,22 +124,27 @@ module Thingie
       prompt = @prompt_builder.review(diff: diff, file_lines: full, symbol_lookup: @tools.any?(Lsp::SymbolTool),
                                       whole_file: whole_file, pr_context: @pr_context.to_s)
       tool_names = []
+      timeline = CallTimeline.new
       response = Concurrency.with_timeout(@config['call_timeout']) do
-        @llm_client.complete_with_schema(prompt, Schemas::ISSUE_SCHEMA, tools: @tools, tool_log: tool_names)
+        @llm_client.complete_with_schema(prompt, Schemas::ISSUE_SCHEMA, tools: @tools, tool_log: tool_names,
+                                                                        timeline: timeline)
       end
       @usage.record(response)
       issues = parse_response(response, file)
       issues.each { |issue| issue.record_tool_calls(review: tool_names) }
       @debug_output.review_call(file: file, response: response, issues: issues, tool_names: tool_names)
+      @debug_output.timing(tag: 'REVIEW', label: file, timeline: timeline)
       only_changed_lines(issues, file)
     rescue JSON::ParserError => e
       @warnings << "Could not parse LLM response for #{file}: #{e.message}"
       @debug_output.review_error(file: file, error: e)
+      @debug_output.timing(tag: 'REVIEW', label: file, timeline: timeline)
       []
     rescue StandardError => e
       @warnings << "Failed to review #{file}: #{e.class}: #{e.message}"
       @file_failures << [file, e]
       @debug_output.review_error(file: file, error: e)
+      @debug_output.timing(tag: 'REVIEW', label: file, timeline: timeline)
       []
     end
 

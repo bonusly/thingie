@@ -46,6 +46,17 @@ module Thingie
       chat.public_send(hook) { |call| handler.call(call) }
     end
 
+    # Registers a hook that runs after every tool call returns. ruby_llm renamed `on_tool_result` to
+    # `after_tool_result`, and removes the old name in 2.x.
+    #
+    # @param chat [RubyLLM::Chat] the chat to hook
+    # @param handler [#call] called with each tool result
+    # @return [RubyLLM::Chat] the chat
+    def on_tool_result(chat, handler)
+      hook = chat.respond_to?(:after_tool_result) ? :after_tool_result : :on_tool_result
+      chat.public_send(hook) { |result| handler.call(result) }
+    end
+
     # Reads a token count off a response. 1.16 has both the readers and a
     # differently shaped #tokens, so the readers win when they exist.
     #
