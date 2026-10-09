@@ -313,7 +313,8 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
 
     expect(client).to have_received(:add_comment).once
     expect(client).to have_received(:add_comment)
-      .with('o/r', 1, a_string_including('Review of `commit-`', '**⚠️ 1 new finding, posted as review comments**'))
+      .with('o/r', 1, a_string_including('<!-- thingie-reviewed commit- -->',
+                                         '**⚠️ 1 new finding, posted as review comments**'))
     expect(client).not_to have_received(:add_comment).with('o/r', 1, a_string_including('THE FULL REPORT'))
   end
 

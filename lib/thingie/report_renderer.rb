@@ -42,7 +42,7 @@ module Thingie
     #
     # @return [String] Markdown-formatted report
     def to_md
-      lines = [Thingie::GitHub::Context::SUMMARY_MARKER, md_heading, md_summary_line,
+      lines = [Thingie::GitHub::Context::SUMMARY_MARKER, md_reviewed_marker, md_summary_line,
                md_files_reviewed, md_run_info].compact
       lines += @report.issues.map { |issue| md_issue(issue) }
       lines.join("\n\n")
@@ -68,11 +68,10 @@ module Thingie
       end
     end
 
-    # Names the reviewed commit so a later, collapsed copy of this comment
-    # still says which push it covered.
-    def md_heading
+    # Names the reviewed commit, out of sight, so a later run can tell which push this covered.
+    def md_reviewed_marker
       sha = @report.target.commit_sha
-      sha ? "### Review of `#{sha.to_s[0, 7]}`" : '### Review'
+      Thingie::GitHub::Context.reviewed_marker(sha) if sha
     end
 
     def md_files_reviewed

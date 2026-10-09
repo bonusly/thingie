@@ -114,7 +114,7 @@ module Thingie
         posted = new_issues.size
         findings = posted == 1 ? 'finding' : 'findings'
         headline = posted.positive? ? "**⚠️ #{posted} new #{findings}, posted as review comments**" : ReportRenderer::NO_NEW_CHANGES
-        parts = ["### Review of `#{commit_id.to_s[0, 7]}`", headline]
+        parts = [Context.reviewed_marker(commit_id), headline]
         parts << new_findings_list(new_issues, links) if posted.positive?
         parts << open_findings_list(open_findings) if open_findings.any?
         parts.join("\n\n")
@@ -414,7 +414,7 @@ module Thingie
 
       def outdated_body(body)
         stripped = body.gsub(Context::SUMMARY_MARKER, '').strip
-        sha = stripped[/Review of `(\h+)`/, 1]
+        sha = Context.reviewed_commit(stripped)
         label = sha ? " of `#{sha}`" : ''
         "#{OUTDATED_PREFIX}#{label}</summary>\n\n#{stripped}\n\n</details>"
       end
