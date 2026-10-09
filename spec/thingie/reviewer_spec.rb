@@ -3,6 +3,7 @@
 require 'spec_helper'
 require 'tmpdir'
 require 'fileutils'
+require 'benchmark'
 
 RSpec.describe Thingie::Reviewer do
   subject(:reviewer) do
@@ -209,6 +210,46 @@ RSpec.describe Thingie::Reviewer do
       expect(report.total_issues).to eq(1)
       expect(report.processing_warnings).to include(/Failed to review other.rb: .*Rate limit exceeded/)
       expect(report.number_of_processed_files).to eq(2)
+    end
+  end
+
+  context 'when one file takes longer than the time limit' do
+    let(:config) { Thingie::Configuration.new(root: tmp_dir, overrides: { 'call_timeout' => 0.05 }) }
+    let(:fake_changeset) do
+      instance_double(Thingie::Changeset).tap do |changeset|
+        allow(changeset).to receive_messages(files: ['app.rb', 'other.rb'], patches: [],
+                                             changed_lines_for: Set.new([1]), all?: false,
+                                             base_ref: 'main', head_ref: 'HEAD', head_sha: 'abc123')
+        allow(changeset).to receive(:diff_text_for) { |file| file == 'other.rb' ? "+ def other\n" : "+ def hello\n" }
+        allow(changeset).to receive(:full_content_for) { |file|
+          "#{file == 'other.rb' ? 'def other' : 'def hello'}\nend\n"
+        }
+      end
+    end
+    let(:fake_llm_client) do
+      issues = [{ 'title' => 'Missing return', 'details' => 'No return value', 'severity' => 2,
+                  'confidence' => 1, 'tags' => ['bug'], 'affected_lines' => [{ 'start_line' => 1 }] }]
+      response = message_double(content: { 'issues' => issues },
+                                input_tokens: 100, output_tokens: 50, tool_calls: {},
+                                cache_read_tokens: nil, cache_write_tokens: nil,
+                                cost: instance_double(RubyLLM::Cost, total: nil),
+                                thinking: nil, thinking_tokens: nil)
+      instance_double(Thingie::LlmClient).tap do |client|
+        allow(client).to receive(:complete_with_schema) do |prompt, _schema, _tools|
+          sleep(5) if prompt.include?('def other')
+
+          response
+        end
+      end
+    end
+
+    it 'gives up on that file with a warning and reviews the rest', :aggregate_failures do
+      report = nil
+      elapsed = Benchmark.realtime { report = reviewer.review }
+
+      expect(report.total_issues).to eq(1)
+      expect(report.processing_warnings).to include(/Failed to review other.rb: .*TimeoutError/)
+      expect(elapsed).to be < 2
     end
   end
 
