@@ -11,6 +11,7 @@ module Thingie
       REVIEW_COMMENT_MARKER = '<!-- thingie-review-comment -->'
       OUTDATED_PREFIX = '<details><summary>Outdated review'
       OPEN_FINDINGS_SHOWN = 5
+      UNCHECKED_NOTE = '_The second look at this finding did not complete, so it is posted as the first pass wrote it._'
       NEW_FINDINGS_SHOWN = 10
       UNCONFIRMED_NOTE = "can't confirm this is resolved"
       REPLIED_FIXED_UNCONFIRMED_NOTE = "replied fixed, can't confirm"
@@ -314,6 +315,7 @@ module Thingie
           REVIEW_COMMENT_MARKER,
           "**[#{severity_label(issue.severity)}] #{issue.title}**",
           issue.details_markdown,
+          (UNCHECKED_NOTE if issue.unchecked?),
           issue.evidence_block,
           tags
         ].compact.join("\n\n")

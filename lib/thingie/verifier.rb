@@ -52,13 +52,14 @@ module Thingie
       verdicts = verify_in_parallel(issues, concurrency)
       issues.zip(verdicts).select { |_issue, verdict| verdict[:keep] }.map do |issue, verdict|
         issue.apply_override(severity: verdict[:severity], confidence: verdict[:confidence])
+        issue.mark_unchecked if verdict[:unchecked]
         issue
       end
     end
 
     # Fail-open default for a slot whose critic call never completes: keep the
     # finding, unchanged.
-    FAIL_OPEN_RESULT = { keep: true, severity: nil, confidence: nil }.freeze
+    FAIL_OPEN_RESULT = { keep: true, severity: nil, confidence: nil, unchecked: true }.freeze
 
     # Errors worth one more try: a call that ran past the time limit, or a reply with no JSON in it. Both come
     # and go at random, so a second call usually succeeds, and a finding checked late beats one posted unchecked.

@@ -108,6 +108,7 @@ module Thingie
       )
       new(id: hash['id'], file: hash['file'], raw_issue: raw, affected_lines: affected_lines).tap do |issue|
         issue.record_tool_calls(review: hash['review_tool_calls'], critic: hash['critic_tool_calls'])
+        issue.mark_unchecked if hash['unchecked']
       end
     end
 
@@ -129,6 +130,23 @@ module Thingie
       @affected_lines = affected_lines
       @review_tool_calls = []
       @critic_tool_calls = []
+      @unchecked = false
+    end
+
+    # Records that the second look at this finding never produced a verdict, so it stands on the first
+    # pass's grade alone. Such a finding is posted as it is rather than judged by a cap that was meant
+    # for the critic's grade, and it blocks auto-approval like any other finding of its severity.
+    #
+    # @return [void]
+    def mark_unchecked
+      @unchecked = true
+    end
+
+    # Whether the second look never produced a verdict for this finding.
+    #
+    # @return [Boolean]
+    def unchecked?
+      @unchecked
     end
 
     # Keeps the tool calls the model made while producing and while checking this finding, for debugging.
@@ -204,6 +222,7 @@ module Thingie
         'evidence' => @evidence,
         'review_tool_calls' => @review_tool_calls,
         'critic_tool_calls' => @critic_tool_calls,
+        'unchecked' => @unchecked,
         'severity' => @severity,
         'confidence' => @confidence,
         'tags' => @tags,

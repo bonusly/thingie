@@ -225,6 +225,7 @@ RSpec.describe Thingie::Verifier do
       elapsed = Benchmark.realtime { kept = verifier.call([issue('stuck'), issue('quick')]) }
 
       expect(kept.map(&:title)).to eq(['stuck'])
+      expect(kept.first).to be_unchecked
       expect(verifier.warnings).to include(/Could not verify finding 'stuck'.*TimeoutError/)
       expect(elapsed).to be < 2
     end

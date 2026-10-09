@@ -3,8 +3,8 @@
 require 'spec_helper'
 
 RSpec.describe Thingie::PostProcessor do
-  def issue(confidence:, severity:)
-    instance_double(Thingie::Issue, confidence: confidence, severity: severity)
+  def issue(confidence:, severity:, unchecked: false)
+    instance_double(Thingie::Issue, confidence: confidence, severity: severity, unchecked?: unchecked)
   end
 
   let(:issues) do
@@ -22,6 +22,14 @@ RSpec.describe Thingie::PostProcessor do
 
     expect(processor.call(issues)).to eq(issues.first(2))
     expect(processor.cap_confidence(issues.first(2))).to eq([issues.first])
+  end
+
+  it 'keeps a finding the critic never graded, whatever its first-pass confidence', :aggregate_failures do
+    unchecked = issue(confidence: 3, severity: 2, unchecked: true)
+    graded = issue(confidence: 3, severity: 2)
+    processor = described_class.new('max_confidence' => 2, 'max_severity' => 3)
+
+    expect(processor.cap_confidence([unchecked, graded])).to eq([unchecked])
   end
 
   it 'keeps only issues within the confidence and severity maximums' do

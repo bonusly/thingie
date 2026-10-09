@@ -308,6 +308,15 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
     end
   end
 
+  it 'says when a finding was never checked by the second look' do
+    issue = build_issue('app.rb', 11).tap(&:mark_unchecked)
+
+    commenter.post_review(summary: 'S', report: report_for([issue]))
+
+    expect(client).to have_received(:create_pull_request_comment)
+      .with('o/r', 1, a_string_including(described_class::UNCHECKED_NOTE), 'commit-sha', 'app.rb', 11, anything)
+  end
+
   it 'posts only a short summary, not the report, when an in-diff issue is found', :aggregate_failures do
     commenter.post_review(summary: 'THE FULL REPORT', report: report_for([build_issue('app.rb', 11)]))
 

@@ -242,6 +242,20 @@ RSpec.describe Thingie::GitHub::Approver do # rubocop:disable RSpec/SpecFilePath
     expect(client).to have_received(:create_pull_request_review)
   end
 
+  it 'blocks, and says which files, when the review skipped a file', :aggregate_failures do
+    stub_threads([])
+    warnings = ['Failed to review app.rb: Async::TimeoutError: execution expired',
+                'Could not parse LLM response for lib/b.rb: no valid JSON found',
+                'Could not verify finding x (c.rb): boom']
+    report = Thingie::Report.new(target: report_for([]).target, model: 'm', issues: [], processing_warnings: warnings)
+
+    approver.run(report)
+
+    expect(client).not_to have_received(:create_pull_request_review)
+    expect(client).to have_received(:add_comment)
+      .with(anything, anything, a_string_including('2 file(s) got no review (app.rb, lib/b.rb)'))
+  end
+
   it 'blocks on an unresolved qualifying Thingie thread' do
     stub_threads([thingie_thread(resolved: false)])
     approver.run(report_for([]))

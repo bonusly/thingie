@@ -22,6 +22,9 @@ module Thingie
       DEFAULT_MAX_CHANGES = 500
       DEFAULT_MAX_SEVERITY = 3
       DEFAULT_SKIP_LABEL = 'thingie-skip-approve'
+      # Warnings that mean a file got no review at all: its call failed or ran past the time limit, or the
+      # model answered with no JSON. An approval must not stand on a review that skipped part of the change.
+      UNREVIEWED_FILE = /\A(Failed to review|Could not parse LLM response for) (\S+)/
 
       # Inverse of Commenter::SEVERITY_LABELS, to read a thread's severity back
       # out of the comment body Thingie wrote (e.g. "[Critical]").
@@ -142,7 +145,19 @@ module Thingie
         reasons << 'unresolved Thingie findings remain' if unresolved?(threads)
         reasons << 'Thingie findings were resolved by the author or a contributor' if self_resolved?(threads, pr)
         reasons << 'a human reviewer requested changes' if human_requested_changes?
+        reasons << incomplete_reason(report) if unreviewed_files(report).any?
         reasons
+      end
+
+      def unreviewed_files(report)
+        report.processing_warnings.filter_map { |warning| warning[UNREVIEWED_FILE, 2]&.delete_suffix(':') }.uniq
+      end
+
+      def incomplete_reason(report)
+        files = unreviewed_files(report)
+        shown = files.first(3)
+        shown << '...' if files.size > shown.size
+        "#{files.size} file(s) got no review (#{shown.join(', ')})"
       end
 
       # Obfuscation findings are a hard block regardless of [approve] max_severity:
@@ -385,6 +400,7 @@ module Thingie
         checks << 'No unresolved Thingie findings'
         checks << 'No findings resolved by the PR author or a contributor'
         checks << 'No human reviewer requested changes'
+        checks << 'Every file was reviewed'
         checks << "Author is a member of #{approval_team}" unless approval_team.empty?
         "**Checks passed**\n\n#{checks.map { |c| "- #{c}" }.join("\n")}"
       end
