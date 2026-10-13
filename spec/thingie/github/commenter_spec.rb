@@ -85,6 +85,33 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
             'commit-sha', 'app.rb', 11, { side: 'RIGHT' })
   end
 
+  context 'when a finding cites several lines of the diff' do
+    let(:issue) do
+      raw = Thingie::RawIssue.new(title: 'T', severity: 1, confidence: 1, details: 'd', tags: [])
+      ranges = [10, 11, 12].map { |line| Thingie::AffectedRange.new(start_line: line, end_line: line) }
+      Thingie::Issue.new(id: 1, file: 'app.rb', raw_issue: raw, affected_lines: ranges)
+    end
+
+    it 'posts one comment, on the first of them', :aggregate_failures do
+      commenter.post_review(summary: 'S', report: report_for([issue]))
+
+      expect(client).to have_received(:create_pull_request_comment).once
+      expect(client).to have_received(:create_pull_request_comment)
+        .with('o/r', 1, anything, 'commit-sha', 'app.rb', 10, { side: 'RIGHT' })
+    end
+
+    it 'moves on to the next line when GitHub refuses one', :aggregate_failures do
+      allow(client).to receive(:create_pull_request_comment)
+        .with('o/r', 1, anything, 'commit-sha', 'app.rb', 10, anything)
+        .and_raise(Octokit::UnprocessableEntity)
+
+      expect { commenter.post_review(summary: 'S', report: report_for([issue])) }.to output(/app.rb:10/).to_stderr
+      expect(client).to have_received(:create_pull_request_comment).twice
+      expect(client).to have_received(:create_pull_request_comment)
+        .with('o/r', 1, anything, 'commit-sha', 'app.rb', 11, { side: 'RIGHT' })
+    end
+  end
+
   it 'posts no evidence line when there is none' do
     commenter.post_review(summary: 'S', report: report_for([build_issue('app.rb', 11)]))
 

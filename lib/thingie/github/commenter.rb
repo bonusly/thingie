@@ -251,20 +251,25 @@ module Thingie
         [heading, issue.details_markdown].compact.join("\n\n")
       end
 
-      # @return [String, true, nil] the link to the first comment posted, true when it had none, nil when
-      #   the finding is not on a line of the diff
+      # Posts the finding once, on the first of its lines GitHub accepts. A finding citing lines 36 and 42
+      # gets one comment on 36, not one on each.
+      #
+      # @return [String, true, nil] the link to the comment, true when it had none, nil when the finding is
+      #   not on a line of the diff
       def post_issue_inline(issue, commit_id)
-        issue.affected_lines.filter_map do |range|
-          next unless range.start_line
+        issue.affected_lines.lazy.filter_map { |range| post_on_range(issue, commit_id, range) }.first
+      end
 
-          line = range.end_line || range.start_line
-          next unless line_in_diff?(issue.file, line)
+      def post_on_range(issue, commit_id, range)
+        return unless range.start_line
 
-          create_inline_comment(issue, commit_id, line)&.html_url || true
-        rescue Octokit::UnprocessableEntity => e
-          warn "Could not post comment on #{issue.file}:#{line} — #{e.message}"
-          nil
-        end.first
+        line = range.end_line || range.start_line
+        return unless line_in_diff?(issue.file, line)
+
+        create_inline_comment(issue, commit_id, line)&.html_url || true
+      rescue Octokit::UnprocessableEntity => e
+        warn "Could not post comment on #{issue.file}:#{line} — #{e.message}"
+        nil
       end
 
       def create_inline_comment(issue, commit_id, line)
