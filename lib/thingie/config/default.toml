@@ -63,6 +63,7 @@ system_one_api_base = "https://openrouter.ai/api"
 # the report; `thingie github-comment` then adds, for each rule whose `threshold`
 # the riskiest file's `overall` score (0.0-1.0) reaches, its `label` to the PR.
 # An optional `title` and `description` appear in the review and the GitHub summary.
+# `github-comment` uses the rules recorded in the report, so changing them takes a new review.
 # Rules may stack: a score that reaches several thresholds adds every label.
 # Define rules as [[escalations]] tables in .thingie/config.toml, for example:
 #   [[escalations]]

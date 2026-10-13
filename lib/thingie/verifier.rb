@@ -115,8 +115,10 @@ module Thingie
       FAIL_OPEN_RESULT
     end
 
+    # Some models answer in the reasoning channel and leave the content empty.
     def parse_content(response)
       content = response&.content
+      content = JsonExtractor.verdict_in(response&.thinking) || content if content.to_s.strip.empty?
       content = JSON.parse(content) if content.is_a?(String)
       content.is_a?(Hash) ? content.transform_keys(&:to_s) : {}
     end

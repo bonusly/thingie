@@ -33,6 +33,16 @@ RSpec.describe Thingie::ChangeRiskScorer do
     expect(result.max).to eq(security: 0.9, overall: 0.5)
   end
 
+  it 'tells the model how many PR files were left out of the list', :aggregate_failures do
+    touched = Array.new(Thingie::PrContext::MAX_FILES + 3) { |i| { path: "f#{i}.rb", status: :modified } }
+    allow(Thingie::PrContext).to receive(:new).and_return(instance_double(Thingie::PrContext, files: touched))
+
+    scorer.call
+
+    expect(states.first[:pr_files].size).to eq(Thingie::PrContext::MAX_FILES + 1)
+    expect(states.first[:pr_files].last).to eq('...and 3 more')
+  end
+
   it 'strips whole-line comments from the diff sent to the model', :aggregate_failures do
     scorer.call
     diff = states.find { |state| state[:path] == 'a.rb' }[:diff]

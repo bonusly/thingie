@@ -401,7 +401,8 @@ module Thingie
       def change_risk_summary(result, rules)
         { 'max' => result.max.transform_keys(&:to_s),
           'files' => result.files.transform_values { |scores| scores.transform_keys(&:to_s) },
-          'escalations' => rules.matching(result.max.fetch(:overall, 0.0)) }
+          'escalations' => rules.matching(result.max.fetch(:overall, 0.0)),
+          'rules' => rules.to_a }
       end
 
       # Applies the escalation labels for a report that carries a change risk. A labelling
@@ -413,7 +414,7 @@ module Thingie
       def apply_escalations(context, report)
         return unless report.change_risk
 
-        rules = Thingie::EscalationRules.new(Thingie::Configuration.new['escalations'])
+        rules = Thingie::EscalationRules.new(report.change_risk['rules'])
         return if rules.empty?
 
         Thingie::GitHub::Escalator.new(

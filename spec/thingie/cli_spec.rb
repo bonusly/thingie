@@ -226,7 +226,8 @@ RSpec.describe Thingie::CLI do
       expect(report.change_risk).to eq('max' => { 'security' => 0.1, 'overall' => 0.7 },
                                        'files' => { 'a.rb' => { 'security' => 0.1, 'overall' => 0.7 } },
                                        'escalations' => [{ 'label' => 'risk: needs review', 'title' => 'Needs review',
-                                                           'description' => 'A person should read this.' }])
+                                                           'description' => 'A person should read this.' }],
+                                       'rules' => rules)
     end
 
     it 'records an empty change risk when no file was scored, so stale labels are cleared' do
@@ -235,7 +236,7 @@ RSpec.describe Thingie::CLI do
 
       run_review
 
-      expect(report.change_risk).to eq('max' => {}, 'files' => {}, 'escalations' => [])
+      expect(report.change_risk).to eq('max' => {}, 'files' => {}, 'escalations' => [], 'rules' => rules)
     end
 
     it 'keeps the review when scoring fails', :aggregate_failures do
@@ -252,17 +253,29 @@ RSpec.describe Thingie::CLI do
       expect { run_review }.to output(/Change risk scoring skipped: handshake failed/).to_stderr
       expect(report.change_risk).to be_nil
     end
+
+    context 'when System One is disabled but escalations are configured' do
+      let(:config) do
+        Thingie::Configuration.new(root: tmp_dir, overrides: { 'system_one_enabled' => false, 'escalations' => rules })
+      end
+
+      it 'warns, skips scoring and leaves the report without a change risk', :aggregate_failures do
+        expect { run_review }.to output(/escalations are configured but System One is disabled/).to_stderr
+        expect(scorer).not_to have_received(:call)
+        expect(report.change_risk).to be_nil
+      end
+    end
   end
 
   context 'when running github-comment on a report with a change risk' do
     let(:rules) { [{ 'threshold' => 0.5, 'label' => 'risk: needs review' }] }
-    let(:config) { Thingie::Configuration.new(root: tmp_dir, overrides: { 'escalations' => rules }) }
+    let(:config) { Thingie::Configuration.new(root: tmp_dir) }
     let(:md_path) { File.join(tmp_dir, 'code-review-report.md') }
     let(:report) do
       target = Thingie::ReviewTarget.new(platform: 'github', repo_url: nil, pr_number: 42, commit_sha: 'deadbeef',
                                          branch: 'feat', base_ref: 'main', head_ref: 'HEAD', merge_base: false)
       Thingie::Report.new(target: target, model: 'm', issues: [], number_of_processed_files: 1).tap do |built|
-        built.change_risk = { 'max' => { 'overall' => 0.7 }, 'files' => {},
+        built.change_risk = { 'max' => { 'overall' => 0.7 }, 'files' => {}, 'rules' => rules,
                               'escalations' => [{ 'label' => 'risk: needs review' }] }
       end
     end
@@ -285,6 +298,13 @@ RSpec.describe Thingie::CLI do
       run_github_comment
 
       expect(escalator).to have_received(:call).with(0.7)
+    end
+
+    it 'builds the rules from the report, not the current config', :aggregate_failures do
+      run_github_comment
+
+      expect(Thingie::GitHub::Escalator).to have_received(:new)
+        .with(hash_including(rules: an_object_having_attributes(managed_labels: ['risk: needs review'])))
     end
 
     it 'still posts the review when labelling fails', :aggregate_failures do

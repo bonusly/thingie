@@ -157,8 +157,9 @@ module Thingie
                 :number_of_processed_files, :processed_files
 
     # The System One change-risk summary, nil when scoring didn't run: `'max'` is the highest score
-    # per question, `'files'` the per-file scores, and `'escalations'` the escalations (a `label`
-    # with an optional `title` and `description`) the `[[escalations]]` rules call for.
+    # per question, `'files'` the per-file scores, `'escalations'` the escalations (a `label`
+    # with an optional `title` and `description`) the `[[escalations]]` rules call for, and `'rules'`
+    # every configured rule, so labelling later doesn't depend on the config being the same.
     #
     # @return [Hash, nil] the string-keyed summary
     attr_reader :change_risk

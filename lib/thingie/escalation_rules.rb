@@ -19,11 +19,18 @@ module Thingie
       @rules.each { |rule| validate(rule) }
     end
 
-    # Whether any rule is configured.
+    # Whether no rule is configured.
     #
     # @return [Boolean] true when no rules are configured
     def empty?
       @rules.empty?
+    end
+
+    # The validated rules, so a report can carry them to a later step.
+    #
+    # @return [Array<Hash>] the rules as configured
+    def to_a
+      @rules.map(&:dup)
     end
 
     # The escalations the score reaches, as the report records them.

@@ -78,7 +78,10 @@ module Thingie
     end
 
     def pr_file_list
-      PrContext.new(@changeset).files.first(PrContext::MAX_FILES).map { |file| "#{file[:status]} #{file[:path]}" }
+      files = PrContext.new(@changeset).files
+      list = files.first(PrContext::MAX_FILES).map { |file| "#{file[:status]} #{file[:path]}" }
+      list << "...and #{files.size - PrContext::MAX_FILES} more" if files.size > PrContext::MAX_FILES
+      list
     end
 
     def max_per_question(scored)
