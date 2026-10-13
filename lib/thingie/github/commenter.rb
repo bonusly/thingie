@@ -14,7 +14,7 @@ module Thingie
       # Older runs wrapped a superseded summary in this; the repeat bar still reads those.
       OUTDATED_PREFIX = '<details><summary>Outdated review'
       OPEN_FINDINGS_SHOWN = 5
-      UNCHECKED_NOTE = '_The second look at this finding did not complete, so it is posted as the first pass wrote it._'
+      UNCHECKED_NOTE = '_The second look at this finding did not complete, so this is the first pass as written._'
       NEW_FINDINGS_SHOWN = 10
       UNCONFIRMED_NOTE = "can't confirm this is resolved"
       REPLIED_FIXED_UNCONFIRMED_NOTE = "replied fixed, can't confirm"
@@ -38,11 +38,15 @@ module Thingie
       #   against the current code, so fixed ones are not listed; every open finding is listed as is when absent
       # @param repeat_max_severity [Integer, nil] on a re-run, the least severe grade (1 = Critical) a new
       #   finding about code unchanged since the last review may have and still be posted; nil disables it
+      # @param inline_max_severity [Integer, nil] the least severe grade a finding may have and still get a
+      #   review thread; less severe ones, and any the second look never graded, are listed collapsed in the
+      #   summary. nil gives every graded finding a thread
       def initialize(token:, owner:, repo:, pr_number:, resolve_token: nil, duplicate_filter: nil,
-                     open_finding_check: nil, repeat_max_severity: nil)
+                     open_finding_check: nil, repeat_max_severity: nil, inline_max_severity: nil)
         @duplicate_filter = duplicate_filter
         @open_finding_check = open_finding_check
         @repeat_max_severity = repeat_max_severity
+        @inline_max_severity = inline_max_severity
         # auto_paginate so PRs with many files/comments aren't truncated to the
         # first page when validating diff lines or collapsing old summaries.
         @client = Octokit::Client.new(access_token: token, auto_paginate: true)
@@ -74,9 +78,11 @@ module Thingie
           post_summary_comment(rerun_summary(summary, still_open(open_threads, commit_id), open_threads.any?))
         else
           new_issues = without_repeats(repeat_bar.call(report.issues, commit_id), open_threads)
-          off_diff, posted = post_inline_comments(new_issues, commit_id)
+          quiet, loud = new_issues.partition { |issue| quiet?(issue) }
+          off_diff, posted = post_inline_comments(loud, commit_id)
           post_off_diff_comment(off_diff)
-          post_summary_comment(run_summary(new_issues, posted, still_open(open_threads, commit_id), commit_id))
+          summary = run_summary(loud, posted, still_open(open_threads, commit_id), commit_id)
+          post_summary_comment([summary, quiet_findings_section(quiet)].compact.join("\n\n"))
         end
       end
 
@@ -243,6 +249,23 @@ module Thingie
         @client.add_comment("#{@owner}/#{@repo}", @pr_number, body)
       end
 
+      def quiet?(issue)
+        severity = Integer(issue.severity, exception: false)
+        issue.unchecked? || (@inline_max_severity && severity && severity > @inline_max_severity)
+      end
+
+      # Findings that don't earn a review thread, folded into the summary so they are on record without a thread
+      # each to reply to and resolve.
+      def quiet_findings_section(issues)
+        return if issues.empty?
+
+        entries = issues.map do |issue|
+          [off_diff_entry(issue), (UNCHECKED_NOTE if issue.unchecked?)].compact.join("\n\n")
+        end
+        "<details><summary>#{issues.size} more finding(s), not posted as review comments</summary>\n\n" \
+          "#{entries.join("\n\n---\n\n")}\n\n</details>"
+      end
+
       def off_diff_entry(issue)
         cited = issue.cited_other_file
         line = issue.affected_lines.first&.start_line
@@ -317,7 +340,6 @@ module Thingie
           REVIEW_COMMENT_MARKER,
           "**[#{severity_label(issue.severity)}] #{issue.title}**",
           issue.details_markdown,
-          (UNCHECKED_NOTE if issue.unchecked?),
           issue.evidence_block,
           tags
         ].compact.join("\n\n")

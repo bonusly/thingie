@@ -308,13 +308,41 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
     end
   end
 
-  it 'says when a finding was never checked by the second look' do
-    issue = build_issue('app.rb', 11).tap(&:mark_unchecked)
+  context 'when the second look never graded a finding' do
+    let(:issue) { build_issue('app.rb', 11).tap(&:mark_unchecked) }
 
-    commenter.post_review(summary: 'S', report: report_for([issue]))
+    it 'lists it collapsed in the summary instead of opening a thread', :aggregate_failures do
+      commenter.post_review(summary: 'S', report: report_for([issue]))
 
-    expect(client).to have_received(:create_pull_request_comment)
-      .with('o/r', 1, a_string_including(described_class::UNCHECKED_NOTE), 'commit-sha', 'app.rb', 11, anything)
+      expect(client).not_to have_received(:create_pull_request_comment)
+      expect(client).to have_received(:add_comment).once
+      expect(client).to have_received(:add_comment).with(
+        'o/r', 1,
+        a_string_including(Thingie::ReportRenderer::NO_NEW_CHANGES,
+                           '<details><summary>1 more finding(s), not posted as review comments</summary>',
+                           '**[Critical] T** (`app.rb:11`)', described_class::UNCHECKED_NOTE)
+      )
+    end
+  end
+
+  context 'with inline_max_severity set' do
+    subject(:commenter) do
+      described_class.new(token: 'token', owner: 'o', repo: 'r', pr_number: 1, inline_max_severity: 3)
+    end
+
+    it 'gives a thread to findings at that severity and lists less severe ones collapsed', :aggregate_failures do
+      medium = build_issue('app.rb', 11, severity: 3)
+      low = build_issue('changed.rb', 6, severity: 4)
+
+      commenter.post_review(summary: 'S', report: report_for([medium, low]))
+
+      expect(client).to have_received(:create_pull_request_comment).once
+      expect(client).to have_received(:create_pull_request_comment)
+        .with('o/r', 1, anything, 'commit-sha', 'app.rb', 11, { side: 'RIGHT' })
+      expect(client).to have_received(:add_comment).with(
+        'o/r', 1, a_string_including('**⚠️ 1 new finding, posted as review comments**', '**[Low] T** (`changed.rb:6`)')
+      )
+    end
   end
 
   it 'posts only a short summary, not the report, when an in-diff issue is found', :aggregate_failures do

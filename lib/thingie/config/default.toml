@@ -211,6 +211,12 @@ require_evidence = false
 # did not repeat it; it resolves when the code it commented on changes.
 max_severity = 2
 
+[comments]
+# Findings less severe than this (1 = Critical, 4 = Low) are listed in a collapsed section of the
+# summary comment instead of getting a review thread each, e.g. 3 keeps Lows out of the threads.
+# A finding the second look never graded is always listed there. Neither changes approval.
+inline_max_severity = 4
+
 [dedupe]
 # Before posting, drop findings that repeat another finding in the same run or a Thingie
 # comment that is still open on the pull request, so a re-run does not post the same
