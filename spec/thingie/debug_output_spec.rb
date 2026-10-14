@@ -25,6 +25,30 @@ RSpec.describe Thingie::DebugOutput do
                              'affected_lines' => [{ 'start_line' => 1 }])
   end
 
+  describe '#banner' do
+    let(:config) do
+      Thingie::Configuration.new(root: Dir.mktmpdir, overrides: { 'verify' => { 'model' => 'z-ai/glm-5.2' } })
+    end
+
+    it 'prints the configured critic model when nothing overrides it' do
+      expect { debug_output.banner }.to output(%r{Critic model: z-ai/glm-5\.2\n}).to_stderr
+    end
+
+    it 'prints the critic model VERIFY_MODEL sets, and what config said' do
+      Thingie::Env['VERIFY_MODEL'] = 'z-ai/glm-5.3'
+
+      expect { debug_output.banner }
+        .to output(%r{Critic model: z-ai/glm-5\.3 \(from VERIFY_MODEL; config says z-ai/glm-5\.2\)}).to_stderr
+    end
+
+    it 'says the review model is reused when VERIFY_MODEL is blank' do
+      Thingie::Env['VERIFY_MODEL'] = ''
+
+      expect { debug_output.banner }
+        .to output(%r{Critic model: reusing review model \(from VERIFY_MODEL; config says z-ai/glm-5\.2\)}).to_stderr
+    end
+  end
+
   describe '#review_call' do
     it 'includes context-window usage when the model info is available' do
       resp = response(input: 1000, output: 500, context_window: 10_000)

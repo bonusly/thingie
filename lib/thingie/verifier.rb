@@ -26,8 +26,10 @@ module Thingie
     # @param debug_output [Thingie::DebugOutput, nil] optional debug output sink
     # @param usage [Thingie::Stats::Usage, nil] optional accumulator fed each critic response
     # @param pr_context [Thingie::PrContext, nil] PR-wide file and definition list for the critic prompt
+    # @param limit [Async::Semaphore, nil] a {Concurrency.limit} shared with other LLM work, in place of
+    #   `max_concurrent_tasks` critic calls of its own
     def initialize(config:, changeset:, prompt_builder:, llm_client:, tools: [], debug_output: nil, usage: nil,
-                   pr_context: nil)
+                   pr_context: nil, limit: nil)
       @config = config
       @changeset = changeset
       @prompt_builder = prompt_builder
@@ -36,6 +38,7 @@ module Thingie
       @debug_output = debug_output
       @usage = usage
       @pr_context = pr_context || PrContext.new(changeset)
+      @limit = limit
       @warnings = []
     end
 
@@ -48,7 +51,7 @@ module Thingie
     def call(issues)
       return issues if issues.empty? || !enabled?
 
-      concurrency = [@config['max_concurrent_tasks'] || 10, 1].max
+      concurrency = @limit || [@config['max_concurrent_tasks'] || 10, 1].max
       verdicts = verify_in_parallel(issues, concurrency)
       issues.zip(verdicts).select { |_issue, verdict| verdict[:keep] }.map do |issue, verdict|
         issue.apply_override(severity: verdict[:severity], confidence: verdict[:confidence])
@@ -67,6 +70,18 @@ module Thingie
     RETRIABLE = [Async::TimeoutError, JSON::ParserError].freeze
     VERDICT_ONLY = 'Reply now with only the JSON verdict object for this finding, no other text.'
 
+    # The `[verify]` settings the critic pass runs with: the config section, with
+    # `VERIFY_ENABLED` and `VERIFY_MODEL` applied over it when set.
+    #
+    # @param config [Thingie::Configuration] full merged configuration
+    # @return [Hash{String=>Object}] the effective `[verify]` settings
+    def self.settings(config)
+      base = (config['verify'] || {}).transform_keys(&:to_s)
+      base['enabled'] = %w[true 1].include?(Env['VERIFY_ENABLED'].to_s.downcase) if Env.key?('VERIFY_ENABLED')
+      base['model'] = Env['VERIFY_MODEL'] if Env.key?('VERIFY_MODEL')
+      base
+    end
+
     private
 
     def tool_budget
@@ -74,10 +89,7 @@ module Thingie
     end
 
     def settings
-      base = (@config['verify'] || {}).transform_keys(&:to_s)
-      base['enabled'] = %w[true 1].include?(Env['VERIFY_ENABLED'].to_s.downcase) if Env.key?('VERIFY_ENABLED')
-      base['model'] = Env['VERIFY_MODEL'] if Env.key?('VERIFY_MODEL')
-      base
+      self.class.settings(@config)
     end
 
     def enabled?

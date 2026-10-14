@@ -19,7 +19,7 @@ exclude_files = [
 # Number of retries for transient LLM failures.
 retries = 3
 
-# Maximum number of concurrent file reviews (uses fibers).
+# Maximum number of LLM calls in flight at once, file reviews and critic checks together (uses fibers).
 max_concurrent_tasks = 10
 
 # Whether to also ask for schema-constrained JSON on calls that have tools. Some

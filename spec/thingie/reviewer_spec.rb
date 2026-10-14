@@ -374,6 +374,90 @@ RSpec.describe Thingie::Reviewer do
     end
   end
 
+  context 'when one file finishes its review while another is still being reviewed' do
+    let(:events) { [] }
+    let(:fake_changeset) do
+      instance_double(Thingie::Changeset).tap do |changeset|
+        allow(changeset).to receive_messages(files: ['slow.rb', 'app.rb'], patches: [],
+                                             changed_lines_for: Set.new([1]), all?: false,
+                                             base_ref: 'main', head_ref: 'HEAD', head_sha: 'abc123')
+        allow(changeset).to receive(:diff_text_for) { |file| file == 'slow.rb' ? "+ def slow\n" : "+ def hello\n" }
+        allow(changeset).to receive(:full_content_for) { |file|
+          "#{file == 'slow.rb' ? 'def slow' : 'def hello'}\nend\n"
+        }
+      end
+    end
+    let(:fake_llm_client) do
+      issues = [{ 'title' => 'Missing return', 'details' => 'No return value', 'severity' => 2,
+                  'confidence' => 1, 'tags' => ['bug'], 'affected_lines' => [{ 'start_line' => 1 }] }]
+      reply = lambda do |content|
+        message_double(content: content, input_tokens: nil, output_tokens: nil, tool_calls: {},
+                       cache_read_tokens: nil, cache_write_tokens: nil,
+                       cost: instance_double(RubyLLM::Cost, total: nil),
+                       model_info: nil, thinking: nil, thinking_tokens: nil)
+      end
+      instance_double(Thingie::LlmClient).tap do |client|
+        allow(client).to receive(:complete_with_schema) do |prompt, *|
+          if prompt.include?('FINDING TO CHALLENGE')
+            events << :critic_started
+            reply.call({ 'verdict' => 'uphold' })
+          elsif prompt.include?('def slow')
+            sleep(0.2)
+            events << :slow_review_finished
+            reply.call({ 'issues' => [] })
+          else
+            reply.call({ 'issues' => issues })
+          end
+        end
+      end
+    end
+
+    it "checks the finished file's findings without waiting for the slow file", :aggregate_failures do
+      report = reviewer.review
+
+      expect(events).to eq(%i[critic_started slow_review_finished])
+      expect(report.issues.map(&:file)).to eq(['app.rb'])
+    end
+  end
+
+  context 'when reviews and critic checks share max_concurrent_tasks' do
+    let(:config) { Thingie::Configuration.new(root: tmp_dir, overrides: { 'max_concurrent_tasks' => 1 }) }
+    let(:in_flight) { { now: 0, peak: 0 } }
+    let(:fake_changeset) do
+      instance_double(Thingie::Changeset).tap do |changeset|
+        allow(changeset).to receive_messages(files: ['app.rb', 'other.rb'], patches: [],
+                                             changed_lines_for: Set.new([1]), all?: false,
+                                             base_ref: 'main', head_ref: 'HEAD', head_sha: 'abc123')
+        allow(changeset).to receive(:diff_text_for) { |file| "+ #{file}\n" }
+        allow(changeset).to receive(:full_content_for) { |file| "#{file}\nend\n" }
+      end
+    end
+    let(:fake_llm_client) do
+      issues = [{ 'title' => 'Missing return', 'details' => 'No return value', 'severity' => 2,
+                  'confidence' => 1, 'tags' => ['bug'], 'affected_lines' => [{ 'start_line' => 1 }] }]
+      instance_double(Thingie::LlmClient).tap do |client|
+        allow(client).to receive(:complete_with_schema) do |prompt, *|
+          in_flight[:now] += 1
+          in_flight[:peak] = [in_flight[:peak], in_flight[:now]].max
+          sleep(0.01)
+          in_flight[:now] -= 1
+          content = prompt.include?('FINDING TO CHALLENGE') ? { 'verdict' => 'uphold' } : { 'issues' => issues }
+          message_double(content: content, input_tokens: nil, output_tokens: nil, tool_calls: {},
+                         cache_read_tokens: nil, cache_write_tokens: nil,
+                         cost: instance_double(RubyLLM::Cost, total: nil),
+                         model_info: nil, thinking: nil, thinking_tokens: nil)
+        end
+      end
+    end
+
+    it 'never runs more LLM calls at once than the limit', :aggregate_failures do
+      report = reviewer.review
+
+      expect(in_flight[:peak]).to eq(1)
+      expect(report.issues.map(&:file)).to eq(['app.rb', 'other.rb'])
+    end
+  end
+
   context 'when reviewing the whole codebase' do
     let(:fake_changeset) do
       instance_double(Thingie::Changeset, patches: [],
