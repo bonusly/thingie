@@ -13,7 +13,7 @@ module Thingie
   # Fail-open: if a verdict can't be obtained or parsed, the finding is KEPT
   # UNCHANGED and a warning is recorded — a broken critic must never silently
   # swallow a real bug or corrupt its grade.
-  class Verifier
+  class Verifier # rubocop:disable Metrics/ClassLength
     attr_reader :warnings
 
     # Builds a verifier for a single run of the critic pass.
@@ -65,8 +65,13 @@ module Thingie
     # with no verdict in it. Both come and go at random, so a second call usually succeeds, and a finding
     # checked late beats one posted unchecked.
     RETRIABLE = [Async::TimeoutError, JSON::ParserError].freeze
+    VERDICT_ONLY = 'Reply now with only the JSON verdict object for this finding, no other text.'
 
     private
+
+    def tool_budget
+      ToolBudget.new(settings.fetch('tool_budget', @config['tool_budget']))
+    end
 
     def settings
       base = (@config['verify'] || {}).transform_keys(&:to_s)
@@ -95,7 +100,7 @@ module Thingie
     # @return [Hash] `{ keep:, severity:, confidence: }` — `severity`/`confidence`
     #   are non-nil only when the critic supplied a validated override.
     def uphold?(issue)
-      budget = ToolBudget.new(@config['tool_budget'])
+      budget = tool_budget
       prompt = @prompt_builder.verify(
         issue: issue,
         diff: @changeset.diff_text_for(issue.file),
@@ -132,22 +137,44 @@ module Thingie
       tries = 0
       begin
         tries += 1
-        budget = ToolBudget.new(@config['tool_budget'])
+        budget = tool_budget
         tool_names = []
-        response = Concurrency.with_timeout(deadline && [deadline - now, 0.001].max) do
+        chats = []
+        response = Concurrency.with_timeout(time_left(deadline)) do
           @llm_client.complete_with_schema(prompt, Schemas::VERDICT_SCHEMA, tools: @tools, tool_log: tool_names,
-                                                                            tool_budget: budget)
+                                                                            tool_budget: budget, chats: chats)
         end
         @debug_output&.tool_budget(tag: 'CRITIC', label: issue.title, budget: budget)
         @usage&.record(response)
         [response, parse_content(response), tool_names]
       rescue *RETRIABLE => e
+        verdict = e.is_a?(JSON::ParserError) && verdict_only(chats.last, deadline, issue, e)
+        return [verdict[0], verdict[1], tool_names] if verdict
         raise if tries > 1 || (deadline && now >= deadline)
 
         @warnings << "Retried the second look at '#{issue.title}' (#{issue.file}) after #{e.class}: #{e.message}"
         @debug_output&.critic_retry(issue: issue, error: e)
         retry
       end
+    end
+
+    # A reply with no verdict usually holds the whole check, just not the JSON. Asking for the JSON in the same
+    # conversation takes seconds; checking the finding again from scratch took the rest of the time limit.
+    #
+    # @return [Array(Object, Hash), nil] the reply and its verdict, or nil when this did not produce one
+    def verdict_only(chat, deadline, issue, error)
+      return if chat.nil? || (deadline && now >= deadline)
+
+      @warnings << "Asked again for the verdict on '#{issue.title}' (#{issue.file}) after #{error.message}"
+      reply = Concurrency.with_timeout(time_left(deadline)) { chat.ask(VERDICT_ONLY) }
+      @usage&.record(reply)
+      [reply, parse_content(reply)]
+    rescue *RETRIABLE
+      nil
+    end
+
+    def time_left(deadline)
+      deadline && [deadline - now, 0.001].max
     end
 
     def now

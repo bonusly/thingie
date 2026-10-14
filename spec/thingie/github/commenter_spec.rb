@@ -36,8 +36,8 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
     allow(client).to receive(:post).and_return({})
   end
 
-  def build_issue(file, start_line, evidence: nil, severity: 1)
-    raw = Thingie::RawIssue.new(title: 'T', severity: severity, confidence: 1, details: 'd', tags: ['bug'],
+  def build_issue(file, start_line, evidence: nil, severity: 1, confidence: 1, title: 'T')
+    raw = Thingie::RawIssue.new(title: title, severity: severity, confidence: confidence, details: 'd', tags: ['bug'],
                                 evidence: evidence)
     range = Thingie::AffectedRange.new(start_line: start_line, end_line: start_line)
     Thingie::Issue.new(id: 1, file: file, raw_issue: raw, affected_lines: [range])
@@ -335,13 +335,63 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
     end
   end
 
-  it 'says when a finding was never checked by the second look' do
-    issue = build_issue('app.rb', 11).tap(&:mark_unchecked)
+  context 'when the second look never graded a finding' do
+    subject(:commenter) do
+      described_class.new(token: 'token', owner: 'o', repo: 'r', pr_number: 1, max_confidence: 2)
+    end
 
-    commenter.post_review(summary: 'S', report: report_for([issue]))
+    it 'gives it a thread with a note when its own confidence is within the line' do
+      issue = build_issue('app.rb', 11, confidence: 2).tap(&:mark_unchecked)
+      commenter.post_review(summary: 'S', report: report_for([issue]))
 
-    expect(client).to have_received(:create_pull_request_comment)
-      .with('o/r', 1, a_string_including(described_class::UNCHECKED_NOTE), 'commit-sha', 'app.rb', 11, anything)
+      expect(client).to have_received(:create_pull_request_comment)
+        .with('o/r', 1, a_string_including(described_class::UNCHECKED_NOTE), 'commit-sha', 'app.rb', 11, anything)
+    end
+
+    it 'lists it as lower confidence, folded in the summary, when its own confidence is past the line',
+       :aggregate_failures do
+      issue = build_issue('app.rb', 11, confidence: 3).tap(&:mark_unchecked)
+      commenter.post_review(summary: 'S', report: report_for([issue]))
+
+      expect(client).not_to have_received(:create_pull_request_comment)
+      expect(client).to have_received(:add_comment).once
+      expect(client).to have_received(:add_comment).with(
+        'o/r', 1,
+        a_string_including(
+          Thingie::ReportRenderer::NO_NEW_CHANGES,
+          '<details><summary>1 lower-confidence finding, not posted as review comments</summary>',
+          "<details><summary>Critical · T · <code>app.rb:11</code></summary>\n\nd\n\n" \
+          "#{described_class::UNCHECKED_NOTE}\n\n</details>"
+        )
+      )
+    end
+  end
+
+  context 'when the critic graded a finding past the confidence line' do
+    let(:held_back) { build_issue('changed.rb', 6, severity: 4, confidence: 3, title: 'Unused `tmp` <method>') }
+
+    def report_with_held_back(issues)
+      target = Thingie::ReviewTarget.new(platform: 'github', repo_url: nil, pr_number: 1, commit_sha: nil,
+                                         branch: nil, base_ref: nil, head_ref: nil, merge_base: false)
+      Thingie::Report.new(target: target, model: 'm', issues: issues, held_back_issues: [held_back])
+    end
+
+    it 'folds it into the summary beside the findings that get threads', :aggregate_failures do
+      commenter.post_review(summary: 'S', report: report_with_held_back([build_issue('app.rb', 11)]))
+
+      expect(client).to have_received(:create_pull_request_comment).once
+      folded = '<details><summary>Low · Unused <code>tmp</code> &lt;method&gt; · <code>changed.rb:6</code></summary>'
+      expect(client).to have_received(:add_comment)
+        .with('o/r', 1, a_string_including('**⚠️ 1 new finding, posted as review comments**', folded))
+    end
+
+    it 'folds it into the summary when it is the only finding', :aggregate_failures do
+      commenter.post_review(summary: 'S', report: report_with_held_back([]))
+
+      expect(client).not_to have_received(:create_pull_request_comment)
+      expect(client).to have_received(:add_comment)
+        .with('o/r', 1, a_string_including('1 lower-confidence finding, not posted as review comments'))
+    end
   end
 
   it 'posts only a short summary, not the report, when an in-diff issue is found', :aggregate_failures do

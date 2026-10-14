@@ -54,7 +54,22 @@ module Thingie
     # @param affected_lines [Array<Thingie::AffectedRange>] code ranges the issue refers to
     # @param evidence [String, nil] what the reviewer confirmed with its tools, and where
     def initialize(title:, severity:, confidence:, details: nil, tags: [], affected_lines: [], evidence: nil)
-      super
+      super(title:, severity:, confidence:, tags:, affected_lines:,
+            details: self.class.text(details), evidence: self.class.text(evidence))
+    end
+
+    # The model sometimes answers a text field with an object, e.g.
+    # `{"What's wrong": "...", "Fix": "..."}`; that becomes `**What's wrong:** ...` paragraphs.
+    #
+    # @param value [String, Hash, Array, nil] the field as the model wrote it
+    # @return [String, nil] the field as text
+    def self.text(value)
+      case value
+      when nil, String then value
+      when Hash then value.map { |label, part| "**#{label}:** #{text(part)}" }.join("\n\n")
+      when Array then value.map { |part| text(part) }.join("\n\n")
+      else value.to_s
+      end
     end
   end
 
@@ -248,7 +263,7 @@ module Thingie
   # Collection of issues and metadata produced by a review run.
   class Report
     attr_reader :target, :issues, :processing_warnings, :created_at, :model,
-                :number_of_processed_files, :processed_files, :unreviewed_files
+                :number_of_processed_files, :processed_files, :unreviewed_files, :held_back_issues
 
     # The System One change-risk summary, nil when scoring didn't run: `'max'` is the highest score
     # per question, `'files'` the per-file scores, `'escalations'` the escalations (a `label`
@@ -295,6 +310,7 @@ module Thingie
         target: target,
         model: data['model'],
         issues: issues,
+        held_back_issues: Array(data['held_back_issues']).map { |issue| Issue.from_hash(issue) },
         processing_warnings: data['processing_warnings'] || [],
         number_of_processed_files: data['number_of_processed_files'],
         processed_files: data['processed_files'] || [],
@@ -313,11 +329,14 @@ module Thingie
     # @param processed_files [Array<String>] paths of the files that were reviewed
     # @param unreviewed_files [Array<String>] paths of the files that got no review: the call failed or ran past
     #   its time limit, or the model answered with no JSON; the approver refuses to approve while any remain
+    # @param held_back_issues [Array<Thingie::Issue>] findings the critic upheld at a confidence past
+    #   `[post_process] max_confidence`: listed collapsed in the summary, never a thread, never blocking approval
     def initialize(target:, model:, issues: [], processing_warnings: [],
-                   number_of_processed_files: nil, processed_files: [], unreviewed_files: [])
+                   number_of_processed_files: nil, processed_files: [], unreviewed_files: [], held_back_issues: [])
       @target = target
       @model = model
       @issues = Array(issues)
+      @held_back_issues = Array(held_back_issues)
       @processing_warnings = Array(processing_warnings)
       @processed_files = Array(processed_files)
       @unreviewed_files = Array(unreviewed_files)
@@ -340,6 +359,7 @@ module Thingie
         'target' => @target.to_h.transform_keys(&:to_s),
         'model' => @model,
         'issues' => @issues.map(&:to_h),
+        'held_back_issues' => @held_back_issues.map(&:to_h),
         'number_of_processed_files' => number_of_processed_files,
         'processed_files' => @processed_files,
         'unreviewed_files' => @unreviewed_files,

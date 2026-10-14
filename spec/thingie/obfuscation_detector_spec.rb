@@ -5,10 +5,7 @@ require 'spec_helper'
 RSpec.describe Thingie::ObfuscationDetector do
   subject(:detector) { described_class.new(changeset) }
 
-  # 80+ hex chars, over the HEX_BLOB detection threshold.
-  let(:hex_payload) do
-    '4142434445464748494a4b4c4d4e4f505152535455565758595a6162636465666768696a6b6c6d6e6f70'
-  end
+  let(:hex_payload) { ObfuscationSamples::HEX_BLOB }
 
   let(:files) { ['app.rb'] }
 
