@@ -22,18 +22,31 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
     ]
   end
 
+  let(:review) { Struct.new(:id).new(42) }
+  let(:review_comment) { Struct.new(:path, :line, :html_url) }
+
   before do
     allow(Octokit::Client).to receive(:new).and_return(client)
     allow(client).to receive_messages(
       pull_request: pr,
       pull_request_files: pr_files,
       issue_comments: [],
-      pull_request_comments: []
+      pull_request_comments: [],
+      create_pull_request_review: review,
+      pull_request_review_comments: []
     )
     allow(client).to receive(:create_pull_request_comment)
     allow(client).to receive(:add_comment)
     # GraphQL review-thread fetch returns no threads by default.
     allow(client).to receive(:post).and_return({})
+  end
+
+  def expect_review_comment(path, line, body = anything)
+    expect(client).to have_received(:create_pull_request_review).with(
+      'o/r', 1,
+      a_hash_including(commit_id: 'commit-sha', event: 'COMMENT',
+                       comments: array_including(a_hash_including(path: path, line: line, side: 'RIGHT', body: body)))
+    )
   end
 
   def build_issue(file, start_line, evidence: nil, severity: 1, confidence: 1, title: 'T')
@@ -52,24 +65,61 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
   it 'posts an inline comment when the line is part of the diff' do
     commenter.post_review(summary: 'S', report: report_for([build_issue('app.rb', 11)]))
 
-    expect(client).to have_received(:create_pull_request_comment)
-      .with('o/r', 1, anything, 'commit-sha', 'app.rb', 11, { side: 'RIGHT' })
+    expect_review_comment('app.rb', 11)
+  end
+
+  it 'posts all the findings on lines of the diff in one review', :aggregate_failures do
+    issues = [build_issue('app.rb', 11), build_issue('changed.rb', 6), build_issue('app.rb', 999)]
+
+    commenter.post_review(summary: 'S', report: report_for(issues))
+
+    expect(client).to have_received(:create_pull_request_review).once
+    expect(client).to have_received(:create_pull_request_review)
+      .with('o/r', 1, a_hash_including(comments: [a_hash_including(path: 'app.rb', line: 11),
+                                                  a_hash_including(path: 'changed.rb', line: 6)]))
+    expect(client).not_to have_received(:create_pull_request_comment)
+    expect(client).to have_received(:add_comment)
+      .with('o/r', 1, a_string_including(described_class::OFF_DIFF_MARKER, '`app.rb:999`'))
+  end
+
+  context 'when GitHub refuses the review' do
+    let(:comment) { Struct.new(:html_url) }
+
+    before do
+      allow(client).to receive(:create_pull_request_review).and_raise(Octokit::UnprocessableEntity)
+      allow(client).to receive(:create_pull_request_comment)
+        .with('o/r', 1, anything, 'commit-sha', 'app.rb', 11, anything).and_return(comment.new('https://example.test/c1'))
+      allow(client).to receive(:create_pull_request_comment)
+        .with('o/r', 1, anything, 'commit-sha', 'changed.rb', 6, anything).and_raise(Octokit::UnprocessableEntity)
+    end
+
+    it 'posts the findings one at a time, keeping the ones GitHub takes', :aggregate_failures do
+      issues = [build_issue('app.rb', 11), build_issue('changed.rb', 6)]
+
+      expect { commenter.post_review(summary: 'S', report: report_for(issues)) }
+        .to output(/posting them one at a time.*changed.rb:6/m).to_stderr
+      expect(client).to have_received(:create_pull_request_comment).twice
+      expect(client).to have_received(:add_comment).with(
+        'o/r', 1,
+        a_string_including('[T](https://example.test/c1) (`app.rb`)', 'T (`changed.rb`), not on a changed line')
+      )
+      expect(client).to have_received(:add_comment)
+        .with('o/r', 1, a_string_including(described_class::OFF_DIFF_MARKER, '`changed.rb:6`'))
+    end
   end
 
   it 'includes the severity label in the inline comment body' do
     commenter.post_review(summary: 'S', report: report_for([build_issue('app.rb', 11)]))
 
-    expect(client).to have_received(:create_pull_request_comment)
-      .with('o/r', 1, a_string_including('[Critical]'), 'commit-sha', 'app.rb', 11, { side: 'RIGHT' })
+    expect_review_comment('app.rb', 11, a_string_including('[Critical]'))
   end
 
   it 'shows the evidence in the inline comment when the reviewer gave some' do
     issue = build_issue('app.rb', 11, evidence: 'award.rb:31 skips the check')
     commenter.post_review(summary: 'S', report: report_for([issue]))
 
-    expect(client).to have_received(:create_pull_request_comment)
-      .with('o/r', 1, a_string_including("<details><summary>Evidence</summary>\n\naward.rb:31 skips the check"),
-            'commit-sha', 'app.rb', 11, { side: 'RIGHT' })
+    expect_review_comment('app.rb', 11,
+                          a_string_including("<details><summary>Evidence</summary>\n\naward.rb:31 skips the check"))
   end
 
   it 'puts the parts of a finding on separate paragraphs in the inline comment' do
@@ -80,9 +130,9 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
 
     commenter.post_review(summary: 'S', report: report_for([issue]))
 
-    expect(client).to have_received(:create_pull_request_comment)
-      .with('o/r', 1, a_string_including("It crashes.\n\n**When it happens:** On a new user.\n\n**Fix:** Skip them."),
-            'commit-sha', 'app.rb', 11, { side: 'RIGHT' })
+    expect_review_comment(
+      'app.rb', 11, a_string_including("It crashes.\n\n**When it happens:** On a new user.\n\n**Fix:** Skip them.")
+    )
   end
 
   context 'when a finding cites several lines of the diff' do
@@ -92,15 +142,15 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
       Thingie::Issue.new(id: 1, file: 'app.rb', raw_issue: raw, affected_lines: ranges)
     end
 
-    it 'posts one comment, on the first of them', :aggregate_failures do
+    it 'posts one comment, on the first of them' do
       commenter.post_review(summary: 'S', report: report_for([issue]))
 
-      expect(client).to have_received(:create_pull_request_comment).once
-      expect(client).to have_received(:create_pull_request_comment)
-        .with('o/r', 1, anything, 'commit-sha', 'app.rb', 10, { side: 'RIGHT' })
+      expect(client).to have_received(:create_pull_request_review)
+        .with('o/r', 1, a_hash_including(comments: [a_hash_including(path: 'app.rb', line: 10)]))
     end
 
-    it 'moves on to the next line when GitHub refuses one', :aggregate_failures do
+    it 'moves on to the next line when GitHub refuses the review and then that line', :aggregate_failures do
+      allow(client).to receive(:create_pull_request_review).and_raise(Octokit::UnprocessableEntity)
       allow(client).to receive(:create_pull_request_comment)
         .with('o/r', 1, anything, 'commit-sha', 'app.rb', 10, anything)
         .and_raise(Octokit::UnprocessableEntity)
@@ -115,15 +165,14 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
   it 'posts no evidence line when there is none' do
     commenter.post_review(summary: 'S', report: report_for([build_issue('app.rb', 11)]))
 
-    expect(client).to have_received(:create_pull_request_comment)
-      .with('o/r', 1, satisfy { |body| !body.include?('Evidence') }, 'commit-sha', 'app.rb', 11, { side: 'RIGHT' })
+    expect_review_comment('app.rb', 11, satisfy { |body| !body.include?('Evidence') })
   end
 
   it 'posts the summary comment only when there are no issues', :aggregate_failures do
     commenter.post_review(summary: 'All good', report: report_for([]))
 
     expect(client).to have_received(:add_comment).with('o/r', 1, a_string_including('All good'))
-    expect(client).not_to have_received(:create_pull_request_comment)
+    expect(client).not_to have_received(:create_pull_request_review)
   end
 
   context 'when the run has no findings but earlier ones are still open' do
@@ -344,17 +393,14 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
       issue = build_issue('app.rb', 11, severity: 1, confidence: 3).tap(&:mark_unchecked)
       commenter.post_review(summary: 'S', report: report_for([issue]))
 
-      expect(client).to have_received(:create_pull_request_comment)
-        .with('o/r', 1, a_string_including('[Critical]', described_class::UNCHECKED_NOTE), 'commit-sha', 'app.rb', 11,
-              anything)
+      expect_review_comment('app.rb', 11, a_string_including('[Critical]', described_class::UNCHECKED_NOTE))
     end
 
     it 'gives it a thread with a note when its own confidence is within the line' do
       issue = build_issue('app.rb', 11, confidence: 2).tap(&:mark_unchecked)
       commenter.post_review(summary: 'S', report: report_for([issue]))
 
-      expect(client).to have_received(:create_pull_request_comment)
-        .with('o/r', 1, a_string_including(described_class::UNCHECKED_NOTE), 'commit-sha', 'app.rb', 11, anything)
+      expect_review_comment('app.rb', 11, a_string_including(described_class::UNCHECKED_NOTE))
     end
 
     it 'lists it as lower confidence, folded in the summary, when its own confidence is past the line',
@@ -362,7 +408,7 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
       issue = build_issue('app.rb', 11, severity: 2, confidence: 3).tap(&:mark_unchecked)
       commenter.post_review(summary: 'S', report: report_for([issue]))
 
-      expect(client).not_to have_received(:create_pull_request_comment)
+      expect(client).not_to have_received(:create_pull_request_review)
       expect(client).to have_received(:add_comment).once
       expect(client).to have_received(:add_comment).with(
         'o/r', 1,
@@ -388,7 +434,7 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
     it 'folds it into the summary beside the findings that get threads', :aggregate_failures do
       commenter.post_review(summary: 'S', report: report_with_held_back([build_issue('app.rb', 11)]))
 
-      expect(client).to have_received(:create_pull_request_comment).once
+      expect_review_comment('app.rb', 11)
       folded = '<details><summary>Low · Unused <code>tmp</code> &lt;method&gt; · <code>changed.rb:6</code></summary>'
       expect(client).to have_received(:add_comment)
         .with('o/r', 1, a_string_including('**⚠️ 1 new finding, posted as review comments**', folded))
@@ -397,7 +443,7 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
     it 'folds it into the summary when it is the only finding', :aggregate_failures do
       commenter.post_review(summary: 'S', report: report_with_held_back([]))
 
-      expect(client).not_to have_received(:create_pull_request_comment)
+      expect(client).not_to have_received(:create_pull_request_review)
       expect(client).to have_received(:add_comment)
         .with('o/r', 1, a_string_including('1 lower-confidence finding, not posted as review comments'))
     end
@@ -414,10 +460,9 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
   end
 
   context 'when the run posts new findings' do
-    let(:comment) { Struct.new(:html_url) }
-
     it 'lists each with its severity and a link, and the off-diff one without', :aggregate_failures do
-      allow(client).to receive(:create_pull_request_comment).and_return(comment.new('https://example.test/c1'))
+      allow(client).to receive(:pull_request_review_comments)
+        .with('o/r', 1, 42).and_return([review_comment.new('app.rb', 11, 'https://example.test/c1')])
       issues = [build_issue('app.rb', 11, severity: 2), build_issue('changed.rb', 99, severity: 3)]
 
       commenter.post_review(summary: 'THE FULL REPORT', report: report_for(issues))
@@ -428,6 +473,30 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
                            '- **High:** [T](https://example.test/c1) (`app.rb`)',
                            '- **Medium:** T (`changed.rb`), not on a changed line')
       )
+    end
+
+    it 'links each finding to its own comment in the review' do
+      allow(client).to receive(:pull_request_review_comments).and_return(
+        [review_comment.new('changed.rb', 6, 'https://example.test/c2'),
+         review_comment.new('app.rb', 11, 'https://example.test/c1')]
+      )
+      issues = [build_issue('app.rb', 11, severity: 2), build_issue('changed.rb', 6, severity: 3)]
+
+      commenter.post_review(summary: 'THE FULL REPORT', report: report_for(issues))
+
+      expect(client).to have_received(:add_comment).with(
+        'o/r', 1,
+        a_string_including('- **High:** [T](https://example.test/c1) (`app.rb`)',
+                           '- **Medium:** [T](https://example.test/c2) (`changed.rb`)')
+      )
+    end
+
+    it 'lists the findings without links when the review\'s comments cannot be fetched', :aggregate_failures do
+      allow(client).to receive(:pull_request_review_comments).and_raise(Octokit::InternalServerError)
+
+      expect { commenter.post_review(summary: 'THE FULL REPORT', report: report_for([build_issue('app.rb', 11)])) }
+        .to output(/Could not fetch the review's comments/).to_stderr
+      expect(client).to have_received(:add_comment).with('o/r', 1, a_string_including("- **Critical:** T (`app.rb`)\n"))
     end
 
     it 'lists a posted finding without a link when GitHub gave none' do
@@ -478,7 +547,7 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
     it 'says there is nothing new and lists the one that is still open', :aggregate_failures do
       commenter.post_review(summary: 'S', report: report_for([build_issue('app.rb', 11)]))
 
-      expect(client).not_to have_received(:create_pull_request_comment)
+      expect(client).not_to have_received(:create_pull_request_review)
       expect(client).to have_received(:add_comment)
         .with('o/r', 1, a_string_including('**✅ No new changes recommended**', 'Still open from earlier reviews (1):',
                                            '[Crash on nil](https://example.test/c1)'))
@@ -510,7 +579,7 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
   it 'collapses issues outside the diff into a details comment, not the summary', :aggregate_failures do
     commenter.post_review(summary: 'S', report: report_for([build_issue('app.rb', 999)]))
 
-    expect(client).not_to have_received(:create_pull_request_comment)
+    expect(client).not_to have_received(:create_pull_request_review)
     expect(client).to have_received(:add_comment)
       .with('o/r', 1, a_string_including(described_class::OFF_DIFF_MARKER, '**[Critical] T** (`app.rb:999`)')
                                  .and(satisfy { |body| !body.include?('<details>') }))
@@ -697,7 +766,7 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
     it 'does not put it on a line, and lists it in the summary comment under the cited file', :aggregate_failures do
       commenter.post_review(summary: 'S', report: report_for([issue]))
 
-      expect(client).not_to have_received(:create_pull_request_comment)
+      expect(client).not_to have_received(:create_pull_request_review)
       expect(client).to have_received(:add_comment)
         .with('o/r', 1, a_string_including(described_class::OFF_DIFF_MARKER, '`other.rb`',
                                            'Query always returns empty'))
@@ -737,7 +806,7 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
 
       expect(filter).to have_received(:call)
         .with([issue], [{ file: 'app.rb', line: 11, text: "**[High] Old title**\n\nOld text" }])
-      expect(client).to have_received(:create_pull_request_comment).once
+      expect(client).to have_received(:create_pull_request_review).once
     end
 
     context 'when a person answered a thread and resolved it' do
@@ -787,7 +856,7 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
 
       commenter.post_review(summary: 'S', report: report_for([build_issue('app.rb', 11)]))
 
-      expect(client).not_to have_received(:create_pull_request_comment)
+      expect(client).not_to have_received(:create_pull_request_review)
       expect(client).not_to have_received(:post).with('/graphql', a_string_including('resolveReviewThread'))
     end
 
@@ -796,7 +865,7 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
 
       expect { commenter.post_review(summary: 'S', report: report_for([build_issue('app.rb', 11)])) }
         .to output(/Could not check for repeated findings.*model timed out/).to_stderr
-      expect(client).to have_received(:create_pull_request_comment).once
+      expect(client).to have_received(:create_pull_request_review).once
     end
   end
 
@@ -826,21 +895,19 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
     it 'holds back a less severe finding about code that did not change', :aggregate_failures do
       expect { commenter.post_review(summary: 'S', report: report_for([build_issue('app.rb', 12, severity: 3)])) }
         .to output(/Held back 1 new finding/).to_stderr
-      expect(client).not_to have_received(:create_pull_request_comment)
+      expect(client).not_to have_received(:create_pull_request_review)
     end
 
     it 'still posts a less severe finding about code that is new since the last review' do
       commenter.post_review(summary: 'S', report: report_for([build_issue('app.rb', 11, severity: 3)]))
 
-      expect(client).to have_received(:create_pull_request_comment)
-        .with('o/r', 1, anything, 'commit-sha', 'app.rb', 11, anything)
+      expect_review_comment('app.rb', 11)
     end
 
     it 'still posts a severe finding about unchanged code' do
       commenter.post_review(summary: 'S', report: report_for([build_issue('app.rb', 12, severity: 2)]))
 
-      expect(client).to have_received(:create_pull_request_comment)
-        .with('o/r', 1, anything, 'commit-sha', 'app.rb', 12, anything)
+      expect_review_comment('app.rb', 12)
     end
   end
 end

@@ -20,6 +20,8 @@ module Thingie
       OPEN_FINDINGS_SHOWN = 5
       UNCHECKED_NOTE = '_The second look at this finding did not complete, so it is posted as the first pass wrote it._'
       NEW_FINDINGS_SHOWN = 10
+      # GitHub wants a body on a COMMENT review; the summary comment says the rest.
+      REVIEW_BODY = 'Thingie review'
       UNCONFIRMED_NOTE = "can't confirm this is resolved"
       REPLIED_FIXED_UNCONFIRMED_NOTE = "replied fixed, can't confirm"
 
@@ -95,21 +97,57 @@ module Thingie
 
       private
 
-      # Post one inline comment per affected line that falls inside the PR diff.
-      # GitHub's review-comment API only accepts line-based comments on diff
+      # Posts the findings on lines of the diff as one review, one comment each, so the author gets one
+      # notification per run. GitHub's review-comment API only accepts line-based comments on diff
       # lines; returns the issues that couldn't be posted inline (off-diff), and for the rest a link to the
       # comment (nil when GitHub gave none). A finding whose text is about another file is never put on a line,
       # because its line numbers belong to that other file.
       #
       # @return [Array(Array<Thingie::Issue>, Hash{Thingie::Issue => String, nil})] `[off_diff, links]`
       def post_inline_comments(issues, commit_id)
-        links = {}
-        off_diff = issues.reject do |issue|
-          posted = issue.cited_other_file.nil? && post_issue_inline(issue, commit_id)
-          links[issue] = (posted if posted.is_a?(String)) if posted
-          posted
+        placed = issues.filter_map do |issue|
+          line = issue.cited_other_file.nil? && first_diff_line(issue)
+          [issue, line] if line
         end
-        [off_diff, links]
+        links = post_as_review(placed, commit_id) || post_each_inline(placed.map(&:first), commit_id)
+        [issues.reject { |issue| links.key?(issue) }, links]
+      end
+
+      # When GitHub refuses the review as a whole, for instance because one line is no longer in the diff,
+      # nothing was posted.
+      #
+      # @return [Hash{Thingie::Issue => String, nil}, nil] links to the comments, nil when GitHub refused the review
+      def post_as_review(placed, commit_id)
+        return {} if placed.empty?
+
+        comments = placed.map { |issue, line| { path: issue.file, line: line, side: 'RIGHT', body: issue_body(issue) } }
+        review = @client.create_pull_request_review("#{@owner}/#{@repo}", @pr_number,
+                                                    commit_id: commit_id, event: 'COMMENT', body: REVIEW_BODY,
+                                                    comments: comments)
+        review_links(placed, review)
+      rescue Octokit::UnprocessableEntity => e
+        warn "Could not post the findings as one review, posting them one at a time — #{e.message}"
+        nil
+      end
+
+      # Matches the review's comments to the findings by file and line, in order, since GitHub returns no ids
+      # for the comments it creates with a review.
+      def review_links(placed, review)
+        urls = Hash.new { |hash, key| hash[key] = [] }
+        @client.pull_request_review_comments("#{@owner}/#{@repo}", @pr_number, review.id).each do |comment|
+          urls[[comment.path, comment.line]] << comment.html_url
+        end
+        placed.to_h { |issue, line| [issue, urls[[issue.file, line]].shift] }
+      rescue Octokit::Error => e
+        warn "Could not fetch the review's comments to link them — #{e.message}"
+        placed.to_h { |issue, _line| [issue, nil] }
+      end
+
+      def post_each_inline(issues, commit_id)
+        issues.each_with_object({}) do |issue, links|
+          posted = post_issue_inline(issue, commit_id)
+          links[issue] = (posted if posted.is_a?(String)) if posted
+        end
       end
 
       # The summary describes only this run. On a PR Thingie has reviewed before, "No changes recommended"
@@ -333,11 +371,20 @@ module Thingie
         issue.affected_lines.lazy.filter_map { |range| post_on_range(issue, commit_id, range) }.first
       end
 
-      def post_on_range(issue, commit_id, range)
+      def first_diff_line(issue)
+        issue.affected_lines.lazy.filter_map { |range| diff_line(issue, range) }.first
+      end
+
+      def diff_line(issue, range)
         return unless range.start_line
 
         line = range.end_line || range.start_line
-        return unless line_in_diff?(issue.file, line)
+        line if line_in_diff?(issue.file, line)
+      end
+
+      def post_on_range(issue, commit_id, range)
+        line = diff_line(issue, range)
+        return unless line
 
         create_inline_comment(issue, commit_id, line)&.html_url || true
       rescue Octokit::Error, Faraday::Error => e
