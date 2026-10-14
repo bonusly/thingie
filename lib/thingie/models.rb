@@ -54,7 +54,22 @@ module Thingie
     # @param affected_lines [Array<Thingie::AffectedRange>] code ranges the issue refers to
     # @param evidence [String, nil] what the reviewer confirmed with its tools, and where
     def initialize(title:, severity:, confidence:, details: nil, tags: [], affected_lines: [], evidence: nil)
-      super
+      super(title:, severity:, confidence:, tags:, affected_lines:,
+            details: self.class.text(details), evidence: self.class.text(evidence))
+    end
+
+    # The model sometimes answers a text field with an object, e.g.
+    # `{"What's wrong": "...", "Fix": "..."}`; that becomes `**What's wrong:** ...` paragraphs.
+    #
+    # @param value [String, Hash, Array, nil] the field as the model wrote it
+    # @return [String, nil] the field as text
+    def self.text(value)
+      case value
+      when nil, String then value
+      when Hash then value.map { |label, part| "**#{label}:** #{text(part)}" }.join("\n\n")
+      when Array then value.map { |part| text(part) }.join("\n\n")
+      else value.to_s
+      end
     end
   end
 

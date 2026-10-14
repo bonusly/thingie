@@ -4,6 +4,7 @@ require 'thingie'
 require 'tmpdir'
 require_relative 'support/llm_doubles'
 require_relative 'support/git_repo'
+require_relative 'support/obfuscation_samples'
 
 # Default set of environment variables for specs. Empty by default so a
 # developer's real shell exports (LLM_API_KEY, VERIFY_MODEL, etc.) can never
