@@ -207,13 +207,13 @@ json_requirements = """
 require_parameters = true
 
 # Provider preferences sent with every OpenRouter call, as OpenRouter's `provider` request object
-# (https://openrouter.ai/docs/features/provider-routing). Left out, OpenRouter favors the cheapest
-# provider, which for some models is a 4-bit quantized one. For example:
-#
-# [openrouter.provider]
-# quantizations = ["fp8", "bf16", "fp16"]  # skip fp4/int4 providers
-# sort = "throughput"                      # fastest first instead of cheapest
-# require_parameters = true                # on every call, not only calls with tools
+# (https://openrouter.ai/docs/features/provider-routing). Without a sort, OpenRouter favors the
+# cheapest provider, and for GLM-5.3 the cheapest were slow enough that file reviews timed out.
+# Other keys OpenRouter takes include `order`, `only`, `ignore`, `quantizations` (a list like
+# ["fp8", "bf16"]; it also drops providers that don't publish one) and `require_parameters`
+# (here it would apply to every call, not only calls with tools).
+[openrouter.provider]
+sort = "throughput"
 
 [review]
 # Which bundled review prompt the first pass uses.

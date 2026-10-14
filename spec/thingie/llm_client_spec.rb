@@ -182,16 +182,17 @@ RSpec.describe Thingie::LlmClient do
         client.complete_with_schema('prompt', { type: 'object' }, tools: tools)
       end
 
-      it 'asks for providers that support every request parameter when the call has tools' do
+      it 'asks for the fastest providers that support every request parameter when the call has tools' do
         complete(described_class.new(config), [instance_double(RubyLLM::Tool)])
 
-        expect(chat_double).to have_received(params_method).with(provider: { require_parameters: true })
+        expect(chat_double).to have_received(params_method)
+          .with(provider: { sort: 'throughput', require_parameters: true })
       end
 
-      it 'routes freely when the call has no tools' do
+      it 'asks for the fastest providers by default when the call has no tools' do
         complete(described_class.new(config), [])
 
-        expect(chat_double).not_to have_received(params_method)
+        expect(chat_double).to have_received(params_method).with(provider: { sort: 'throughput' })
       end
 
       it 'routes freely when [openrouter] require_parameters is false' do
