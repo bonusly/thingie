@@ -36,8 +36,8 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
     allow(client).to receive(:post).and_return({})
   end
 
-  def build_issue(file, start_line, evidence: nil, severity: 1)
-    raw = Thingie::RawIssue.new(title: 'T', severity: severity, confidence: 1, details: 'd', tags: ['bug'],
+  def build_issue(file, start_line, evidence: nil, severity: 1, confidence: 1, title: 'T')
+    raw = Thingie::RawIssue.new(title: title, severity: severity, confidence: confidence, details: 'd', tags: ['bug'],
                                 evidence: evidence)
     range = Thingie::AffectedRange.new(start_line: start_line, end_line: start_line)
     Thingie::Issue.new(id: 1, file: file, raw_issue: raw, affected_lines: [range])
@@ -309,18 +309,33 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
   end
 
   context 'when the second look never graded a finding' do
-    let(:issue) { build_issue('app.rb', 11).tap(&:mark_unchecked) }
+    subject(:commenter) do
+      described_class.new(token: 'token', owner: 'o', repo: 'r', pr_number: 1, max_confidence: 2)
+    end
 
-    it 'lists it collapsed in the summary instead of opening a thread', :aggregate_failures do
+    it 'gives it a thread with a note when its own confidence is within the line' do
+      issue = build_issue('app.rb', 11, confidence: 2).tap(&:mark_unchecked)
+      commenter.post_review(summary: 'S', report: report_for([issue]))
+
+      expect(client).to have_received(:create_pull_request_comment)
+        .with('o/r', 1, a_string_including(described_class::UNCHECKED_NOTE), 'commit-sha', 'app.rb', 11, anything)
+    end
+
+    it 'lists it as lower confidence, folded in the summary, when its own confidence is past the line',
+       :aggregate_failures do
+      issue = build_issue('app.rb', 11, confidence: 3).tap(&:mark_unchecked)
       commenter.post_review(summary: 'S', report: report_for([issue]))
 
       expect(client).not_to have_received(:create_pull_request_comment)
       expect(client).to have_received(:add_comment).once
       expect(client).to have_received(:add_comment).with(
         'o/r', 1,
-        a_string_including(Thingie::ReportRenderer::NO_NEW_CHANGES,
-                           '<details><summary>1 more finding(s), not posted as review comments</summary>',
-                           '**[Critical] T** (`app.rb:11`)', described_class::UNCHECKED_NOTE)
+        a_string_including(
+          Thingie::ReportRenderer::NO_NEW_CHANGES,
+          '<details><summary>1 more finding(s), not posted as review comments (1 lower confidence)</summary>',
+          "<details><summary>Critical · T · <code>app.rb:11</code> · lower confidence</summary>\n\nd\n\n" \
+          "#{described_class::UNCHECKED_NOTE}\n\n</details>"
+        )
       )
     end
   end
@@ -330,17 +345,20 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
       described_class.new(token: 'token', owner: 'o', repo: 'r', pr_number: 1, inline_max_severity: 3)
     end
 
-    it 'gives a thread to findings at that severity and lists less severe ones collapsed', :aggregate_failures do
+    it 'gives a thread to findings at that severity and folds less severe ones into the summary',
+       :aggregate_failures do
       medium = build_issue('app.rb', 11, severity: 3)
-      low = build_issue('changed.rb', 6, severity: 4)
+      low = build_issue('changed.rb', 6, severity: 4, title: 'Unused `tmp` <method>')
 
       commenter.post_review(summary: 'S', report: report_for([medium, low]))
 
       expect(client).to have_received(:create_pull_request_comment).once
       expect(client).to have_received(:create_pull_request_comment)
         .with('o/r', 1, anything, 'commit-sha', 'app.rb', 11, { side: 'RIGHT' })
+      low_line = '<details><summary>Low · Unused <code>tmp</code> &lt;method&gt; · <code>changed.rb:6</code></summary>'
       expect(client).to have_received(:add_comment).with(
-        'o/r', 1, a_string_including('**⚠️ 1 new finding, posted as review comments**', '**[Low] T** (`changed.rb:6`)')
+        'o/r', 1, a_string_including('**⚠️ 1 new finding, posted as review comments**', '(1 low severity)</summary>',
+                                     low_line)
       )
     end
   end
