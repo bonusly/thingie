@@ -42,20 +42,23 @@ module Thingie
     # @return [Thingie::Stats::Usage] accumulated LLM token/cost usage for the run
     attr_reader :usage
 
-    # Run the full review pipeline: gather LLM findings for each changed file, post-process,
-    # enrich with code snippets, run the critic pass, scan changed files for obfuscation
-    # (added after the critic pass so thresholds cannot suppress it), sort by severity,
-    # and assign issue ids.
+    # Run the full review pipeline. Each changed file's findings are severity-capped, enriched with code
+    # snippets and sent to the critic as soon as that file's review returns, while other files are still
+    # being reviewed. Then obfuscation is scanned for in the changed files (after the critic pass so
+    # thresholds cannot suppress it), findings are sorted by severity, and issue ids are assigned.
     def review
       @debug_output.banner
       @debug_output.review_section_start
-      issues = gather_llm_issues
-      post_processor = PostProcessor.new(@config['post_process'])
-      filtered = post_processor.call(issues)
-      @debug_output.post_process(before: issues.size, after: filtered.size)
-      enriched = CodeEnricher.new(@changeset).call(filtered)
+      results = gather_checked_issues
+      found = results.sum { |result| result[:found] }
+      enriched = results.flat_map { |result| result[:enriched] }
+      kept = results.flat_map { |result| result[:kept] }
+      @debug_output.post_process(before: found, after: enriched.size)
       @debug_output.first_pass(enriched)
-      verified, held_back = post_processor.split_confidence(verify(enriched))
+      start_critic_section
+      @debug_output.critic(enriched, kept)
+      @warnings.concat(@verifier.warnings)
+      verified, held_back = @post_processor.split_confidence(kept)
       obfuscated = ObfuscationDetector.new(@changeset).call
       sorted = (verified + obfuscated).sort_by { |issue| issue.severity || Float::INFINITY }
       sorted.each_with_index { |issue, index| issue.id = index + 1 }
@@ -78,33 +81,37 @@ module Thingie
       )
     end
 
-    def verify(issues)
-      @debug_output.critic_section_start
-      verifier = Verifier.new(
+    # Reviews and critic checks share one bound of `max_concurrent_tasks` LLM calls. A file holds it
+    # only while its review runs, then lets go before its findings wait on the critic. Results come
+    # back in file order, so the report does not depend on which file finished first.
+    def gather_checked_issues
+      files = @changeset.files
+      limit = Concurrency.limit(@config['max_concurrent_tasks'] || 10)
+      @post_processor = PostProcessor.new(@config['post_process'])
+      @enricher = CodeEnricher.new(@changeset)
+      @verifier = Verifier.new(
         config: @config, changeset: @changeset, prompt_builder: @prompt_builder,
         llm_client: @llm_client, tools: @tools, debug_output: @debug_output, usage: @usage,
-        pr_context: @pr_context
+        pr_context: @pr_context, limit: limit
       )
-      kept = verifier.call(issues)
-      @warnings.concat(verifier.warnings)
-      @debug_output.critic(issues, kept)
-      kept
-    end
-
-    def gather_llm_issues
-      files = @changeset.files
-      concurrency = [@config['max_concurrent_tasks'] || 10, 1].max
-      # Always go through the parallel path (a concurrency of 1 runs serially)
-      # so behavior is identical regardless of concurrency.
-      issues = review_in_parallel(files, concurrency)
+      # Per-file failures are rescued inside #review_file, so a file's block only raises on a bug.
+      results = Concurrency.map(files, [files.size, 1].max) { |file| review_and_check(file, limit) }
       raise_if_total_failure(files)
-      issues
+      results
     end
 
-    # Per-file failures are rescued inside #review_file, so the block never
-    # raises; a file that fails is skipped with a warning and returns [].
-    def review_in_parallel(files, concurrency)
-      Concurrency.map(files, concurrency) { |file| review_file(file) }.flatten(1)
+    def review_and_check(file, limit)
+      issues = limit.acquire { review_file(file) }
+      enriched = @enricher.call(@post_processor.call(issues))
+      start_critic_section if enriched.any?
+      { found: issues.size, enriched: enriched, kept: @verifier.call(enriched) }
+    end
+
+    def start_critic_section
+      return if @critic_section_started
+
+      @critic_section_started = true
+      @debug_output.critic_section_start
     end
 
     # A review where every file failed (dead API key, unreachable provider)
