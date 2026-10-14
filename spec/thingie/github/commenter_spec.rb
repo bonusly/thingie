@@ -627,6 +627,7 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
 
     before do
       allow(client).to receive(:issue_comments).and_return([old])
+      allow(client).to receive(:create_pull_request_review).and_raise(Octokit::BadGateway)
       allow(client).to receive(:create_pull_request_comment).and_raise(Octokit::BadGateway)
       allow(client).to receive(:add_comment) do |_repo, _pr, body|
         order << (body.include?('thingie-off-diff') ? :off_diff : :summary)

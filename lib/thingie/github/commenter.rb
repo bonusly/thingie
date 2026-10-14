@@ -125,7 +125,7 @@ module Thingie
                                                     commit_id: commit_id, event: 'COMMENT', body: REVIEW_BODY,
                                                     comments: comments)
         review_links(placed, review)
-      rescue Octokit::UnprocessableEntity => e
+      rescue Octokit::Error => e
         warn "Could not post the findings as one review, posting them one at a time — #{e.message}"
         nil
       end
