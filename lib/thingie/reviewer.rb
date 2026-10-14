@@ -66,6 +66,16 @@ module Thingie
       build_report(sorted, held_back.sort_by { |issue| issue.severity || Float::INFINITY })
     end
 
+    # Failures worth asking a file once more: a reply with no JSON (or an empty one), a call that ran past
+    # `call_timeout`, and connection, timeout, rate-limit and 5xx errors from the provider. Each comes
+    # and goes, so the second call usually succeeds. Errors such as a bad API key or a bad request
+    # would fail the same way again.
+    RETRIABLE = [
+      JSON::ParserError, Async::TimeoutError, Timeout::Error, Errno::ETIMEDOUT,
+      Faraday::TimeoutError, Faraday::ConnectionFailed,
+      RubyLLM::RateLimitError, RubyLLM::ServerError, RubyLLM::ServiceUnavailableError, RubyLLM::OverloadedError
+    ].freeze
+
     private
 
     def build_report(issues, held_back)
@@ -126,23 +136,32 @@ module Thingie
             "(#{file}: #{error.class}: #{error.message}); aborting instead of reporting an empty review"
     end
 
-    # A reply with no JSON, or an empty one, is asked once more: the model often answers properly the
-    # second time. A timed-out file is not, since a second try could take as long again.
     def review_file(file)
       attempts = 0
       begin
         attempts += 1
         review_file_once(file)
-      rescue JSON::ParserError => e
+      rescue *RETRIABLE => e
         if attempts == 1
-          @warnings << "Retried the review of #{file} after JSON::ParserError: #{e.message}"
+          @warnings << "Retried the review of #{file} after #{e.class}: #{e.message}"
           retry
         end
-        @warnings << "Could not parse LLM response for #{file}: #{e.message}"
-        @unreviewed_files << file
-        @debug_output.review_error(file: file, error: e)
-        []
+        give_up_on(file, e)
+      rescue StandardError => e
+        give_up_on(file, e)
       end
+    end
+
+    def give_up_on(file, error)
+      if error.is_a?(JSON::ParserError)
+        @warnings << "Could not parse LLM response for #{file}: #{error.message}"
+      else
+        @warnings << "Failed to review #{file}: #{error.class}: #{error.message}"
+        @file_failures << [file, error]
+      end
+      @unreviewed_files << file
+      @debug_output.review_error(file: file, error: error)
+      []
     end
 
     def review_file_once(file)
@@ -166,14 +185,6 @@ module Thingie
       issues.each { |issue| issue.record_tool_calls(review: tool_names) }
       @debug_output.review_call(file: file, response: response, issues: issues, tool_names: tool_names)
       only_changed_lines(issues, file)
-    rescue JSON::ParserError
-      raise
-    rescue StandardError => e
-      @warnings << "Failed to review #{file}: #{e.class}: #{e.message}"
-      @file_failures << [file, e]
-      @unreviewed_files << file
-      @debug_output.review_error(file: file, error: e)
-      []
     end
 
     # The full file is sent to the LLM as context, so it can flag issues on
