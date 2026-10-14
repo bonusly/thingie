@@ -247,6 +247,9 @@ bar = "default"
 # the time left; one that ran out the clock is not. A finding the critic could not grade is posted
 # unchecked and a warning is recorded. 0 means no limit.
 timeout = 120
+# Most tool calls one critic call may make. Unset, it is the top-level `tool_budget`. The critic
+# judges one finding, so it can afford more calls than a file review, e.g. 5 with a review budget of 3.
+# tool_budget = 5
 # Optional: run the critic on a stronger model than the review (same provider
 # and API key). Leave empty to reuse the review model.
 # model = "claude-opus-4.8"

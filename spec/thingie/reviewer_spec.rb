@@ -382,6 +382,34 @@ RSpec.describe Thingie::Reviewer do
     end
   end
 
+  context 'when the first reply has no JSON and the second does' do
+    let(:fake_llm_client) do
+      issues = [{ 'title' => 'Missing return', 'details' => 'No return value', 'severity' => 2,
+                  'confidence' => 1, 'tags' => ['bug'], 'affected_lines' => [{ 'start_line' => 1 }] }]
+      cost_stub = instance_double(RubyLLM::Cost, total: nil)
+      reply = lambda do |content|
+        message_double(content: content, input_tokens: nil, output_tokens: nil, tool_calls: {},
+                       cache_read_tokens: nil, cache_write_tokens: nil, cost: cost_stub,
+                       model_info: nil, thinking: nil, thinking_tokens: nil)
+      end
+      replies = [reply.call('not valid json'), reply.call({ 'issues' => issues })]
+      verdict = reply.call({ 'verdict' => 'uphold' })
+      instance_double(Thingie::LlmClient).tap do |client|
+        allow(client).to receive(:complete_with_schema) do |prompt, *|
+          prompt.include?('FINDING TO CHALLENGE') ? verdict : replies.shift
+        end
+      end
+    end
+
+    it 'asks again and reviews the file', :aggregate_failures do
+      report = reviewer.review
+
+      expect(report.total_issues).to eq(1)
+      expect(report.unreviewed_files).to be_empty
+      expect(report.processing_warnings).to include(/Retried the review of app.rb after JSON::ParserError/)
+    end
+  end
+
   context 'when the LLM returns a nil response' do
     let(:fake_llm_client) do
       instance_double(Thingie::LlmClient, complete_with_schema: nil)
