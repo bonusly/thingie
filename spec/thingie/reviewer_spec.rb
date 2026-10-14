@@ -280,14 +280,97 @@ RSpec.describe Thingie::Reviewer do
       end
     end
 
-    it 'gives up on that file with a warning and reviews the rest', :aggregate_failures do
+    it 'tries that file once more, then gives up on it with a warning and reviews the rest', :aggregate_failures do
       report = nil
       elapsed = Benchmark.realtime { report = reviewer.review }
 
       expect(report.total_issues).to eq(1)
+      expect(fake_llm_client).to have_received(:complete_with_schema).with(/def other/, any_args).twice
+      expect(report.processing_warnings).to include(/Retried the review of other.rb after Async::TimeoutError/)
       expect(report.processing_warnings).to include(/Failed to review other.rb: .*TimeoutError/)
       expect(report.unreviewed_files).to eq(['other.rb'])
       expect(elapsed).to be < 2
+    end
+  end
+
+  context 'when a review call fails' do
+    let(:config) { Thingie::Configuration.new(root: tmp_dir, overrides: { 'call_timeout' => 0.05 }) }
+    let(:review_prompts) { [] }
+    let(:fake_llm_client) do
+      issues = [{ 'title' => 'Missing return', 'details' => 'No return value', 'severity' => 2,
+                  'confidence' => 1, 'tags' => ['bug'], 'affected_lines' => [{ 'start_line' => 1 }] }]
+      cost_stub = instance_double(RubyLLM::Cost, total: nil)
+      reply = lambda do |content|
+        message_double(content: content, input_tokens: nil, output_tokens: nil, tool_calls: {},
+                       cache_read_tokens: nil, cache_write_tokens: nil, cost: cost_stub,
+                       model_info: nil, thinking: nil, thinking_tokens: nil)
+      end
+      instance_double(Thingie::LlmClient).tap do |client|
+        allow(client).to receive(:complete_with_schema) do |prompt, *|
+          next reply.call({ 'verdict' => 'uphold' }) if prompt.include?('FINDING TO CHALLENGE')
+
+          review_prompts << prompt
+          case (failure = failures.shift)
+          when :timeout then sleep(5)
+          when :no_json then next reply.call('not valid json')
+          when Exception then raise failure
+          end
+          reply.call({ 'issues' => issues })
+        end
+      end
+    end
+
+    context 'when the first call times out and the second answers' do
+      let(:failures) { [:timeout] }
+
+      it 'tries again and reviews the file', :aggregate_failures do
+        report = reviewer.review
+
+        expect(review_prompts.size).to eq(2)
+        expect(report.total_issues).to eq(1)
+        expect(report.unreviewed_files).to be_empty
+        expect(report.processing_warnings).to include(/Retried the review of app.rb after Async::TimeoutError/)
+      end
+    end
+
+    context 'when the provider is overloaded on the first call' do
+      let(:failures) { [llm_error(RubyLLM::OverloadedError, 'Overloaded')] }
+
+      it 'tries again and reviews the file', :aggregate_failures do
+        report = reviewer.review
+
+        expect(report.total_issues).to eq(1)
+        expect(report.processing_warnings).to include(/Retried the review of app.rb after RubyLLM::OverloadedError/)
+      end
+    end
+
+    context 'when the connection fails on the first call' do
+      let(:failures) { [Faraday::ConnectionFailed.new('Failed to open TCP connection')] }
+
+      it 'tries again and reviews the file', :aggregate_failures do
+        report = reviewer.review
+
+        expect(report.total_issues).to eq(1)
+        expect(report.processing_warnings).to include(/Retried the review of app.rb after Faraday::ConnectionFailed/)
+      end
+    end
+
+    context 'when the first reply has no JSON and the second call times out' do
+      let(:failures) { %i[no_json timeout] }
+
+      it 'gives up after the second call' do
+        expect { reviewer.review }.to raise_error(RuntimeError, /All 1 file reviews failed.*TimeoutError/m)
+        expect(review_prompts.size).to eq(2)
+      end
+    end
+
+    context 'when the API key is rejected' do
+      let(:failures) { [llm_error(RubyLLM::UnauthorizedError, 'Invalid API key')] }
+
+      it 'does not try again' do
+        expect { reviewer.review }.to raise_error(RuntimeError, /All 1 file reviews failed.*Invalid API key/m)
+        expect(review_prompts.size).to eq(1)
+      end
     end
   end
 
