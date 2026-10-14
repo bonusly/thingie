@@ -238,9 +238,7 @@ module Thingie
       files = @changeset.files
       warn '[DEBUG] Review starting'
       warn "[DEBUG] Model: #{@config['model']} | Provider: #{@config['provider']}"
-      critic_model = @config.dig('verify', 'model')
-      critic_line = critic_model && !critic_model.to_s.strip.empty? ? critic_model : 'reusing review model'
-      warn "[DEBUG] Critic model: #{critic_line}"
+      warn "[DEBUG] Critic model: #{critic_model_line}"
       warn "[DEBUG] Files (#{files.size}): #{files.join(', ')}"
     end
 
@@ -430,6 +428,24 @@ module Thingie
       warnings.each_with_index do |warning, i|
         warn "[DEBUG]   #{i + 1}. #{warning}"
       end
+    end
+
+    private
+
+    # The critic model the Verifier will run with, naming `VERIFY_MODEL` and the
+    # config value when the variable overrides a different one.
+    #
+    # @return [String] e.g. "z-ai/glm-5.3 (from VERIFY_MODEL; config says z-ai/glm-5.2)"
+    def critic_model_line
+      effective = critic_model_name(Verifier.settings(@config)['model'])
+      configured = critic_model_name(@config.dig('verify', 'model'))
+      return effective if !Env.key?('VERIFY_MODEL') || effective == configured
+
+      "#{effective} (from VERIFY_MODEL; config says #{configured})"
+    end
+
+    def critic_model_name(model)
+      model && !model.to_s.strip.empty? ? model : 'reusing review model'
     end
   end
 end
