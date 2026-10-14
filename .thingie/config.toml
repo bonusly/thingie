@@ -49,8 +49,8 @@ protected_paths = [
 
 [[escalations]]
 threshold=0.5
-label="claude-code-review"
+label="medium-risk"
 
 [[escalations]]
 threshold=0.75
-label="no-auto-approve"
+label="high-risk"
