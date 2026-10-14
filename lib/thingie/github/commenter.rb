@@ -39,16 +39,13 @@ module Thingie
       #   against the current code, so fixed ones are not listed; every open finding is listed as is when absent
       # @param repeat_max_severity [Integer, nil] on a re-run, the least severe grade (1 = Critical) a new
       #   finding about code unchanged since the last review may have and still be posted; nil disables it
-      # @param inline_max_severity [Integer, nil] the least severe grade a finding may have and still get a
-      #   review thread; less severe ones are listed collapsed in the summary. nil gives every finding a thread
       # @param max_confidence [Integer, nil] the `[post_process] max_confidence` line. A finding the second look
       #   never graded is held to it on its own grade: past it, it is listed collapsed instead of getting a thread
       def initialize(token:, owner:, repo:, pr_number:, resolve_token: nil, duplicate_filter: nil,
-                     open_finding_check: nil, repeat_max_severity: nil, inline_max_severity: nil, max_confidence: nil)
+                     open_finding_check: nil, repeat_max_severity: nil, max_confidence: nil)
         @duplicate_filter = duplicate_filter
         @open_finding_check = open_finding_check
         @repeat_max_severity = repeat_max_severity
-        @inline_max_severity = inline_max_severity
         @max_confidence = max_confidence
         # auto_paginate so PRs with many files/comments aren't truncated to the
         # first page when validating diff lines or collapsing old summaries.
@@ -77,15 +74,17 @@ module Thingie
         commit_id = pr.head.sha
         open_threads = resolve_previous_threads
         hide_previous_summaries
+        held_back = report.held_back_issues
         if report.issues.empty?
-          post_summary_comment(rerun_summary(summary, still_open(open_threads, commit_id), open_threads.any?))
+          summary = rerun_summary(summary, still_open(open_threads, commit_id), open_threads.any?)
+          post_summary_comment([summary, quiet_findings_section(held_back)].compact.join("\n\n"))
         else
           new_issues = without_repeats(repeat_bar.call(report.issues, commit_id), open_threads)
-          quiet, loud = new_issues.partition { |issue| quiet?(issue) }
+          quiet, loud = new_issues.partition { |issue| lower_confidence?(issue) }
           off_diff, posted = post_inline_comments(loud, commit_id)
           post_off_diff_comment(off_diff)
           summary = run_summary(loud, posted, still_open(open_threads, commit_id), commit_id)
-          post_summary_comment([summary, quiet_findings_section(quiet)].compact.join("\n\n"))
+          post_summary_comment([summary, quiet_findings_section(quiet + held_back)].compact.join("\n\n"))
         end
       end
 
@@ -252,40 +251,27 @@ module Thingie
         @client.add_comment("#{@owner}/#{@repo}", @pr_number, body)
       end
 
-      def quiet?(issue)
-        lower_confidence?(issue) || past?(issue.severity, @inline_max_severity)
-      end
-
+      # A finding the second look never graded is held to `max_confidence` on its own grade. Ones the critic
+      # graded past it arrive separately, as the report's held-back findings.
       def lower_confidence?(issue)
-        issue.unchecked? && past?(issue.confidence, @max_confidence)
+        confidence = Integer(issue.confidence, exception: false)
+        issue.unchecked? && !@max_confidence.nil? && !confidence.nil? && confidence > @max_confidence
       end
 
-      def past?(value, max)
-        number = Integer(value, exception: false)
-        !max.nil? && !number.nil? && number > max
-      end
-
-      # Findings that don't earn a review thread, folded into one section of the summary: a line each, with the
+      # Findings below the confidence line, folded into one section of the summary: a line each, with the
       # finding's text folded under its line, so the section stays short even with many.
       def quiet_findings_section(issues)
         return if issues.empty?
 
         entries = issues.map { |issue| quiet_entry(issue) }
-        "<details><summary>#{quiet_heading(issues)}</summary>\n\n#{entries.join("\n\n")}\n\n</details>"
-      end
-
-      def quiet_heading(issues)
-        lower = issues.count { |issue| lower_confidence?(issue) }
-        kinds = [("#{lower} lower confidence" if lower.positive?),
-                 ("#{issues.size - lower} low severity" if issues.size > lower)].compact
-        "#{issues.size} more finding(s), not posted as review comments (#{kinds.join(', ')})"
+        heading = "#{issues.size} lower-confidence finding(s), not posted as review comments"
+        "<details><summary>#{heading}</summary>\n\n#{entries.join("\n\n")}\n\n</details>"
       end
 
       def quiet_entry(issue)
         line = issue.affected_lines.first&.start_line
         location = issue.cited_other_file || [issue.file, line].compact.join(':')
         label = [severity_label(issue.severity), html_text(issue.title), "<code>#{CGI.escapeHTML(location)}</code>"]
-        label << 'lower confidence' if lower_confidence?(issue)
         body = [issue.details_markdown, (UNCHECKED_NOTE if issue.unchecked?)].compact.join("\n\n")
         "<details><summary>#{label.join(' · ')}</summary>\n\n#{body}\n\n</details>"
       end

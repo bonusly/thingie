@@ -192,7 +192,8 @@ prompt = "default"
 # grades), because the confidence a reviewer writes about its own finding comes before any
 # checking. On a benchmark of graded findings, 2 dropped about a quarter of the nits and a
 # seventh of the good findings; 1 dropped most of the good ones. Without the critic it applies
-# to the reviewer's own grade.
+# to the reviewer's own grade. A finding past it is not dropped: it is listed as lower confidence
+# in a collapsed section of the summary comment, with no thread, and does not block approval.
 # Confidence: 1 = most confident, 4 = least.
 max_confidence = 2
 max_severity = 4
@@ -211,13 +212,6 @@ require_evidence = false
 # Set to 4 to post everything. A thread already open is never resolved just because the model
 # did not repeat it; it resolves when the code it commented on changes.
 max_severity = 2
-
-[comments]
-# Findings less severe than this (1 = Critical, 4 = Low) are listed in a collapsed section of the
-# summary comment instead of getting a review thread each, e.g. 3 keeps Lows out of the threads.
-# A finding the second look never graded is listed there too when its own confidence is past
-# `[post_process] max_confidence`. Neither changes approval.
-inline_max_severity = 4
 
 [dedupe]
 # Before posting, drop findings that repeat another finding in the same run or a Thingie

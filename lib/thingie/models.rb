@@ -248,7 +248,7 @@ module Thingie
   # Collection of issues and metadata produced by a review run.
   class Report
     attr_reader :target, :issues, :processing_warnings, :created_at, :model,
-                :number_of_processed_files, :processed_files, :unreviewed_files
+                :number_of_processed_files, :processed_files, :unreviewed_files, :held_back_issues
 
     # Loads a `Report` from a saved JSON file.
     #
@@ -279,6 +279,7 @@ module Thingie
         target: target,
         model: data['model'],
         issues: issues,
+        held_back_issues: Array(data['held_back_issues']).map { |issue| Issue.from_hash(issue) },
         processing_warnings: data['processing_warnings'] || [],
         number_of_processed_files: data['number_of_processed_files'],
         processed_files: data['processed_files'] || [],
@@ -297,11 +298,14 @@ module Thingie
     # @param processed_files [Array<String>] paths of the files that were reviewed
     # @param unreviewed_files [Array<String>] paths of the files that got no review: the call failed or ran past
     #   its time limit, or the model answered with no JSON; the approver refuses to approve while any remain
+    # @param held_back_issues [Array<Thingie::Issue>] findings the critic upheld at a confidence past
+    #   `[post_process] max_confidence`: listed collapsed in the summary, never a thread, never blocking approval
     def initialize(target:, model:, issues: [], processing_warnings: [],
-                   number_of_processed_files: nil, processed_files: [], unreviewed_files: [])
+                   number_of_processed_files: nil, processed_files: [], unreviewed_files: [], held_back_issues: [])
       @target = target
       @model = model
       @issues = Array(issues)
+      @held_back_issues = Array(held_back_issues)
       @processing_warnings = Array(processing_warnings)
       @processed_files = Array(processed_files)
       @unreviewed_files = Array(unreviewed_files)
@@ -324,6 +328,7 @@ module Thingie
         'target' => @target.to_h.transform_keys(&:to_s),
         'model' => @model,
         'issues' => @issues.map(&:to_h),
+        'held_back_issues' => @held_back_issues.map(&:to_h),
         'number_of_processed_files' => number_of_processed_files,
         'processed_files' => @processed_files,
         'unreviewed_files' => @unreviewed_files,

@@ -332,34 +332,38 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
         'o/r', 1,
         a_string_including(
           Thingie::ReportRenderer::NO_NEW_CHANGES,
-          '<details><summary>1 more finding(s), not posted as review comments (1 lower confidence)</summary>',
-          "<details><summary>Critical · T · <code>app.rb:11</code> · lower confidence</summary>\n\nd\n\n" \
+          '<details><summary>1 lower-confidence finding(s), not posted as review comments</summary>',
+          "<details><summary>Critical · T · <code>app.rb:11</code></summary>\n\nd\n\n" \
           "#{described_class::UNCHECKED_NOTE}\n\n</details>"
         )
       )
     end
   end
 
-  context 'with inline_max_severity set' do
-    subject(:commenter) do
-      described_class.new(token: 'token', owner: 'o', repo: 'r', pr_number: 1, inline_max_severity: 3)
+  context 'when the critic graded a finding past the confidence line' do
+    let(:held_back) { build_issue('changed.rb', 6, severity: 4, confidence: 3, title: 'Unused `tmp` <method>') }
+
+    def report_with_held_back(issues)
+      target = Thingie::ReviewTarget.new(platform: 'github', repo_url: nil, pr_number: 1, commit_sha: nil,
+                                         branch: nil, base_ref: nil, head_ref: nil, merge_base: false)
+      Thingie::Report.new(target: target, model: 'm', issues: issues, held_back_issues: [held_back])
     end
 
-    it 'gives a thread to findings at that severity and folds less severe ones into the summary',
-       :aggregate_failures do
-      medium = build_issue('app.rb', 11, severity: 3)
-      low = build_issue('changed.rb', 6, severity: 4, title: 'Unused `tmp` <method>')
-
-      commenter.post_review(summary: 'S', report: report_for([medium, low]))
+    it 'folds it into the summary beside the findings that get threads', :aggregate_failures do
+      commenter.post_review(summary: 'S', report: report_with_held_back([build_issue('app.rb', 11)]))
 
       expect(client).to have_received(:create_pull_request_comment).once
-      expect(client).to have_received(:create_pull_request_comment)
-        .with('o/r', 1, anything, 'commit-sha', 'app.rb', 11, { side: 'RIGHT' })
-      low_line = '<details><summary>Low · Unused <code>tmp</code> &lt;method&gt; · <code>changed.rb:6</code></summary>'
-      expect(client).to have_received(:add_comment).with(
-        'o/r', 1, a_string_including('**⚠️ 1 new finding, posted as review comments**', '(1 low severity)</summary>',
-                                     low_line)
-      )
+      folded = '<details><summary>Low · Unused <code>tmp</code> &lt;method&gt; · <code>changed.rb:6</code></summary>'
+      expect(client).to have_received(:add_comment)
+        .with('o/r', 1, a_string_including('**⚠️ 1 new finding, posted as review comments**', folded))
+    end
+
+    it 'folds it into the summary when it is the only finding', :aggregate_failures do
+      commenter.post_review(summary: 'S', report: report_with_held_back([]))
+
+      expect(client).not_to have_received(:create_pull_request_comment)
+      expect(client).to have_received(:add_comment)
+        .with('o/r', 1, a_string_including('1 lower-confidence finding(s), not posted as review comments'))
     end
   end
 

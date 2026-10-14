@@ -43,8 +43,16 @@ module Thingie
     # @param issues [Array<Thingie::Issue>] issues that survived the critic pass
     # @return [Array<Thingie::Issue>] the issues at or below `max_confidence`, plus any left unchecked
     def cap_confidence(issues)
+      split_confidence(issues).first
+    end
+
+    # Like {#cap_confidence}, but also returns the findings it holds back rather than dropping them.
+    #
+    # @param issues [Array<Thingie::Issue>] issues that survived the critic pass
+    # @return [Array(Array<Thingie::Issue>, Array<Thingie::Issue>)] `[kept, held_back]`
+    def split_confidence(issues)
       issues.each { |issue| demote_unverified(issue) } if @require_evidence
-      issues.select { |issue| issue.unchecked? || within?(issue.confidence, @max_confidence) }
+      issues.partition { |issue| issue.unchecked? || within?(issue.confidence, @max_confidence) }
     end
 
     private

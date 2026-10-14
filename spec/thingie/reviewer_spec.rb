@@ -384,6 +384,36 @@ RSpec.describe Thingie::Reviewer do
     end
   end
 
+  context 'when the critic upholds a finding at a confidence past max_confidence' do
+    let(:config) { Thingie::Configuration.new(root: tmp_dir, overrides: { 'post_process' => { 'max_confidence' => 2 } }) }
+    let(:fake_llm_client) do
+      issues = [{ 'title' => 'Missing return', 'details' => 'No return value', 'severity' => 2,
+                  'confidence' => 1, 'tags' => ['bug'], 'affected_lines' => [{ 'start_line' => 1 }] }]
+      reply = lambda do |content|
+        message_double(content: content, input_tokens: nil, output_tokens: nil, tool_calls: {},
+                       cache_read_tokens: nil, cache_write_tokens: nil,
+                       cost: instance_double(RubyLLM::Cost, total: nil),
+                       model_info: nil, thinking: nil, thinking_tokens: nil)
+      end
+      instance_double(Thingie::LlmClient).tap do |client|
+        allow(client).to receive(:complete_with_schema) do |prompt, *|
+          if prompt.include?('FINDING TO CHALLENGE')
+            reply.call({ 'verdict' => 'uphold', 'confidence_override' => 3 })
+          else
+            reply.call({ 'issues' => issues })
+          end
+        end
+      end
+    end
+
+    it 'holds it back in the report instead of dropping it', :aggregate_failures do
+      report = reviewer.review
+
+      expect(report.issues).to be_empty
+      expect(report.held_back_issues.map(&:title)).to eq(['Missing return'])
+    end
+  end
+
   context 'when the LLM returns a nil response' do
     let(:fake_llm_client) do
       instance_double(Thingie::LlmClient, complete_with_schema: nil)
