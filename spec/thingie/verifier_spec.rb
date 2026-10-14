@@ -61,6 +61,42 @@ RSpec.describe Thingie::Verifier do
     expect(kept.map(&:title)).to eq(['keep-me'])
   end
 
+  describe 'tool budget' do
+    let(:issues) { [issue('keep-me')] }
+    let(:budgets) { [] }
+    let(:fake_llm_client) do
+      instance_double(Thingie::LlmClient).tap do |client|
+        allow(client).to receive(:complete_with_schema) do |_prompt, _schema, tool_budget: nil, **|
+          budgets << tool_budget.limit
+          verdict('uphold')
+        end
+      end
+    end
+
+    def config_with(overrides)
+      Thingie::Configuration.new(root: tmp_dir, overrides: { 'max_concurrent_tasks' => 4, 'tool_budget' => 3 }
+                                                             .merge(overrides))
+    end
+
+    it 'uses [verify] tool_budget when it is set' do
+      described_class.new(config: config_with('verify' => { 'enabled' => true, 'tool_budget' => 5 }),
+                          changeset: fake_changeset, llm_client: fake_llm_client,
+                          prompt_builder: Thingie::PromptBuilder.new(Thingie::Configuration.new(root: tmp_dir)))
+                     .call(issues)
+
+      expect(budgets).to eq([5])
+    end
+
+    it 'uses the review tool_budget otherwise' do
+      described_class.new(config: config_with('verify' => { 'enabled' => true }),
+                          changeset: fake_changeset, llm_client: fake_llm_client,
+                          prompt_builder: Thingie::PromptBuilder.new(Thingie::Configuration.new(root: tmp_dir)))
+                     .call(issues)
+
+      expect(budgets).to eq([3])
+    end
+  end
+
   context 'when the critic uses its tools' do
     let(:issues) { [issue('keep-me')] }
     let(:fake_llm_client) do

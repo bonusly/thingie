@@ -68,6 +68,10 @@ module Thingie
 
     private
 
+    def tool_budget
+      ToolBudget.new(settings.fetch('tool_budget', @config['tool_budget']))
+    end
+
     def settings
       base = (@config['verify'] || {}).transform_keys(&:to_s)
       base['enabled'] = %w[true 1].include?(Env['VERIFY_ENABLED'].to_s.downcase) if Env.key?('VERIFY_ENABLED')
@@ -95,7 +99,7 @@ module Thingie
     # @return [Hash] `{ keep:, severity:, confidence: }` — `severity`/`confidence`
     #   are non-nil only when the critic supplied a validated override.
     def uphold?(issue)
-      budget = ToolBudget.new(@config['tool_budget'])
+      budget = tool_budget
       prompt = @prompt_builder.verify(
         issue: issue,
         diff: @changeset.diff_text_for(issue.file),
@@ -132,7 +136,7 @@ module Thingie
       tries = 0
       begin
         tries += 1
-        budget = ToolBudget.new(@config['tool_budget'])
+        budget = tool_budget
         tool_names = []
         response = Concurrency.with_timeout(deadline && [deadline - now, 0.001].max) do
           @llm_client.complete_with_schema(prompt, Schemas::VERDICT_SCHEMA, tools: @tools, tool_log: tool_names,

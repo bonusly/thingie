@@ -139,6 +139,13 @@ RSpec.describe Thingie::Issue do
         .to eq("**What's wrong:** It crashes.\n\n**When it happens:** On a new user.\n\n**Fix:** Skip them.")
     end
 
+    it 'writes details the model sent as an object as labelled paragraphs' do
+      as_object = { "What's wrong" => 'It crashes.', 'When it happens' => 'On a new user.', 'Fix' => 'Skip them.' }
+
+      expect(with_details(as_object).details_markdown)
+        .to eq("**What's wrong:** It crashes.\n\n**When it happens:** On a new user.\n\n**Fix:** Skip them.")
+    end
+
     it 'leaves parts that are already separate alone' do
       separate = "**What's wrong:** It crashes.\n\n**When it happens:** On a new user.\n\n**Fix:** Skip them."
 

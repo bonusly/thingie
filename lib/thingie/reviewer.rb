@@ -118,7 +118,26 @@ module Thingie
             "(#{file}: #{error.class}: #{error.message}); aborting instead of reporting an empty review"
     end
 
+    # A reply with no JSON, or an empty one, is asked once more: the model often answers properly the
+    # second time. A timed-out file is not, since a second try could take as long again.
     def review_file(file)
+      attempts = 0
+      begin
+        attempts += 1
+        review_file_once(file)
+      rescue JSON::ParserError => e
+        if attempts == 1
+          @warnings << "Retried the review of #{file} after JSON::ParserError: #{e.message}"
+          retry
+        end
+        @warnings << "Could not parse LLM response for #{file}: #{e.message}"
+        @unreviewed_files << file
+        @debug_output.review_error(file: file, error: e)
+        []
+      end
+    end
+
+    def review_file_once(file)
       # In `--all` mode the "diff" is the full file content; sending it again
       # as context duplicates every byte of the prompt for no information.
       whole_file = @changeset.all?
@@ -139,11 +158,8 @@ module Thingie
       issues.each { |issue| issue.record_tool_calls(review: tool_names) }
       @debug_output.review_call(file: file, response: response, issues: issues, tool_names: tool_names)
       only_changed_lines(issues, file)
-    rescue JSON::ParserError => e
-      @warnings << "Could not parse LLM response for #{file}: #{e.message}"
-      @unreviewed_files << file
-      @debug_output.review_error(file: file, error: e)
-      []
+    rescue JSON::ParserError
+      raise
     rescue StandardError => e
       @warnings << "Failed to review #{file}: #{e.class}: #{e.message}"
       @file_failures << [file, e]
