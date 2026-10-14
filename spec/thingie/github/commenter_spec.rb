@@ -340,6 +340,15 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
       described_class.new(token: 'token', owner: 'o', repo: 'r', pr_number: 1, max_confidence: 2)
     end
 
+    it 'gives a Critical a thread with a note even when its own confidence is past the line' do
+      issue = build_issue('app.rb', 11, severity: 1, confidence: 3).tap(&:mark_unchecked)
+      commenter.post_review(summary: 'S', report: report_for([issue]))
+
+      expect(client).to have_received(:create_pull_request_comment)
+        .with('o/r', 1, a_string_including('[Critical]', described_class::UNCHECKED_NOTE), 'commit-sha', 'app.rb', 11,
+              anything)
+    end
+
     it 'gives it a thread with a note when its own confidence is within the line' do
       issue = build_issue('app.rb', 11, confidence: 2).tap(&:mark_unchecked)
       commenter.post_review(summary: 'S', report: report_for([issue]))
@@ -350,7 +359,7 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
 
     it 'lists it as lower confidence, folded in the summary, when its own confidence is past the line',
        :aggregate_failures do
-      issue = build_issue('app.rb', 11, confidence: 3).tap(&:mark_unchecked)
+      issue = build_issue('app.rb', 11, severity: 2, confidence: 3).tap(&:mark_unchecked)
       commenter.post_review(summary: 'S', report: report_for([issue]))
 
       expect(client).not_to have_received(:create_pull_request_comment)
@@ -360,7 +369,7 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
         a_string_including(
           Thingie::ReportRenderer::NO_NEW_CHANGES,
           '<details><summary>1 lower-confidence finding, not posted as review comments</summary>',
-          "<details><summary>Critical · T · <code>app.rb:11</code></summary>\n\nd\n\n" \
+          "<details><summary>High · T · <code>app.rb:11</code></summary>\n\nd\n\n" \
           "#{described_class::UNCHECKED_NOTE}\n\n</details>"
         )
       )
