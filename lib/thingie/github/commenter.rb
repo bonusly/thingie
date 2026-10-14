@@ -283,10 +283,12 @@ module Thingie
         "#{entry[0, cut]}#{CUT_NOTE}"
       end
 
-      # A finding the second look never graded is held to `max_confidence` on its own grade. Ones the critic
-      # graded past it arrive separately, as the report's held-back findings.
+      # A finding the second look never graded is held to `max_confidence` on its own grade, except a Critical,
+      # which always gets a thread. Ones the critic graded past it arrive separately, as held-back findings.
       def lower_confidence?(issue)
         confidence = Integer(issue.confidence, exception: false)
+        return false if Integer(issue.severity, exception: false) == 1
+
         issue.unchecked? && !@max_confidence.nil? && !confidence.nil? && confidence > @max_confidence
       end
 

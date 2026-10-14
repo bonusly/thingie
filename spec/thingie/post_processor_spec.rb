@@ -32,6 +32,14 @@ RSpec.describe Thingie::PostProcessor do
     expect(processor.cap_confidence([unchecked, graded])).to eq([unchecked])
   end
 
+  it 'keeps a Critical the critic graded past max_confidence instead of holding it back', :aggregate_failures do
+    critical = issue(confidence: 3, severity: 1)
+    high = issue(confidence: 3, severity: 2)
+    processor = described_class.new('max_confidence' => 2)
+
+    expect(processor.split_confidence([critical, high])).to eq([[critical], [high]])
+  end
+
   it 'keeps only issues within the confidence and severity maximums' do
     expect(filter({ 'max_confidence' => 1, 'max_severity' => 3 }, issues)).to eq([issues.first])
   end

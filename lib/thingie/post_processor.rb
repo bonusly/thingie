@@ -39,6 +39,7 @@ module Thingie
     #
     # A finding the critic never graded is kept whatever its first-pass confidence: the cap judges the
     # critic's grade, and dropping an unchecked finding would hide it from the reader and the approver.
+    # A Critical is always kept: an under-graded SQL injection must still get a thread and block approval.
     #
     # @param issues [Array<Thingie::Issue>] issues that survived the critic pass
     # @return [Array<Thingie::Issue>] the issues at or below `max_confidence`, plus any left unchecked
@@ -52,10 +53,14 @@ module Thingie
     # @return [Array(Array<Thingie::Issue>, Array<Thingie::Issue>)] `[kept, held_back]`
     def split_confidence(issues)
       issues.each { |issue| demote_unverified(issue) } if @require_evidence
-      issues.partition { |issue| issue.unchecked? || within?(issue.confidence, @max_confidence) }
+      issues.partition { |issue| issue.unchecked? || critical?(issue) || within?(issue.confidence, @max_confidence) }
     end
 
     private
+
+    def critical?(issue)
+      Integer(issue.severity, exception: false) == 1
+    end
 
     # A finding the reviewer gave no evidence for cannot claim more confidence than the
     # unverified grade, whatever number the model or the critic wrote.
