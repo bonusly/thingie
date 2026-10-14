@@ -130,14 +130,14 @@ module Thingie
         nil
       end
 
-      # Matches the review's comments to the findings by file and line, in order, since GitHub returns no ids
-      # for the comments it creates with a review.
+      # Matches the review's comments to the findings by file and body, since GitHub returns no ids for the
+      # comments it creates with a review, and its review-comments listing carries no line number.
       def review_links(placed, review)
         urls = Hash.new { |hash, key| hash[key] = [] }
         @client.pull_request_review_comments("#{@owner}/#{@repo}", @pr_number, review.id).each do |comment|
-          urls[[comment.path, comment.line]] << comment.html_url
+          urls[[comment.path, comment.body.to_s.strip]] << comment.html_url
         end
-        placed.to_h { |issue, line| [issue, urls[[issue.file, line]].shift] }
+        placed.to_h { |issue, _line| [issue, urls[[issue.file, issue_body(issue).strip]].shift] }
       rescue Octokit::Error => e
         warn "Could not fetch the review's comments to link them — #{e.message}"
         placed.to_h { |issue, _line| [issue, nil] }

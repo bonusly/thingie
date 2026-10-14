@@ -23,7 +23,8 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
   end
 
   let(:review) { Struct.new(:id).new(42) }
-  let(:review_comment) { Struct.new(:path, :line, :html_url) }
+  # GitHub's listing of a review's comments carries the path and body but no line number.
+  let(:review_comment) { Struct.new(:path, :body, :html_url) }
 
   before do
     allow(Octokit::Client).to receive(:new).and_return(client)
@@ -39,6 +40,10 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
     allow(client).to receive(:add_comment)
     # GraphQL review-thread fetch returns no threads by default.
     allow(client).to receive(:post).and_return({})
+  end
+
+  def posted(issue, url)
+    review_comment.new(issue.file, "#{commenter.send(:issue_body, issue)}\n", url)
   end
 
   def expect_review_comment(path, line, body = anything)
@@ -461,9 +466,9 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
 
   context 'when the run posts new findings' do
     it 'lists each with its severity and a link, and the off-diff one without', :aggregate_failures do
-      allow(client).to receive(:pull_request_review_comments)
-        .with('o/r', 1, 42).and_return([review_comment.new('app.rb', 11, 'https://example.test/c1')])
       issues = [build_issue('app.rb', 11, severity: 2), build_issue('changed.rb', 99, severity: 3)]
+      allow(client).to receive(:pull_request_review_comments)
+        .with('o/r', 1, 42).and_return([posted(issues.first, 'https://example.test/c1')])
 
       commenter.post_review(summary: 'THE FULL REPORT', report: report_for(issues))
 
@@ -476,11 +481,9 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
     end
 
     it 'links each finding to its own comment in the review' do
-      allow(client).to receive(:pull_request_review_comments).and_return(
-        [review_comment.new('changed.rb', 6, 'https://example.test/c2'),
-         review_comment.new('app.rb', 11, 'https://example.test/c1')]
-      )
       issues = [build_issue('app.rb', 11, severity: 2), build_issue('changed.rb', 6, severity: 3)]
+      allow(client).to receive(:pull_request_review_comments)
+        .and_return([posted(issues.last, 'https://example.test/c2'), posted(issues.first, 'https://example.test/c1')])
 
       commenter.post_review(summary: 'THE FULL REPORT', report: report_for(issues))
 
