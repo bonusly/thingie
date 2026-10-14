@@ -193,10 +193,10 @@ RSpec.describe Thingie::PromptBuilder do
     let(:open_comment) { { label: 'E1', location: 'a.rb:3', text: 'Query never returns users' } }
     let(:finding) { { label: 'N1', location: 'a.rb:3', text: 'No users come back' } }
 
-    it 'lists the open comments and the new findings under their labels', :aggregate_failures do
+    it 'lists the earlier comments and the new findings under their labels', :aggregate_failures do
       prompt = builder.duplicates(existing: [open_comment], findings: [finding])
 
-      expect(prompt).to include('COMMENTS ALREADY OPEN', 'E1 | a.rb:3', 'Query never returns users',
+      expect(prompt).to include('COMMENTS ALREADY ON THE PULL REQUEST', 'E1 | a.rb:3', 'Query never returns users',
                                 'NEW FINDINGS', 'N1 | a.rb:3', 'No users come back')
     end
 

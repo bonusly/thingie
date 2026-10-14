@@ -625,6 +625,48 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
       expect(client).to have_received(:create_pull_request_comment).once
     end
 
+    context 'when a person answered a thread and resolved it' do
+      let(:answer) { 'Disagree: nil never reaches here.' }
+      let(:open_thread) do
+        {
+          'id' => 'THREAD1', 'isResolved' => true, 'isOutdated' => false, 'line' => 11, 'path' => 'app.rb',
+          'comments' => { 'nodes' => [{ 'author' => { 'login' => 'bot' }, 'body' => marked_body },
+                                      { 'author' => { 'login' => 'dev' }, 'body' => answer }] }
+        }
+      end
+
+      it 'hands the filter that thread with its answer' do
+        issue = build_issue('app.rb', 11)
+        allow(filter).to receive(:call).and_return([])
+
+        commenter.post_review(summary: 'S', report: report_for([issue]))
+
+        expect(filter).to have_received(:call).with(
+          [issue],
+          [{ file: 'app.rb', line: 11,
+             text: "**[High] Old title**\n\nOld text\n\nAnswered: dev: Disagree: nil never reaches here." }]
+        )
+      end
+    end
+
+    context 'when a thread was resolved with no answer' do
+      let(:open_thread) do
+        {
+          'id' => 'THREAD1', 'isResolved' => true, 'isOutdated' => false, 'line' => 11, 'path' => 'app.rb',
+          'comments' => { 'nodes' => [{ 'author' => { 'login' => 'bot' }, 'body' => marked_body }] }
+        }
+      end
+
+      it 'leaves it out of the check' do
+        issue = build_issue('app.rb', 11)
+        allow(filter).to receive(:call).and_return([issue])
+
+        commenter.post_review(summary: 'S', report: report_for([issue]))
+
+        expect(filter).to have_received(:call).with([issue], [])
+      end
+    end
+
     it 'posts only what the filter keeps, and leaves the open thread alone', :aggregate_failures do
       allow(filter).to receive(:call).and_return([])
 

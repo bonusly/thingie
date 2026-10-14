@@ -209,13 +209,15 @@ module Thingie
                       max_severity: @repeat_max_severity, marker: REVIEW_COMMENT_MARKER)
       end
 
-      # Findings that repeat another finding or a comment that is still open are
-      # dropped. If the check itself fails, everything is posted and the failure is
-      # reported, so a broken check never hides a finding.
+      # Findings that repeat another finding, a comment that is still open, or one a person answered and
+      # then resolved are dropped: a finding the author already argued against comes back reworded once the
+      # thread is closed. If the check itself fails, everything is posted and the failure is reported, so a
+      # broken check never hides a finding.
       def without_repeats(issues, open_threads)
         return issues unless @duplicate_filter
 
-        @duplicate_filter.call(issues, open_threads.map { |thread| open_comment_for(thread) })
+        answered = @answered_threads.to_a.map { |thread| answered_comment_for(thread) }
+        @duplicate_filter.call(issues, open_threads.map { |thread| open_comment_for(thread) } + answered)
       rescue StandardError => e
         warn "Could not check for repeated findings, posting all of them — #{e.class}: #{e.message}"
         issues
@@ -227,6 +229,11 @@ module Thingie
           body = reply['body'].to_s
           "#{reply.dig('author', 'login')}: #{body}" unless body.include?(REVIEW_COMMENT_MARKER)
         end
+      end
+
+      def answered_comment_for(thread)
+        comment = open_comment_for(thread)
+        comment.merge(text: "#{comment[:text]}\n\nAnswered: #{replies_on(thread).join(' | ')}")
       end
 
       def open_comment_for(thread)
@@ -342,7 +349,9 @@ module Thingie
         threads = fetch_review_threads.select { |thread| thingie_thread?(thread) }
         threads.each { |thread| unresolved += 1 unless resolve_thread(thread) }
         warn_thread_resolution_failure(unresolved) if unresolved.positive?
-        threads.reject { |thread| thread['isResolved'] || thread['isOutdated'] }
+        open, closed = threads.partition { |thread| !thread['isResolved'] && !thread['isOutdated'] }
+        @answered_threads = closed.select { |thread| replies_on(thread).any? }
+        open
       rescue StandardError => e
         warn "Could not fetch previous review threads — #{e.message}"
         []

@@ -2,7 +2,7 @@
 
 module Thingie
   # Drops review findings that repeat another finding in the same run, or a
-  # review comment that is still open on the pull request, so a re-run does not
+  # review comment that is still open or that a person answered, so a re-run does not
   # post the same problem a second time. One model call, no tools, over the whole
   # list: the wording of a finding changes between runs, so matching by title or
   # line would miss most repeats.
@@ -21,7 +21,7 @@ module Thingie
     # Returns the findings to post, without the ones that repeat another finding or an open comment.
     #
     # @param issues [Array<Thingie::Issue>] the findings about to be posted
-    # @param open_comments [Array<Hash>] open Thingie comments, each `{ file:, line:, text: }`
+    # @param open_comments [Array<Hash>] earlier Thingie comments, open or answered, each `{ file:, line:, text: }`
     # @return [Array<Thingie::Issue>] the findings to post, in their original order
     # @raise [StandardError] when the model call or its reply fails; callers decide how to fall back
     def call(issues, open_comments)
