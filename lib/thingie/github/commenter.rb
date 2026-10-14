@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require 'cgi'
 require 'octokit'
 
 module Thingie
@@ -38,11 +39,14 @@ module Thingie
       #   against the current code, so fixed ones are not listed; every open finding is listed as is when absent
       # @param repeat_max_severity [Integer, nil] on a re-run, the least severe grade (1 = Critical) a new
       #   finding about code unchanged since the last review may have and still be posted; nil disables it
+      # @param max_confidence [Integer, nil] the `[post_process] max_confidence` line. A finding the second look
+      #   never graded is held to it on its own grade: past it, it is listed collapsed instead of getting a thread
       def initialize(token:, owner:, repo:, pr_number:, resolve_token: nil, duplicate_filter: nil,
-                     open_finding_check: nil, repeat_max_severity: nil)
+                     open_finding_check: nil, repeat_max_severity: nil, max_confidence: nil)
         @duplicate_filter = duplicate_filter
         @open_finding_check = open_finding_check
         @repeat_max_severity = repeat_max_severity
+        @max_confidence = max_confidence
         # auto_paginate so PRs with many files/comments aren't truncated to the
         # first page when validating diff lines or collapsing old summaries.
         @client = Octokit::Client.new(access_token: token, auto_paginate: true)
@@ -70,13 +74,17 @@ module Thingie
         commit_id = pr.head.sha
         open_threads = resolve_previous_threads
         hide_previous_summaries
+        held_back = report.held_back_issues
         if report.issues.empty?
-          post_summary_comment(rerun_summary(summary, still_open(open_threads, commit_id), open_threads.any?))
+          summary = rerun_summary(summary, still_open(open_threads, commit_id), open_threads.any?)
+          post_summary_comment([summary, quiet_findings_section(held_back)].compact.join("\n\n"))
         else
           new_issues = without_repeats(repeat_bar.call(report.issues, commit_id), open_threads)
-          off_diff, posted = post_inline_comments(new_issues, commit_id)
+          quiet, loud = new_issues.partition { |issue| lower_confidence?(issue) }
+          off_diff, posted = post_inline_comments(loud, commit_id)
           post_off_diff_comment(off_diff)
-          post_summary_comment(run_summary(new_issues, posted, still_open(open_threads, commit_id), commit_id))
+          summary = run_summary(loud, posted, still_open(open_threads, commit_id), commit_id)
+          post_summary_comment([summary, quiet_findings_section(quiet + held_back)].compact.join("\n\n"))
         end
       end
 
@@ -241,6 +249,37 @@ module Thingie
 
         body = [OFF_DIFF_MARKER, *issues.map { |issue| off_diff_entry(issue) }].join("\n\n")
         @client.add_comment("#{@owner}/#{@repo}", @pr_number, body)
+      end
+
+      # A finding the second look never graded is held to `max_confidence` on its own grade. Ones the critic
+      # graded past it arrive separately, as the report's held-back findings.
+      def lower_confidence?(issue)
+        confidence = Integer(issue.confidence, exception: false)
+        issue.unchecked? && !@max_confidence.nil? && !confidence.nil? && confidence > @max_confidence
+      end
+
+      # Findings below the confidence line, folded into one section of the summary: a line each, with the
+      # finding's text folded under its line, so the section stays short even with many.
+      def quiet_findings_section(issues)
+        return if issues.empty?
+
+        entries = issues.map { |issue| quiet_entry(issue) }
+        noun = issues.one? ? 'finding' : 'findings'
+        heading = "#{issues.size} lower-confidence #{noun}, not posted as review comments"
+        "<details><summary>#{heading}</summary>\n\n#{entries.join("\n\n")}\n\n</details>"
+      end
+
+      def quiet_entry(issue)
+        line = issue.affected_lines.first&.start_line
+        location = issue.cited_other_file || [issue.file, line].compact.join(':')
+        label = [severity_label(issue.severity), html_text(issue.title), "<code>#{CGI.escapeHTML(location)}</code>"]
+        body = [issue.details_markdown, (UNCHECKED_NOTE if issue.unchecked?)].compact.join("\n\n")
+        "<details><summary>#{label.join(' · ')}</summary>\n\n#{body}\n\n</details>"
+      end
+
+      # Markdown does not render inside <summary>, so backticked code becomes <code>.
+      def html_text(text)
+        CGI.escapeHTML(text.to_s).gsub(/`([^`]+)`/, '<code>\\1</code>')
       end
 
       def off_diff_entry(issue)

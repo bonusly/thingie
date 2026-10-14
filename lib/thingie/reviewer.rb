@@ -55,21 +55,22 @@ module Thingie
       @debug_output.post_process(before: issues.size, after: filtered.size)
       enriched = CodeEnricher.new(@changeset).call(filtered)
       @debug_output.first_pass(enriched)
-      verified = post_processor.cap_confidence(verify(enriched))
+      verified, held_back = post_processor.split_confidence(verify(enriched))
       obfuscated = ObfuscationDetector.new(@changeset).call
       sorted = (verified + obfuscated).sort_by { |issue| issue.severity || Float::INFINITY }
       sorted.each_with_index { |issue, index| issue.id = index + 1 }
       @debug_output.warnings(@warnings)
-      build_report(sorted)
+      build_report(sorted, held_back.sort_by { |issue| issue.severity || Float::INFINITY })
     end
 
     private
 
-    def build_report(issues)
+    def build_report(issues, held_back)
       Report.new(
         target: build_target,
         model: @config['model'],
         issues: issues,
+        held_back_issues: held_back,
         processing_warnings: @warnings,
         number_of_processed_files: @changeset.files.size,
         processed_files: @changeset.files,

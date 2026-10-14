@@ -370,7 +370,8 @@ module Thingie
           pr_number: options[:pr] || context&.pr_number,
           duplicate_filter: build_duplicate_filter(config),
           open_finding_check: build_open_finding_check(config),
-          repeat_max_severity: Thingie::Threshold.parse(config.dig('repeat_run', 'max_severity'))
+          repeat_max_severity: Thingie::Threshold.parse(config.dig('repeat_run', 'max_severity')),
+          max_confidence: Thingie::Threshold.parse(config.dig('post_process', 'max_confidence'))
         )
       end
 

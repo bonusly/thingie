@@ -192,7 +192,9 @@ prompt = "default"
 # grades), because the confidence a reviewer writes about its own finding comes before any
 # checking. On a benchmark of graded findings, 2 dropped about a quarter of the nits and a
 # seventh of the good findings; 1 dropped most of the good ones. Without the critic it applies
-# to the reviewer's own grade.
+# to the reviewer's own grade. A finding past it is not dropped: it is listed as lower confidence
+# in a collapsed section of the summary comment, with no thread, and does not block approval.
+# Confidence: 1 = most confident, 4 = least.
 max_confidence = 2
 max_severity = 4
 # With the "verified" prompt: a finding the reviewer gave no evidence for is held to
