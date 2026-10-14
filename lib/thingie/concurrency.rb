@@ -16,7 +16,8 @@ module Thingie
     # (Verifier's fail-open).
     #
     # @param items [Array] the work items
-    # @param concurrency [Integer] maximum fibers in flight
+    # @param concurrency [Integer, Async::Semaphore] maximum fibers in flight, or a shared {.limit} that
+    #   bounds these fibers together with the other work holding it
     # @param default [Object, nil] pre-filled slot value for unfinished slots
     # @yieldparam item [Object] the item to process
     # @yieldreturn [Object] the slot value for that item
@@ -31,7 +32,7 @@ module Thingie
       # Barrier/semaphore are created inside the reactor so they bind to it.
       Sync do
         barrier = Async::Barrier.new
-        semaphore = Async::Semaphore.new(concurrency, parent: barrier)
+        semaphore = concurrency.is_a?(Async::Semaphore) ? concurrency : Async::Semaphore.new(concurrency)
         items.each_with_index do |item, index|
           semaphore.async(parent: barrier) { results[index] = yield(item) }
         end
@@ -41,6 +42,15 @@ module Thingie
       end
 
       results
+    end
+
+    # A bound shared by several {.map} calls, or held around one call with `acquire`, so work started from
+    # different places never has more than `size` blocks in flight at once.
+    #
+    # @param size [Integer] maximum blocks in flight
+    # @return [Async::Semaphore]
+    def self.limit(size)
+      Async::Semaphore.new([size, 1].max)
     end
 
     # Runs the block, giving up when it takes longer than `seconds` in total. `request_timeout` limits one

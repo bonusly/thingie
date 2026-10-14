@@ -26,8 +26,10 @@ module Thingie
     # @param debug_output [Thingie::DebugOutput, nil] optional debug output sink
     # @param usage [Thingie::Stats::Usage, nil] optional accumulator fed each critic response
     # @param pr_context [Thingie::PrContext, nil] PR-wide file and definition list for the critic prompt
+    # @param limit [Async::Semaphore, nil] a {Concurrency.limit} shared with other LLM work, in place of
+    #   `max_concurrent_tasks` critic calls of its own
     def initialize(config:, changeset:, prompt_builder:, llm_client:, tools: [], debug_output: nil, usage: nil,
-                   pr_context: nil)
+                   pr_context: nil, limit: nil)
       @config = config
       @changeset = changeset
       @prompt_builder = prompt_builder
@@ -36,6 +38,7 @@ module Thingie
       @debug_output = debug_output
       @usage = usage
       @pr_context = pr_context || PrContext.new(changeset)
+      @limit = limit
       @warnings = []
     end
 
@@ -48,7 +51,7 @@ module Thingie
     def call(issues)
       return issues if issues.empty? || !enabled?
 
-      concurrency = [@config['max_concurrent_tasks'] || 10, 1].max
+      concurrency = @limit || [@config['max_concurrent_tasks'] || 10, 1].max
       verdicts = verify_in_parallel(issues, concurrency)
       issues.zip(verdicts).select { |_issue, verdict| verdict[:keep] }.map do |issue, verdict|
         issue.apply_override(severity: verdict[:severity], confidence: verdict[:confidence])

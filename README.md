@@ -288,7 +288,7 @@ Key settings:
 | Retries | `3` | `retries` | `LLM_RETRIES` | — |
 | Log file | stdout | `log_file` | `THINGIE_LOG_FILE` | — |
 | Log level | `info` | `log_level` | `THINGIE_LOG_LEVEL` | — |
-| Max concurrent file reviews | `10` | `max_concurrent_tasks` | `MAX_CONCURRENT_TASKS` | — |
+| Max concurrent LLM calls (file reviews and critic checks together) | `10` | `max_concurrent_tasks` | `MAX_CONCURRENT_TASKS` | — |
 | Confidence threshold (keep if ≤, applied after the critic) | `2` | `post_process.max_confidence` | — | — |
 | Severity threshold (keep if ≤) | `3` | `post_process.max_severity` | — | — |
 | Critic pass enabled | `true` | `verify.enabled` | — | — |
