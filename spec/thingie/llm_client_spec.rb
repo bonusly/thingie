@@ -201,6 +201,26 @@ RSpec.describe Thingie::LlmClient do
 
         expect(chat_double).not_to have_received(params_method)
       end
+
+      def with_provider_table
+        table = { 'quantizations' => %w[fp8 bf16], 'sort' => 'throughput' }
+        overrides = { provider: 'openrouter', llm_api_key: 'secret', 'openrouter' => { 'provider' => table } }
+        described_class.new(Thingie::Configuration.new(root: tmp_dir, overrides: overrides))
+      end
+
+      it 'sends the [openrouter.provider] table on a call without tools' do
+        complete(with_provider_table, [])
+
+        expect(chat_double).to have_received(params_method)
+          .with(provider: { quantizations: %w[fp8 bf16], sort: 'throughput' })
+      end
+
+      it 'adds require_parameters to the [openrouter.provider] table on a call with tools' do
+        complete(with_provider_table, [instance_double(RubyLLM::Tool)])
+
+        expect(chat_double).to have_received(params_method)
+          .with(provider: { quantizations: %w[fp8 bf16], sort: 'throughput', require_parameters: true })
+      end
     end
 
     it 'gives the chat the budgeted copies of the tools, not the tools themselves', :aggregate_failures do

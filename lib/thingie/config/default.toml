@@ -206,6 +206,15 @@ json_requirements = """
 # false to let OpenRouter route freely.
 require_parameters = true
 
+# Provider preferences sent with every OpenRouter call, as OpenRouter's `provider` request object
+# (https://openrouter.ai/docs/features/provider-routing). Left out, OpenRouter favors the cheapest
+# provider, which for some models is a 4-bit quantized one. For example:
+#
+# [openrouter.provider]
+# quantizations = ["fp8", "bf16", "fp16"]  # skip fp4/int4 providers
+# sort = "throughput"                      # fastest first instead of cheapest
+# require_parameters = true                # on every call, not only calls with tools
+
 [review]
 # Which bundled review prompt the first pass uses.
 #   "default"  - strict: report only what the model is certain of.
