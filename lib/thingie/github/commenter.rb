@@ -264,7 +264,8 @@ module Thingie
         return if issues.empty?
 
         entries = issues.map { |issue| quiet_entry(issue) }
-        heading = "#{issues.size} lower-confidence finding(s), not posted as review comments"
+        noun = issues.one? ? 'finding' : 'findings'
+        heading = "#{issues.size} lower-confidence #{noun}, not posted as review comments"
         "<details><summary>#{heading}</summary>\n\n#{entries.join("\n\n")}\n\n</details>"
       end
 

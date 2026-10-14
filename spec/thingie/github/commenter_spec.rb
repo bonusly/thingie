@@ -332,7 +332,7 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
         'o/r', 1,
         a_string_including(
           Thingie::ReportRenderer::NO_NEW_CHANGES,
-          '<details><summary>1 lower-confidence finding(s), not posted as review comments</summary>',
+          '<details><summary>1 lower-confidence finding, not posted as review comments</summary>',
           "<details><summary>Critical · T · <code>app.rb:11</code></summary>\n\nd\n\n" \
           "#{described_class::UNCHECKED_NOTE}\n\n</details>"
         )
@@ -363,7 +363,7 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
 
       expect(client).not_to have_received(:create_pull_request_comment)
       expect(client).to have_received(:add_comment)
-        .with('o/r', 1, a_string_including('1 lower-confidence finding(s), not posted as review comments'))
+        .with('o/r', 1, a_string_including('1 lower-confidence finding, not posted as review comments'))
     end
   end
 
