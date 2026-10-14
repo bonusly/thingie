@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require 'cgi'
 require 'octokit'
 
 module Thingie
@@ -14,7 +15,7 @@ module Thingie
       # Older runs wrapped a superseded summary in this; the repeat bar still reads those.
       OUTDATED_PREFIX = '<details><summary>Outdated review'
       OPEN_FINDINGS_SHOWN = 5
-      UNCHECKED_NOTE = '_The second look at this finding did not complete, so this is the first pass as written._'
+      UNCHECKED_NOTE = '_The second look at this finding did not complete, so it is posted as the first pass wrote it._'
       NEW_FINDINGS_SHOWN = 10
       UNCONFIRMED_NOTE = "can't confirm this is resolved"
       REPLIED_FIXED_UNCONFIRMED_NOTE = "replied fixed, can't confirm"
@@ -39,14 +40,16 @@ module Thingie
       # @param repeat_max_severity [Integer, nil] on a re-run, the least severe grade (1 = Critical) a new
       #   finding about code unchanged since the last review may have and still be posted; nil disables it
       # @param inline_max_severity [Integer, nil] the least severe grade a finding may have and still get a
-      #   review thread; less severe ones, and any the second look never graded, are listed collapsed in the
-      #   summary. nil gives every graded finding a thread
+      #   review thread; less severe ones are listed collapsed in the summary. nil gives every finding a thread
+      # @param max_confidence [Integer, nil] the `[post_process] max_confidence` line. A finding the second look
+      #   never graded is held to it on its own grade: past it, it is listed collapsed instead of getting a thread
       def initialize(token:, owner:, repo:, pr_number:, resolve_token: nil, duplicate_filter: nil,
-                     open_finding_check: nil, repeat_max_severity: nil, inline_max_severity: nil)
+                     open_finding_check: nil, repeat_max_severity: nil, inline_max_severity: nil, max_confidence: nil)
         @duplicate_filter = duplicate_filter
         @open_finding_check = open_finding_check
         @repeat_max_severity = repeat_max_severity
         @inline_max_severity = inline_max_severity
+        @max_confidence = max_confidence
         # auto_paginate so PRs with many files/comments aren't truncated to the
         # first page when validating diff lines or collapsing old summaries.
         @client = Octokit::Client.new(access_token: token, auto_paginate: true)
@@ -250,20 +253,46 @@ module Thingie
       end
 
       def quiet?(issue)
-        severity = Integer(issue.severity, exception: false)
-        issue.unchecked? || (@inline_max_severity && severity && severity > @inline_max_severity)
+        lower_confidence?(issue) || past?(issue.severity, @inline_max_severity)
       end
 
-      # Findings that don't earn a review thread, folded into the summary so they are on record without a thread
-      # each to reply to and resolve.
+      def lower_confidence?(issue)
+        issue.unchecked? && past?(issue.confidence, @max_confidence)
+      end
+
+      def past?(value, max)
+        number = Integer(value, exception: false)
+        !max.nil? && !number.nil? && number > max
+      end
+
+      # Findings that don't earn a review thread, folded into one section of the summary: a line each, with the
+      # finding's text folded under its line, so the section stays short even with many.
       def quiet_findings_section(issues)
         return if issues.empty?
 
-        entries = issues.map do |issue|
-          [off_diff_entry(issue), (UNCHECKED_NOTE if issue.unchecked?)].compact.join("\n\n")
-        end
-        "<details><summary>#{issues.size} more finding(s), not posted as review comments</summary>\n\n" \
-          "#{entries.join("\n\n---\n\n")}\n\n</details>"
+        entries = issues.map { |issue| quiet_entry(issue) }
+        "<details><summary>#{quiet_heading(issues)}</summary>\n\n#{entries.join("\n\n")}\n\n</details>"
+      end
+
+      def quiet_heading(issues)
+        lower = issues.count { |issue| lower_confidence?(issue) }
+        kinds = [("#{lower} lower confidence" if lower.positive?),
+                 ("#{issues.size - lower} low severity" if issues.size > lower)].compact
+        "#{issues.size} more finding(s), not posted as review comments (#{kinds.join(', ')})"
+      end
+
+      def quiet_entry(issue)
+        line = issue.affected_lines.first&.start_line
+        location = issue.cited_other_file || [issue.file, line].compact.join(':')
+        label = [severity_label(issue.severity), html_text(issue.title), "<code>#{CGI.escapeHTML(location)}</code>"]
+        label << 'lower confidence' if lower_confidence?(issue)
+        body = [issue.details_markdown, (UNCHECKED_NOTE if issue.unchecked?)].compact.join("\n\n")
+        "<details><summary>#{label.join(' · ')}</summary>\n\n#{body}\n\n</details>"
+      end
+
+      # Markdown does not render inside <summary>, so backticked code becomes <code>.
+      def html_text(text)
+        CGI.escapeHTML(text.to_s).gsub(/`([^`]+)`/, '<code>\\1</code>')
       end
 
       def off_diff_entry(issue)
@@ -345,6 +374,7 @@ module Thingie
           REVIEW_COMMENT_MARKER,
           "**[#{severity_label(issue.severity)}] #{issue.title}**",
           issue.details_markdown,
+          (UNCHECKED_NOTE if issue.unchecked?),
           issue.evidence_block,
           tags
         ].compact.join("\n\n")
