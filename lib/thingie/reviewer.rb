@@ -173,8 +173,9 @@ module Thingie
       content = response&.content
       if content.to_s.strip.empty?
         reasoning = response&.thinking
+        reasoning_text = reasoning.respond_to?(:text) ? reasoning.text : reasoning
         # An empty reply is not "no issues": the model said nothing, so the file got no review.
-        raise JSON::ParserError, 'the reply is empty' if reasoning.nil?
+        raise JSON::ParserError, 'the reply is empty' if reasoning_text.to_s.strip.empty?
 
         return IssueParser.new.parse(JsonExtractor.issues_in(reasoning) || [], file)
       end
