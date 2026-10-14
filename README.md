@@ -285,6 +285,8 @@ Key settings:
 | File review time limit (seconds, all tool calls included; `0` for none) | `600` | `call_timeout` | — | — |
 | Critic time limit per finding (seconds, retry included; a finding it could not grade is posted unchecked and not capped; `0` for none) | `120` | `[verify] timeout` | — | — |
 | Tool calls one model call may make (`0` for none) | `5` | `tool_budget` | — | — |
+| OpenRouter: route a call with tools only to providers that support them | `true` | `[openrouter] require_parameters` | — | — |
+| OpenRouter: provider preferences sent with every call (e.g. `quantizations`, `sort`), as OpenRouter's `provider` object | — | `[openrouter.provider]` | — | — |
 | Retries | `3` | `retries` | `LLM_RETRIES` | — |
 | Log file | stdout | `log_file` | `THINGIE_LOG_FILE` | — |
 | Log level | `info` | `log_level` | `THINGIE_LOG_LEVEL` | — |

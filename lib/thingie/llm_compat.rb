@@ -46,6 +46,16 @@ module Thingie
       chat.public_send(hook) { |call| handler.call(call) }
     end
 
+    # Adds provider-specific parameters to the request body. ruby_llm 1.16 calls this `with_params`,
+    # 2.x `with_provider_options`.
+    #
+    # @param chat [RubyLLM::Chat] the chat to add them to
+    # @param params [Hash] the parameters, merged into the request body
+    # @return [RubyLLM::Chat] the chat
+    def with_request_params(chat, params)
+      chat.respond_to?(:with_params) ? chat.with_params(**params) : chat.with_provider_options(params)
+    end
+
     # Reads a token count off a response. 1.16 has both the readers and a
     # differently shaped #tokens, so the readers win when they exist.
     #
