@@ -322,9 +322,7 @@ RSpec.describe Thingie::Reviewer do
   end
 
   context 'when a changed file contains obfuscated code' do
-    let(:hex_blob) do
-      '4142434445464748494a4b4c4d4e4f505152535455565758595a6162636465666768696a6b6c6d6e6f70'
-    end
+    let(:hex_blob) { ObfuscationSamples::HEX_BLOB }
     let(:fake_changeset) do
       instance_double(Thingie::Changeset, patches: [],
                                           files: ['app.rb'],
