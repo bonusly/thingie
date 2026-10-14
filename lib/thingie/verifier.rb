@@ -67,6 +67,18 @@ module Thingie
     RETRIABLE = [Async::TimeoutError, JSON::ParserError].freeze
     VERDICT_ONLY = 'Reply now with only the JSON verdict object for this finding, no other text.'
 
+    # The `[verify]` settings the critic pass runs with: the config section, with
+    # `VERIFY_ENABLED` and `VERIFY_MODEL` applied over it when set.
+    #
+    # @param config [Thingie::Configuration] full merged configuration
+    # @return [Hash{String=>Object}] the effective `[verify]` settings
+    def self.settings(config)
+      base = (config['verify'] || {}).transform_keys(&:to_s)
+      base['enabled'] = %w[true 1].include?(Env['VERIFY_ENABLED'].to_s.downcase) if Env.key?('VERIFY_ENABLED')
+      base['model'] = Env['VERIFY_MODEL'] if Env.key?('VERIFY_MODEL')
+      base
+    end
+
     private
 
     def tool_budget
@@ -74,10 +86,7 @@ module Thingie
     end
 
     def settings
-      base = (@config['verify'] || {}).transform_keys(&:to_s)
-      base['enabled'] = %w[true 1].include?(Env['VERIFY_ENABLED'].to_s.downcase) if Env.key?('VERIFY_ENABLED')
-      base['model'] = Env['VERIFY_MODEL'] if Env.key?('VERIFY_MODEL')
-      base
+      self.class.settings(@config)
     end
 
     def enabled?
