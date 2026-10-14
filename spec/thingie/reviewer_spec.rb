@@ -334,7 +334,7 @@ RSpec.describe Thingie::Reviewer do
     end
 
     context 'when the provider is overloaded on the first call' do
-      let(:failures) { [RubyLLM::OverloadedError.new(nil, 'Overloaded')] }
+      let(:failures) { [llm_error(RubyLLM::OverloadedError, 'Overloaded')] }
 
       it 'tries again and reviews the file', :aggregate_failures do
         report = reviewer.review
@@ -365,7 +365,7 @@ RSpec.describe Thingie::Reviewer do
     end
 
     context 'when the API key is rejected' do
-      let(:failures) { [RubyLLM::UnauthorizedError.new(nil, 'Invalid API key')] }
+      let(:failures) { [llm_error(RubyLLM::UnauthorizedError, 'Invalid API key')] }
 
       it 'does not try again' do
         expect { reviewer.review }.to raise_error(RuntimeError, /All 1 file reviews failed.*Invalid API key/m)

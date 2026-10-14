@@ -22,6 +22,15 @@ module LlmDoubles
     instance_double(RubyLLM::Message, tokens: RubyLLM::Tokens.new(**counts), **attrs.except(*TOKEN_KEYS.keys))
   end
 
+  # A ruby_llm error with the given message. 1.16 takes (response, message); 2.x takes (message, response:).
+  #
+  #   llm_error(RubyLLM::OverloadedError, 'Overloaded')
+  def llm_error(klass, message)
+    return klass.new(nil, message) if klass.instance_method(:initialize).parameters.first == %i[opt response]
+
+    klass.new(message)
+  end
+
   # The class RubyLLM::Message#model_info returns: Model::Info on 1.16, Model on 2.x.
   def model_info_class
     defined?(RubyLLM::Model::Info) ? RubyLLM::Model::Info : RubyLLM::Model
