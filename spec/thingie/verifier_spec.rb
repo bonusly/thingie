@@ -61,6 +61,32 @@ RSpec.describe Thingie::Verifier do
     expect(kept.map(&:title)).to eq(['keep-me'])
   end
 
+  context 'when the critic reply has no JSON' do
+    let(:issues) { [issue('reject-me')] }
+    let(:chat) { double('chat') } # rubocop:disable RSpec/VerifiedDoubles
+    let(:prose) do
+      message_double(content: 'It is a false positive.', thinking: nil, thinking_tokens: nil, input_tokens: nil,
+                     output_tokens: nil, tool_calls: {}, cache_read_tokens: nil, cache_write_tokens: nil,
+                     cost: instance_double(RubyLLM::Cost, total: nil), model_info: nil)
+    end
+    let(:fake_llm_client) do
+      instance_double(Thingie::LlmClient).tap do |client|
+        allow(client).to receive(:complete_with_schema) do |_prompt, _schema, chats: nil, **|
+          chats << chat
+          prose
+        end
+      end
+    end
+
+    before { allow(chat).to receive(:ask).with(described_class::VERDICT_ONLY).and_return(verdict('reject')) }
+
+    it 'asks the same chat for just the verdict instead of checking again', :aggregate_failures do
+      expect(verifier.call(issues)).to be_empty
+      expect(fake_llm_client).to have_received(:complete_with_schema).once
+      expect(verifier.warnings).to include(/Asked again for the verdict on 'reject-me'/)
+    end
+  end
+
   describe 'tool budget' do
     let(:issues) { [issue('keep-me')] }
     let(:budgets) { [] }
