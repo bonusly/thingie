@@ -26,8 +26,8 @@ module Thingie
     # Approver treats a finding with this tag as scanner-authoritative.
     TAGS = %w[security obfuscation].freeze
 
-    # Cap per file so a heavily obfuscated file doesn't flood the PR with
-    # inline comments; one match already blocks approval.
+    # Cap on matched lines per file so a heavily obfuscated file doesn't
+    # produce an endless finding; one match already blocks approval.
     MAX_MATCHES_PER_FILE = 5
 
     # 80+ contiguous hex chars — packed binaries, shellcode, hex-encoded payloads.
@@ -62,10 +62,11 @@ module Thingie
     end
 
     # Scans the full content of every changed file and returns one severity-1
-    # issue per matched line (up to {MAX_MATCHES_PER_FILE} per file). The whole
-    # file is scanned, not just added lines: a changed file that includes
-    # obfuscated code blocks approval whether or not the obfuscation was
-    # added by this PR. Binary files (nil content) are skipped.
+    # issue per signal per file, listing each matched line (up to
+    # {MAX_MATCHES_PER_FILE} lines per file). The whole file is scanned, not
+    # just added lines: a changed file that includes obfuscated code blocks
+    # approval whether or not the obfuscation was added by this PR. Binary
+    # files (nil content) are skipped.
     #
     # @return [Array<Thingie::Issue>] issues for each detected signal
     def call
@@ -85,9 +86,11 @@ module Thingie
         description = describe(line)
         next if description.nil?
 
-        matches << build_issue(file: file, line_number: number, description: description, line: line)
+        matches << { line_number: number, description: description, line: line }
       end
-      matches
+      matches.group_by { |match| match[:description] }.map do |description, grouped|
+        build_issue(file: file, description: description, matches: grouped)
+      end
     end
 
     # First matching signal wins, so one line yields at most one issue (a hex
@@ -136,29 +139,46 @@ module Thingie
         line.scan(CHAR_LITERAL).size >= 3
     end
 
-    def build_issue(file:, line_number:, description:, line:)
+    def build_issue(file:, description:, matches:)
       Issue.new(
         id: nil,
         file: file,
         raw_issue: RawIssue.new(
           title: "Obfuscated code detected (#{description})",
-          details: details_for(description, line_number, line),
+          details: details_for(description, matches),
           severity: 1,
           confidence: 1,
           tags: TAGS
         ),
-        affected_lines: [AffectedRange.new(
-          start_line: line_number,
-          end_line: line_number,
-          affected_code: snippet(line)
-        )]
+        affected_lines: matches.map do |match|
+          AffectedRange.new(
+            start_line: match[:line_number],
+            end_line: match[:line_number],
+            affected_code: snippet(match[:line])
+          )
+        end
       )
     end
 
-    def details_for(description, line_number, line)
-      "Thingie's obfuscation scanner flagged #{description} on line #{line_number}. " \
+    def details_for(description, matches)
+      "Thingie's obfuscation scanner flagged #{description} on #{line_list(matches)}. " \
         'Obfuscated code always requires human review and blocks auto-approval. ' \
-        "Matched code: `#{snippet(line)}`"
+        "Matched code: #{matched_code(matches)}"
+    end
+
+    # @param matches [Array<Hash>] matched lines, in file order
+    # @return [String] e.g. "line 43" or "lines 43, 89 and 105"
+    def line_list(matches)
+      numbers = matches.map { |match| match[:line_number] }
+      return "line #{numbers.first}" if numbers.one?
+
+      "lines #{numbers[0...-1].join(', ')} and #{numbers.last}"
+    end
+
+    def matched_code(matches)
+      return "`#{snippet(matches.first[:line])}`" if matches.one?
+
+      matches.map { |match| "line #{match[:line_number]} `#{snippet(match[:line])}`" }.join('; ')
     end
 
     # @param line [String] the matched source line

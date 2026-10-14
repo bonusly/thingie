@@ -250,9 +250,44 @@ RSpec.describe Thingie::ObfuscationDetector do
   end
 
   describe 'matching behavior' do
-    it 'caps matches per file' do
+    it 'caps matched lines per file' do
       code = (1..10).map { |i| "line#{i} = '#{hex_payload}#{i}'" }.join("\n")
-      expect(issues_for_content(code).size).to eq(5)
+      issues = issues_for_content(code)
+      expect(issues.size).to eq(1)
+      expect(issues.first.affected_lines.map(&:start_line)).to eq([1, 2, 3, 4, 5])
+    end
+
+    it 'groups matches of the same signal in a file into one issue', :aggregate_failures do
+      code = "eval(a)\nputs 'ok'\neval(b)\neval(c)\n"
+      issues = issues_for_content(code)
+
+      expect(issues.size).to eq(1)
+      issue = issues.first
+      expect(issue.title).to eq('Obfuscated code detected (dynamic code execution (eval))')
+      expect(issue.details).to include('on lines 1, 3 and 4.')
+      expect(issue.details).to include('Obfuscated code always requires human review and blocks auto-approval.')
+      expect(issue.details).to include('line 1 `eval(a)`; line 3 `eval(b)`; line 4 `eval(c)`')
+      expect(issue.affected_lines.map(&:start_line)).to eq([1, 3, 4])
+      expect(issue.affected_lines.map(&:affected_code)).to eq(['eval(a)', 'eval(b)', 'eval(c)'])
+      expect(issue.severity).to eq(1)
+      expect(issue.confidence).to eq(1)
+      expect(issue.tags).to contain_exactly('security', 'obfuscation')
+    end
+
+    it 'keeps the single-line wording when a signal matches once' do
+      details = issues_for_content("x = 1\neval(a)\n").first.details
+      expect(details).to include('on line 2.')
+      expect(details).to include('Matched code: `eval(a)`')
+    end
+
+    it 'keeps different signals in one file as separate issues' do
+      code = "eval(a)\npayload = '#{hex_payload}'\neval(b)\n"
+      issues = issues_for_content(code)
+      expect(issues.map(&:title)).to eq([
+                                          'Obfuscated code detected (dynamic code execution (eval))',
+                                          'Obfuscated code detected (a long hex-encoded blob)'
+                                        ])
+      expect(issues.map { |issue| issue.affected_lines.map(&:start_line) }).to eq([[1, 3], [2]])
     end
 
     it 'reports the correct line number' do
