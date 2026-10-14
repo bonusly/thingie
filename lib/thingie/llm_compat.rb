@@ -21,17 +21,17 @@ module Thingie
 
     module_function
 
-    # Declares a tool argument on `tool_class`.
+    # Declares a tool argument on `tool_class`; other parameter options, e.g. `required:`,
+    # are passed through.
     #
     # @param tool_class [Class] a RubyLLM::Tool subclass
     # @param name [Symbol] the argument name
     # @param description [String] what the model should pass
-    # @param options [Hash] other parameter options, e.g. required:
-    def parameter(tool_class, name, description:, **options)
+    def parameter(tool_class, name, description:, **)
       if tool_class.respond_to?(:parameter)
-        tool_class.parameter(name, description: description, **options)
+        tool_class.parameter(name, description: description, **)
       else
-        tool_class.param(name, description: description, **options)
+        tool_class.param(name, description: description, **)
       end
     end
 

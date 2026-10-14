@@ -54,6 +54,22 @@ inputs:
       GITHUB_TOKEN and GitHub App installation tokens cannot call this mutation.
       Optional; resolving is skipped when unset.
     required: false
+  system_one_api_key:
+    description: >-
+      API key for System One change-risk scoring (OpenRouter by default). Only
+      needed with `system_one_enabled = true` in .thingie/config.toml; without
+      it scoring is skipped with a warning.
+    required: false
+  system_one_model:
+    description: >-
+      System One model for change-risk scoring. Optional; falls back to
+      `system_one_model` in config (default `jev-latest`).
+    required: false
+  system_one_api_base:
+    description: >-
+      System One API base URL. Optional; falls back to `system_one_api_base`
+      in config (default `https://openrouter.ai/api`).
+    required: false
   debug:
     description: >-
       Enable debug logging (sets THINGIE_DEBUG=1). Emits per-call token counts,
@@ -119,6 +135,9 @@ runs:
       env:
         LLM_API_KEY: ${{ inputs.api_key }}
         LLM_API_BASE: ${{ inputs.api_base }}
+        SYSTEM_ONE_API_KEY: ${{ inputs.system_one_api_key }}
+        SYSTEM_ONE_MODEL: ${{ inputs.system_one_model }}
+        SYSTEM_ONE_API_BASE: ${{ inputs.system_one_api_base }}
         LLM_MODEL: ${{ inputs.model }}
         LLM_PROVIDER: ${{ inputs.provider }}
         OUTPUT_DIR: ${{ inputs.output_dir }}

@@ -265,6 +265,22 @@ module Thingie
     attr_reader :target, :issues, :processing_warnings, :created_at, :model,
                 :number_of_processed_files, :processed_files, :unreviewed_files, :held_back_issues
 
+    # The System One change-risk summary, nil when scoring didn't run: `'max'` is the highest score
+    # per question, `'files'` the per-file scores, `'escalations'` the escalations (a `label`
+    # with an optional `title` and `description`) the `[[escalations]]` rules call for, and `'rules'`
+    # every configured rule, so labelling later doesn't depend on the config being the same.
+    #
+    # @return [Hash, nil] the string-keyed summary
+    attr_reader :change_risk
+
+    # Records the change-risk summary (see {#change_risk}) once System One has scored the change.
+    #
+    # @param value [Hash, nil] the string-keyed summary
+    # @return [Hash, nil] the summary
+    def change_risk=(value) # rubocop:disable Style/TrivialAccessors
+      @change_risk = value
+    end
+
     # Loads a `Report` from a saved JSON file.
     #
     # @param path [String] path to the JSON report file
@@ -299,7 +315,7 @@ module Thingie
         number_of_processed_files: data['number_of_processed_files'],
         processed_files: data['processed_files'] || [],
         unreviewed_files: data['unreviewed_files'] || []
-      )
+      ).tap { |report| report.change_risk = data['change_risk'] }
     end
 
     # Builds a report from already-resolved values (see {.from_hash}/{.from_file} to parse one).
@@ -339,7 +355,7 @@ module Thingie
     #
     # @return [Hash] a plain-hash representation suitable for JSON serialization
     def to_h
-      {
+      hash = {
         'target' => @target.to_h.transform_keys(&:to_s),
         'model' => @model,
         'issues' => @issues.map(&:to_h),
@@ -351,6 +367,8 @@ module Thingie
         'processing_warnings' => @processing_warnings,
         'created_at' => @created_at
       }
+      hash['change_risk'] = @change_risk if @change_risk
+      hash
     end
 
     # Writes the report as `code-review-report.json` inside `output_dir`.

@@ -12,6 +12,9 @@ module Thingie
       REVIEW_COMMENT_MARKER = '<!-- thingie-review-comment -->'
       # Marks the comment that states findings with no line of the diff to sit on, so a later run can hide it.
       OFF_DIFF_MARKER = '<!-- thingie-off-diff -->'
+      # GitHub rejects comment bodies over 65,536 characters; stay well under.
+      OFF_DIFF_BODY_LIMIT = 60_000
+      CUT_NOTE = "\n\n…(cut: too long for one comment)"
       # Older runs wrapped a superseded summary in this; the repeat bar still reads those.
       OUTDATED_PREFIX = '<details><summary>Outdated review'
       OPEN_FINDINGS_SHOWN = 5
@@ -73,7 +76,7 @@ module Thingie
         pr = @client.pull_request("#{@owner}/#{@repo}", @pr_number)
         commit_id = pr.head.sha
         open_threads = resolve_previous_threads
-        hide_previous_summaries
+        previous = previous_summaries
         held_back = report.held_back_issues
         if report.issues.empty?
           summary = rerun_summary(summary, still_open(open_threads, commit_id), open_threads.any?)
@@ -86,6 +89,8 @@ module Thingie
           summary = run_summary(loud, posted, still_open(open_threads, commit_id), commit_id)
           post_summary_comment([summary, quiet_findings_section(quiet + held_back)].compact.join("\n\n"))
         end
+        # Hide the earlier ones only now, so a failed run never leaves the thread without a summary.
+        previous.each { |comment| minimize_comment(comment) }
       end
 
       private
@@ -252,10 +257,30 @@ module Thingie
       # Issues outside the diff can't be inline comments. State them plainly in one comment, each with the
       # place it is about; a later run hides the comment the way GitHub hides an outdated one.
       def post_off_diff_comment(issues)
-        return if issues.empty?
+        off_diff_bodies(issues.map { |issue| off_diff_entry(issue) }).each do |body|
+          @client.add_comment("#{@owner}/#{@repo}", @pr_number, body)
+        end
+      end
 
-        body = [OFF_DIFF_MARKER, *issues.map { |issue| off_diff_entry(issue) }].join("\n\n")
-        @client.add_comment("#{@owner}/#{@repo}", @pr_number, body)
+      # Packs the entries into as few comments as fit under OFF_DIFF_BODY_LIMIT, each starting with the marker.
+      def off_diff_bodies(entries)
+        entries.each_with_object([]) do |entry, bodies|
+          entry = shortened_entry(entry)
+          if bodies.any? && bodies.last.size + 2 + entry.size <= OFF_DIFF_BODY_LIMIT
+            bodies.last << "\n\n" << entry
+          else
+            bodies << "#{OFF_DIFF_MARKER}\n\n#{entry}"
+          end
+        end
+      end
+
+      # An entry too big for one comment is cut at a paragraph break, so markup stays whole.
+      def shortened_entry(entry)
+        room = OFF_DIFF_BODY_LIMIT - OFF_DIFF_MARKER.size - 2 - CUT_NOTE.size
+        return entry if entry.size <= room
+
+        cut = entry[0, room].rindex("\n\n") || room
+        "#{entry[0, cut]}#{CUT_NOTE}"
       end
 
       # A finding the second look never graded is held to `max_confidence` on its own grade. Ones the critic
@@ -313,7 +338,8 @@ module Thingie
         return unless line_in_diff?(issue.file, line)
 
         create_inline_comment(issue, commit_id, line)&.html_url || true
-      rescue Octokit::UnprocessableEntity => e
+      rescue Octokit::Error, Faraday::Error => e
+        # Any API failure on one comment leaves that finding to the off-diff comment instead of aborting the run.
         warn "Could not post comment on #{issue.file}:#{line} — #{e.message}"
         nil
       end
@@ -449,13 +475,12 @@ module Thingie
 
       # An earlier run's summary and off-diff comments are hidden behind GitHub's own "outdated" toggle,
       # and otherwise left as they were, so the thread shows one summary without wrapping older ones.
-      def hide_previous_summaries
-        @client.issue_comments("#{@owner}/#{@repo}", @pr_number).each do |comment|
+      def previous_summaries
+        @client.issue_comments("#{@owner}/#{@repo}", @pr_number).select do |comment|
           body = comment.body.to_s
-          next if body.start_with?(OUTDATED_PREFIX)
-          next unless body.include?(Context::SUMMARY_MARKER) || body.start_with?(OFF_DIFF_MARKER)
+          next false if body.start_with?(OUTDATED_PREFIX)
 
-          minimize_comment(comment)
+          body.include?(Context::SUMMARY_MARKER) || body.start_with?(OFF_DIFF_MARKER)
         end
       end
 

@@ -181,8 +181,10 @@ module Thingie
       Process.clock_gettime(Process::CLOCK_MONOTONIC)
     end
 
+    # Some models answer in the reasoning channel and leave the content empty.
     def parse_content(response)
       content = response&.content
+      content = JsonExtractor.verdict_in(response&.thinking) || content if content.to_s.strip.empty?
       if content.is_a?(String)
         content = JsonExtractor.parse(content)
         # Say so instead of keeping the finding unchecked in silence: the rescue in #uphold? records a warning.

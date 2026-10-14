@@ -19,6 +19,40 @@ module Thingie
       extract_json(content)
     end
 
+    # Finds the `issues` array of a review answer inside a model's reasoning. Only an object
+    # with an `issues` array counts, so ordinary reasoning prose, or an unrelated `{...}` quoted
+    # before the answer, is never mistaken for findings.
+    #
+    # @param reasoning [#text, String, nil] the response's thinking, or its text
+    # @return [Array, nil] the raw issues, or nil if the reasoning holds no such object
+    def self.issues_in(reasoning)
+      object_in(reasoning) { |parsed| parsed['issues'].is_a?(Array) }&.fetch('issues')
+    end
+
+    # Finds the critic's verdict object inside a model's reasoning; only an object with a
+    # `verdict` counts.
+    #
+    # @param reasoning [#text, String, nil] the response's thinking, or its text
+    # @return [Hash, nil] the verdict object, or nil if the reasoning holds none
+    def self.verdict_in(reasoning)
+      object_in(reasoning) { |parsed| parsed.key?('verdict') }
+    end
+
+    # The last JSON object in the reasoning that the block accepts. The final answer follows any
+    # quoted schema or draft, and searching backwards finds it quickly.
+    #
+    # @param reasoning [#text, String, nil] the response's thinking, or its text
+    # @yieldparam parsed [Hash] a JSON object found in the text
+    # @return [Hash, nil] the accepted object, or nil if none is
+    def self.object_in(reasoning)
+      text = (reasoning.respond_to?(:text) ? reasoning.text : reasoning).to_s
+      text.enum_for(:scan, '{').map { Regexp.last_match.begin(0) }.reverse_each do |start|
+        parsed = extract_json(text[start..])
+        return parsed if parsed.is_a?(Hash) && yield(parsed)
+      end
+      nil
+    end
+
     # Extracts the first JSON object or array embedded in a prose string by
     # scanning for balanced braces/brackets. Returns nil if none is found.
     #

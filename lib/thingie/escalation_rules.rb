@@ -1,0 +1,78 @@
+# frozen_string_literal: true
+
+module Thingie
+  # The `[[escalations]]` config rules: each maps an overall change-risk score threshold to a PR
+  # label, with an optional title and description shown in the review.
+  class EscalationRules
+    # Validate and hold the rules.
+    #
+    # @param rules [Array<Hash>, nil] `[[escalations]]` entries, each with a `threshold` (0.0-1.0), a `label`,
+    #   and optionally a `title` and `description`
+    # @raise [Thingie::ConfigurationError] if the rules aren't a list of tables, or a rule has no valid
+    #   threshold or label
+    def initialize(rules)
+      @rules = rules.nil? ? [] : rules
+      unless @rules.is_a?(Array) && @rules.all?(Hash)
+        raise ConfigurationError, 'escalations must be a list of [[escalations]] tables'
+      end
+
+      @rules.each { |rule| validate(rule) }
+    end
+
+    # Whether no rule is configured.
+    #
+    # @return [Boolean] true when no rules are configured
+    def empty?
+      @rules.empty?
+    end
+
+    # The validated rules, so a report can carry them to a later step.
+    #
+    # @return [Array<Hash>] the rules as configured
+    def to_a
+      @rules.map(&:dup)
+    end
+
+    # The escalations the score reaches, as the report records them.
+    #
+    # @param score [Float, nil] the overall change-risk score, 0.0-1.0; nil when nothing was scored,
+    #   which reaches no rule (not even a threshold of 0)
+    # @return [Array<Hash>] one per label, each with a `label` and the configured `title` and `description`
+    def matching(score)
+      return [] if score.nil?
+
+      @rules.select { |rule| score >= rule['threshold'] }.uniq { |rule| rule['label'] }.map do |rule|
+        rule.slice('label', 'title', 'description').reject { |_, value| value.to_s.strip.empty? }
+      end
+    end
+
+    # The labels of every rule the score reaches.
+    #
+    # @param score [Float, nil] the overall change-risk score, 0.0-1.0; nil when nothing was scored
+    # @return [Array<String>] the matching labels, without duplicates
+    def labels_for(score)
+      matching(score).map { |escalation| escalation['label'] }
+    end
+
+    # Every label the rules can apply, whether or not the score reaches it.
+    #
+    # @return [Array<String>] the labels, without duplicates
+    def managed_labels
+      @rules.map { |rule| rule['label'] }.uniq
+    end
+
+    private
+
+    def validate(rule)
+      threshold = rule['threshold']
+      unless threshold.is_a?(Numeric) && threshold.between?(0, 1)
+        raise ConfigurationError, "escalations threshold must be a number from 0 to 1, got #{threshold.inspect}"
+      end
+
+      label = rule['label']
+      return if label.is_a?(String) && !label.strip.empty? && label == label.strip
+
+      raise ConfigurationError, 'escalations label must be a non-blank string without surrounding whitespace'
+    end
+  end
+end

@@ -6,6 +6,7 @@ source 'https://rubygems.org'
 gemspec
 
 group :development do
+  gem 'benchmark', '~> 0.5.0'
   gem 'kramdown', '~> 2.4'
   gem 'rake', '~> 13.2'
   gem 'rspec', '~> 3.13'

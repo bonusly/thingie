@@ -17,7 +17,9 @@ module GitRepo
   end
 
   def git(repo, *args)
-    _out, err, status = Open3.capture3('git', '-C', repo, *args)
+    # Ignore the developer's signing config so specs don't need keys or tag messages.
+    unsigned = ['-c', 'tag.gpgsign=false', '-c', 'commit.gpgsign=false']
+    _out, err, status = Open3.capture3('git', '-C', repo, *unsigned, *args)
     raise "git #{args.join(' ')} failed: #{err}" unless status.success?
   end
 end

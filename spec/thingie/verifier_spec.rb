@@ -43,15 +43,16 @@ RSpec.describe Thingie::Verifier do
 
   def verdict(value, severity_override: nil, confidence_override: nil)
     message_double(
-                    content: {
-                      'verdict' => value, 'reasoning' => 'r',
-                      'severity_override' => severity_override,
-                      'confidence_override' => confidence_override
-                    },
-                    thinking: nil, thinking_tokens: nil,
-                    input_tokens: nil, output_tokens: nil, tool_calls: {},
-                    cache_read_tokens: nil, cache_write_tokens: nil,
-                    cost: instance_double(RubyLLM::Cost, total: nil), model_info: nil)
+      content: {
+        'verdict' => value, 'reasoning' => 'r',
+        'severity_override' => severity_override,
+        'confidence_override' => confidence_override
+      },
+      thinking: nil, thinking_tokens: nil,
+      input_tokens: nil, output_tokens: nil, tool_calls: {},
+      cache_read_tokens: nil, cache_write_tokens: nil,
+      cost: instance_double(RubyLLM::Cost, total: nil), model_info: nil
+    )
   end
 
   after { FileUtils.rm_rf(tmp_dir) }
@@ -297,7 +298,7 @@ RSpec.describe Thingie::Verifier do
     let(:fake_llm_client) do
       instance_double(Thingie::LlmClient).tap do |client|
         allow(client).to receive(:complete_with_schema)
-          .and_return(instance_double(RubyLLM::Message, content: nil),
+          .and_return(instance_double(RubyLLM::Message, content: nil, thinking: nil),
                       instance_double(RubyLLM::Message, content: { 'reasoning' => 'hmm' }))
       end
     end
@@ -400,6 +401,22 @@ RSpec.describe Thingie::Verifier do
       expect(usage.input_tokens).to eq(60)
       expect(usage.output_tokens).to eq(20)
       expect(usage.cost).to be_within(1e-9).of(0.0004)
+    end
+  end
+
+  context 'when the critic answers in the reasoning channel and leaves the content empty' do
+    let(:fake_llm_client) do
+      response = message_double(content: '',
+                                thinking: instance_double(RubyLLM::Thinking, text: 'Weighing it. {"verdict":"reject"}'),
+                                thinking_tokens: nil, input_tokens: nil, output_tokens: nil, tool_calls: {},
+                                cache_read_tokens: nil, cache_write_tokens: nil,
+                                cost: instance_double(RubyLLM::Cost, total: nil), model_info: nil)
+      instance_double(Thingie::LlmClient, complete_with_schema: response)
+    end
+
+    it 'takes the verdict from the reasoning without a fail-open warning', :aggregate_failures do
+      expect(verifier.call([issue('x')])).to be_empty
+      expect(verifier.warnings).to be_empty
     end
   end
 end

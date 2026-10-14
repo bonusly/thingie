@@ -7,9 +7,10 @@ RSpec.describe Thingie::Stats::Usage do
   def response(input: nil, output: nil, cache_read: nil, cache_write: nil, cost_total: nil)
     cost = instance_double(RubyLLM::Cost, total: cost_total) if cost_total
     message_double(
-                    input_tokens: input, output_tokens: output,
-                    cache_read_tokens: cache_read, cache_write_tokens: cache_write,
-                    cost: cost)
+      input_tokens: input, output_tokens: output,
+      cache_read_tokens: cache_read, cache_write_tokens: cache_write,
+      cost: cost
+    )
   end
 
   it 'starts with all counters nil' do
