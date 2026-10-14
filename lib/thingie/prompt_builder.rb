@@ -8,8 +8,14 @@ module Thingie
   # configuration values. Skills are not inlined here — they're exposed to
   # the LLM via SkillCatalog's progressive-disclosure tool instead.
   class PromptBuilder
-    REVIEW_TEMPLATE = File.expand_path('prompts/review.erb', __dir__)
+    REVIEW_TEMPLATES = {
+      'default' => File.expand_path('prompts/review.erb', __dir__),
+      'verified' => File.expand_path('prompts/review_verified.erb', __dir__)
+    }.freeze
     VERIFY_TEMPLATE = File.expand_path('prompts/verify.erb', __dir__)
+    DUPLICATES_TEMPLATE = File.expand_path('prompts/duplicates.erb', __dir__)
+    RESOLUTION_TEMPLATE = File.expand_path('prompts/resolution.erb', __dir__)
+    COMMENT_STYLE_FILE = File.expand_path('prompts/comment_style.txt', __dir__)
 
     # ERB's result_with_hash raises NameError for any var referenced in a
     # template but absent from the hash, so these (used unconditionally in
@@ -36,10 +42,12 @@ module Thingie
     # @param pr_context [String] the list of files the PR touches (see PrContext)
     # @param whole_file [Boolean] whether this is a whole-file review (`--all` mode, no diff);
     #   switches the prompt guideline from "only changed lines" to "every line"
+    # @param tool_budget [Integer, nil] the most tool calls the model may make, told to it; nil for no cap
     # @return [String] the rendered prompt text
-    def review(diff:, file_lines: nil, symbol_lookup: false, whole_file: false, pr_context: '')
-      render_template(REVIEW_TEMPLATE, 'input' => diff, 'file_lines' => file_lines, 'pr_context' => pr_context,
+    def review(diff:, file_lines: nil, symbol_lookup: false, whole_file: false, pr_context: '', tool_budget: nil)
+      render_template(review_template, 'input' => diff, 'file_lines' => file_lines, 'pr_context' => pr_context,
                                        'symbol_lookup' => symbol_lookup, 'whole_file' => whole_file,
+                                       'tool_budget' => tool_budget,
                                        'severity_scale' => format_scale(@config.severity_scale),
                                        'confidence_scale' => format_scale(@config.confidence_scale),
                                        'show_threshold_text' => show_threshold_text,
@@ -53,18 +61,50 @@ module Thingie
     # @param file_lines [String, nil] the full file content, given as extra context to the LLM
     # @param symbol_lookup [Boolean] whether the LSP symbol-lookup tool is available to the LLM
     # @param pr_context [String] the list of files the PR touches (see PrContext)
+    # @param tool_budget [Integer, nil] the most tool calls the model may make, told to it; nil for no cap
     # @return [String] the rendered prompt text
-    def verify(issue:, diff:, file_lines: nil, symbol_lookup: false, pr_context: '')
+    def verify(issue:, diff:, file_lines: nil, symbol_lookup: false, pr_context: '', tool_budget: nil)
       render_template(VERIFY_TEMPLATE, 'input' => diff, 'file_lines' => file_lines, 'pr_context' => pr_context,
-                                       'symbol_lookup' => symbol_lookup,
+                                       'symbol_lookup' => symbol_lookup, 'tool_budget' => tool_budget,
                                        'finding' => format_finding(issue),
+                                       'user_impact' => @config.dig('verify', 'bar') == 'user_impact',
                                        'severity_scale' => format_scale(@config.severity_scale),
                                        'confidence_scale' => format_scale(@config.confidence_scale),
                                        'show_threshold_text' => show_threshold_text,
                                        'block_threshold_text' => block_threshold_text)
     end
 
+    # Render the repeat-check prompt (`duplicates.erb`) that asks which new findings repeat an earlier one.
+    #
+    # @param existing [Array<Hash>] the comments already open on the PR, each `{ label:, location:, text: }`
+    # @param findings [Array<Hash>] the new findings, each `{ label:, location:, text: }`
+    # @return [String] the rendered prompt text
+    def duplicates(existing:, findings:)
+      render_template(DUPLICATES_TEMPLATE, 'existing' => existing, 'findings' => findings)
+    end
+
+    # Render the resolution-check prompt (`resolution.erb`) that asks whether earlier findings about one file are fixed.
+    #
+    # @param path [String] the file the findings are about
+    # @param content [String] the file's current content, with line numbers
+    # @param truncated [Boolean] whether `content` stops short of the end of the file
+    # @param findings [Array<Hash>] the earlier findings, each `{ label:, location:, text: }`
+    # @return [String] the rendered prompt text
+    def resolution(path:, content:, truncated:, findings:)
+      render_template(RESOLUTION_TEMPLATE, 'path' => path, 'content' => content, 'truncated' => truncated,
+                                           'findings' => findings)
+    end
+
     private
+
+    # `[review] prompt` picks the bundled review prompt: `default` (strict, report only what is certain)
+    # or `verified` (check suspicions with the tools, cite evidence, grade confidence by verification).
+    def review_template
+      style = @config.dig('review', 'prompt').to_s
+      REVIEW_TEMPLATES.fetch(style.empty? ? 'default' : style) do
+        raise ArgumentError, "Unknown [review] prompt #{style.inspect}; expected #{REVIEW_TEMPLATES.keys.join(' or ')}"
+      end
+    end
 
     def render_template(path, vars)
       ERB.new(template_cache(path), trim_mode: '-').result_with_hash(template_vars.merge(vars))
@@ -75,8 +115,14 @@ module Thingie
       @template_cache[path] ||= File.read(path, encoding: 'UTF-8')
     end
 
+    # `comment_style` can be replaced from `[prompt_vars]` like the other template variables.
     def template_vars
-      DEFAULT_TEMPLATE_VARS.merge(prompt_vars)
+      DEFAULT_TEMPLATE_VARS.merge('comment_style' => comment_style).merge(prompt_vars)
+    end
+
+    # How a finding's title and details should be written, shared by both review prompts.
+    def comment_style
+      @comment_style ||= File.read(COMMENT_STYLE_FILE, encoding: 'UTF-8')
     end
 
     # Normalize to string keys so symbol-keyed config can't silently miss lookups.
@@ -97,7 +143,11 @@ module Thingie
       "File: #{issue.file}\nTitle: #{issue.title}\nTags: #{tags}\n" \
         "Severity: #{issue.severity} (#{label_for(@config.severity_scale, issue.severity)})\n" \
         "Confidence: #{issue.confidence} (#{label_for(@config.confidence_scale, issue.confidence)})\n" \
-        "Details: #{issue.details}\nAffected code:\n#{ranges}"
+        "Details: #{issue.details}\n#{evidence_line(issue)}Affected code:\n#{ranges}"
+    end
+
+    def evidence_line(issue)
+      issue.evidence.to_s.strip.empty? ? '' : "Evidence the reviewer gave: #{issue.evidence}\n"
     end
 
     def format_scale(scale)

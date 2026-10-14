@@ -5,6 +5,12 @@ require 'json'
 module Thingie
   # Renders a Thingie::Report to Markdown or CLI formats.
   class ReportRenderer
+    # The summary line of a report with no findings.
+    NO_CHANGES = '**✅ No changes recommended**'
+
+    # The same, on a pull request Thingie has already reviewed.
+    NO_NEW_CHANGES = '**✅ No new changes recommended**'
+
     # Fallback labels used when no severity scale is supplied (e.g. when
     # rendering a saved report via `thingie report` without config context).
     DEFAULT_SEVERITY_SCALE = {
@@ -36,7 +42,7 @@ module Thingie
     #
     # @return [String] Markdown-formatted report
     def to_md
-      lines = [Thingie::GitHub::Context::SUMMARY_MARKER, md_heading, md_summary_line,
+      lines = [Thingie::GitHub::Context::SUMMARY_MARKER, md_reviewed_marker, md_summary_line,
                md_files_reviewed, md_change_risk, md_run_info].compact
       lines += @report.issues.map { |issue| md_issue(issue) }
       lines.join("\n\n")
@@ -69,15 +75,14 @@ module Thingie
         "**⚠️ #{@report.total_issues} issue(s) found** across " \
           "#{@report.number_of_processed_files} file(s)."
       else
-        '**✅ No changes recommended**'
+        NO_CHANGES
       end
     end
 
-    # Names the reviewed commit so a later, collapsed copy of this comment
-    # still says which push it covered.
-    def md_heading
+    # Names the reviewed commit, out of sight, so a later run can tell which push this covered.
+    def md_reviewed_marker
       sha = @report.target.commit_sha
-      sha ? "### Review of `#{sha.to_s[0, 7]}`" : '### Review'
+      Thingie::GitHub::Context.reviewed_marker(sha) if sha
     end
 
     def md_files_reviewed
@@ -115,7 +120,8 @@ module Thingie
     def md_issue(issue)
       location = first_location(issue)
       link = location ? "[#{issue.file}:#{location}](#{issue.file}##{location})" : issue.file
-      lines = ["## ##{issue.id} #{md_title(issue)}", link, issue.details]
+      lines = ["## ##{issue.id} #{md_title(issue)}", link, issue.details_markdown]
+      lines << issue.evidence_block
       lines << "**Tags:** #{issue.tags.join(', ')}" unless issue.tags.to_a.empty?
       lines.compact.join("\n\n")
     end

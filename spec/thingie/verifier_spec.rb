@@ -3,6 +3,7 @@
 require 'spec_helper'
 require 'tmpdir'
 require 'fileutils'
+require 'benchmark'
 
 RSpec.describe Thingie::Verifier do
   subject(:verifier) do
@@ -61,6 +62,69 @@ RSpec.describe Thingie::Verifier do
     expect(kept.map(&:title)).to eq(['keep-me'])
   end
 
+  context 'when the critic uses its tools' do
+    let(:issues) { [issue('keep-me')] }
+    let(:fake_llm_client) do
+      instance_double(Thingie::LlmClient).tap do |client|
+        allow(client).to receive(:complete_with_schema) do |_prompt, _schema, tool_log: nil, **|
+          tool_log&.push('thingie--search amounts_within_max', 'thingie--file app/models/award.rb')
+          verdict('uphold')
+        end
+      end
+    end
+
+    it 'keeps what it asked the tools on the finding' do
+      expect(verifier.call(issues).first.critic_tool_calls)
+        .to eq(['thingie--search amounts_within_max', 'thingie--file app/models/award.rb'])
+    end
+  end
+
+  context 'when the critic replies with text and no JSON' do
+    let(:issues) { [issue('keep-me')] }
+    let(:fake_llm_client) do
+      instance_double(Thingie::LlmClient).tap do |client|
+        allow(client).to receive(:complete_with_schema).and_return(
+          message_double(content: 'I could not find a problem with this.', thinking: nil, thinking_tokens: nil,
+                         input_tokens: nil, output_tokens: nil, tool_calls: {}, cache_read_tokens: nil,
+                         cache_write_tokens: nil, cost: instance_double(RubyLLM::Cost, total: nil), model_info: nil)
+        )
+      end
+    end
+
+    it 'keeps the finding and says the critic did not run', :aggregate_failures do
+      expect(verifier.call(issues)).to eq(issues)
+      expect(verifier.warnings).to include(/Could not verify finding 'keep-me'.*no JSON/)
+    end
+  end
+
+  context 'when deciding whether to tell the critic about the symbol lookup tool' do
+    let(:prompts) { [] }
+    let(:fake_llm_client) do
+      instance_double(Thingie::LlmClient).tap do |client|
+        allow(client).to receive(:complete_with_schema) { |prompt, *_| (prompts << prompt) && verdict('uphold') }
+      end
+    end
+    let(:file_tool) { Thingie::FileTool.new(root: tmp_dir) }
+    let(:symbol_tool) { Thingie::Lsp::SymbolTool.new(client: instance_double(Thingie::Lsp::Client), root: tmp_dir) }
+
+    def critic_prompt_with(tools)
+      described_class.new(config: config, changeset: fake_changeset, llm_client: fake_llm_client, tools: tools,
+                          prompt_builder: Thingie::PromptBuilder.new(Thingie::Configuration.new(root: tmp_dir)))
+                     .call([issue('keep-me')])
+      prompts.last
+    end
+
+    it 'does not mention it when the only tools read files', :aggregate_failures do
+      prompt = critic_prompt_with([file_tool])
+
+      expect(prompt).not_to include('"No definition found" result')
+    end
+
+    it 'mentions it when the symbol tool is there', :aggregate_failures do
+      expect(critic_prompt_with([file_tool, symbol_tool])).to include('"No definition found" result')
+    end
+  end
+
   context 'when the critic supplies a severity/confidence override' do
     let(:issues) { [issue('override-me')] }
     let(:fake_llm_client) do
@@ -74,6 +138,24 @@ RSpec.describe Thingie::Verifier do
       kept = verifier.call(issues)
       expect(kept.first.severity).to eq(1)
       expect(kept.first.confidence).to eq(2)
+    end
+  end
+
+  context 'when the critic replies with prose around the JSON, as a tool-using call without a schema does' do
+    let(:issues) { [issue('reject-me')] }
+    let(:fake_llm_client) do
+      instance_double(Thingie::LlmClient).tap do |client|
+        allow(client).to receive(:complete_with_schema).and_return(
+          message_double(content: "I checked the callers.\n{\"verdict\": \"reject\", \"reasoning\": \"guarded\"}",
+                         thinking: nil, thinking_tokens: nil, input_tokens: nil, output_tokens: nil,
+                         tool_calls: {}, cache_read_tokens: nil, cache_write_tokens: nil,
+                         cost: instance_double(RubyLLM::Cost, total: nil), model_info: nil)
+        )
+      end
+    end
+
+    it 'still honours the verdict' do
+      expect(verifier.call(issues)).to be_empty
     end
   end
 
@@ -125,6 +207,80 @@ RSpec.describe Thingie::Verifier do
     end
   end
 
+  context 'when a critic call runs past the time limit' do
+    let(:config) do
+      Thingie::Configuration.new(root: tmp_dir, overrides: { 'verify' => { 'enabled' => true, 'timeout' => 0.05 },
+                                                             'max_concurrent_tasks' => 4 })
+    end
+    let(:fake_llm_client) do
+      instance_double(Thingie::LlmClient).tap do |client|
+        allow(client).to receive(:complete_with_schema) do |prompt, *_|
+          sleep(5) if prompt.include?('stuck')
+          verdict('reject')
+        end
+      end
+    end
+
+    it 'keeps the stuck finding unchecked with a warning, and still checks the others', :aggregate_failures do
+      kept = nil
+      elapsed = Benchmark.realtime { kept = verifier.call([issue('stuck'), issue('quick')]) }
+
+      expect(kept.map(&:title)).to eq(['stuck'])
+      expect(kept.first).to be_unchecked
+      expect(verifier.warnings).to include(/Could not verify finding 'stuck'.*TimeoutError/)
+      expect(elapsed).to be < 2
+    end
+  end
+
+  context 'when the critic reply has no verdict in it' do
+    let(:fake_llm_client) do
+      instance_double(Thingie::LlmClient).tap do |client|
+        allow(client).to receive(:complete_with_schema)
+          .and_return(instance_double(RubyLLM::Message, content: nil, thinking: nil),
+                      instance_double(RubyLLM::Message, content: { 'reasoning' => 'hmm' }))
+      end
+    end
+
+    it 'retries, then keeps the finding marked unchecked with a warning', :aggregate_failures do
+      kept = verifier.call([issue('keep-me')])
+
+      expect(kept.map(&:title)).to eq(['keep-me'])
+      expect(kept.first).to be_unchecked
+      expect(verifier.warnings).to include(/Retried .*'keep-me'.*no verdict/,
+                                           /Could not verify finding 'keep-me'.*no verdict/)
+    end
+  end
+
+  context 'when a critic call fails once and then works' do
+    let(:config) do
+      Thingie::Configuration.new(root: tmp_dir, overrides: { 'verify' => { 'enabled' => true, 'timeout' => 0.05 },
+                                                             'max_concurrent_tasks' => 4 })
+    end
+    let(:calls) { Hash.new(0) }
+    let(:fake_llm_client) do
+      instance_double(Thingie::LlmClient).tap do |client|
+        allow(client).to receive(:complete_with_schema) do |prompt, *_|
+          calls[prompt] += 1
+          if calls[prompt] == 1
+            prompt.include?('stuck') ? sleep(5) : (next instance_double(RubyLLM::Message, content: 'no json here'))
+          end
+          verdict('reject')
+        end
+      end
+    end
+
+    it 'retries a reply with no JSON in the time left, but not a call that used the time up', :aggregate_failures do
+      kept = verifier.call([issue('stuck'), issue('garbled')])
+
+      expect(kept.map(&:title)).to eq(['stuck'])
+      expect(kept.first).to be_unchecked
+      expect(calls.select { |prompt, _| prompt.include?('garbled') }.values).to eq([2])
+      expect(calls.select { |prompt, _| prompt.include?('stuck') }.values).to eq([1])
+      expect(verifier.warnings).to contain_exactly(a_string_matching(/Could not verify finding 'stuck'.*TimeoutError/),
+                                                   a_string_matching(/Retried .*'garbled'.*ParserError/))
+    end
+  end
+
   context 'when debug_output is provided' do
     subject(:debug_verifier) do
       described_class.new(
@@ -138,16 +294,16 @@ RSpec.describe Thingie::Verifier do
 
     let(:fake_debug_output) { instance_double(Thingie::DebugOutput) }
 
-    before { allow(fake_debug_output).to receive(:critic_call) }
+    before { allow(fake_debug_output).to receive_messages(critic_call: nil, tool_budget: nil, critic_retry: nil) }
 
     it 'calls critic_call with the issue, response, verdict, and content for each finding' do
       debug_verifier.call(issues)
       expect(fake_debug_output).to have_received(:critic_call)
         .with(issue: issues[0], response: anything, verdict: 'uphold',
-              content: hash_including('verdict' => 'uphold'))
+              content: hash_including('verdict' => 'uphold'), tool_names: [])
       expect(fake_debug_output).to have_received(:critic_call)
         .with(issue: issues[1], response: anything, verdict: 'reject',
-              content: hash_including('verdict' => 'reject'))
+              content: hash_including('verdict' => 'reject'), tool_names: [])
     end
 
     it 'does not call critic_call when verifier is disabled' do

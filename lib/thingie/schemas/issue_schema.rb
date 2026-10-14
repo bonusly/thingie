@@ -18,6 +18,7 @@ module Thingie
               properties: {
                 title: { type: 'string' },
                 details: { type: 'string' },
+                evidence: { type: 'string' },
                 tags: {
                   type: 'array',
                   items: { type: 'string' }
@@ -40,7 +41,7 @@ module Thingie
                   }
                 }
               },
-              required: %w[title details tags severity confidence affected_lines],
+              required: %w[title details evidence tags severity confidence affected_lines],
               additionalProperties: false
             }
           }

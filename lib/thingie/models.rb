@@ -41,7 +41,8 @@ module Thingie
     :severity,
     :confidence,
     :tags,
-    :affected_lines
+    :affected_lines,
+    :evidence
   ) do
     # Builds a raw issue, defaulting optional fields absent from the LLM's JSON.
     #
@@ -51,7 +52,8 @@ module Thingie
     # @param details [String, nil] extended explanation of the issue
     # @param tags [Array<String>] issue tags (e.g. `bug`, `security`)
     # @param affected_lines [Array<Thingie::AffectedRange>] code ranges the issue refers to
-    def initialize(title:, severity:, confidence:, details: nil, tags: [], affected_lines: [])
+    # @param evidence [String, nil] what the reviewer confirmed with its tools, and where
+    def initialize(title:, severity:, confidence:, details: nil, tags: [], affected_lines: [], evidence: nil)
       super
     end
   end
@@ -59,7 +61,8 @@ module Thingie
   # Normalized issue enriched with file context and an assigned ID.
   class Issue
     attr_accessor :id
-    attr_reader :file, :title, :details, :severity, :confidence, :tags, :affected_lines
+    attr_reader :file, :title, :details, :severity, :confidence, :tags, :affected_lines, :evidence,
+                :review_tool_calls, :critic_tool_calls
 
     # Builds an `Issue` from a raw hash (e.g. parsed from LLM JSON output).
     #
@@ -100,9 +103,13 @@ module Thingie
         confidence: hash.fetch('confidence'),
         details: hash['details'],
         tags: hash['tags'] || [],
-        affected_lines: affected_lines
+        affected_lines: affected_lines,
+        evidence: hash['evidence']
       )
-      new(id: hash['id'], file: hash['file'], raw_issue: raw, affected_lines: affected_lines)
+      new(id: hash['id'], file: hash['file'], raw_issue: raw, affected_lines: affected_lines).tap do |issue|
+        issue.record_tool_calls(review: hash['review_tool_calls'], critic: hash['critic_tool_calls'])
+        issue.mark_unchecked if hash['unchecked']
+      end
     end
 
     # Builds a normalized issue from a raw LLM finding.
@@ -116,10 +123,41 @@ module Thingie
       @file = file
       @title = raw_issue.title
       @details = raw_issue.details
+      @evidence = raw_issue.evidence
       @severity = raw_issue.severity
       @confidence = raw_issue.confidence
       @tags = raw_issue.tags || []
       @affected_lines = affected_lines
+      @review_tool_calls = []
+      @critic_tool_calls = []
+      @unchecked = false
+    end
+
+    # Records that the second look at this finding never produced a verdict, so it stands on the first
+    # pass's grade alone. Such a finding is posted as it is rather than judged by a cap that was meant
+    # for the critic's grade, and it blocks auto-approval like any other finding of its severity.
+    #
+    # @return [void]
+    def mark_unchecked
+      @unchecked = true
+    end
+
+    # Whether the second look never produced a verdict for this finding.
+    #
+    # @return [Boolean]
+    def unchecked?
+      @unchecked
+    end
+
+    # Keeps the tool calls the model made while producing and while checking this finding, for debugging.
+    # Either argument may be nil to leave that record unchanged.
+    #
+    # @param review [Array<String>, nil] the calls made by the review pass over this finding's file
+    # @param critic [Array<String>, nil] the calls made by the second look at this finding
+    # @return [void]
+    def record_tool_calls(review: nil, critic: nil)
+      @review_tool_calls = Array(review) unless review.nil?
+      @critic_tool_calls = Array(critic) unless critic.nil?
     end
 
     # Applies a critic-supplied correction to severity and/or confidence,
@@ -134,6 +172,44 @@ module Thingie
       @confidence = confidence unless confidence.nil?
     end
 
+    CITED_FILE = %r{([\w./-]+\.(?:rb|rake|erb|tsx?|jsx?|ya?ml|json|md|lock|toml|sql|s?css)):\d+}
+
+    # A file the finding's own text points at, when the text never mentions the file the finding is
+    # attached to. A reviewer that wandered into another file reports that file's line numbers, so
+    # anchoring the comment here would put it on an unrelated line.
+    #
+    # @return [String, nil] the first cited file, or nil when the text cites none or cites this file
+    def cited_other_file
+      cited = "#{@title} #{@details}".scan(CITED_FILE).flatten
+      return if cited.empty?
+
+      cited.first unless cited.any? { |path| File.basename(path) == File.basename(@file.to_s) }
+    end
+
+    TOOL_CALL_LINES = 25
+
+    # A label that starts a part. One quoted in backticks, as when a finding talks about the labels, is not one.
+    PART_LABEL = /\s*(?<!`)(\*\*(?:When it happens|Fix):\*\*)/
+
+    # The details with each labelled part of the comment style on its own paragraph. Models often write
+    # the parts run together on one line, which GitHub shows as a single block.
+    #
+    # @return [String, nil] the details in markdown, or nil when there are none
+    def details_markdown
+      @details&.gsub(PART_LABEL, "\n\n\\1")&.strip
+    end
+
+    # What the model confirmed, and the tool calls it made to confirm it, as a collapsed GitHub block, so the
+    # comment reads short and the proof is one click away. The tool calls are there for debugging.
+    #
+    # @return [String, nil] the block, or nil when there is neither evidence nor a tool call to show
+    def evidence_block
+      parts = [@evidence.to_s.strip, tool_calls_text].reject(&:empty?)
+      return if parts.empty?
+
+      "<details><summary>Evidence</summary>\n\n#{parts.join("\n\n")}\n\n</details>"
+    end
+
     # Converts the issue to a plain hash for JSON serialization.
     #
     # @return [Hash] a plain-hash representation suitable for JSON serialization
@@ -143,18 +219,36 @@ module Thingie
         'file' => @file,
         'title' => @title,
         'details' => @details,
+        'evidence' => @evidence,
+        'review_tool_calls' => @review_tool_calls,
+        'critic_tool_calls' => @critic_tool_calls,
+        'unchecked' => @unchecked,
         'severity' => @severity,
         'confidence' => @confidence,
         'tags' => @tags,
         'affected_lines' => @affected_lines.map { |range| range.to_h.transform_keys(&:to_s) }
       }
     end
+
+    private
+
+    def tool_calls_text
+      sections = [['Second look', @critic_tool_calls], ['Review pass over this file', @review_tool_calls]]
+      sections.reject { |_, calls| calls.empty? }.map { |label, calls| tool_calls_section(label, calls) }.join("\n\n")
+    end
+
+    def tool_calls_section(label, calls)
+      lines = calls.tally.map { |call, count| count > 1 ? "#{call} (x#{count})" : call }
+      shown = lines.first(TOOL_CALL_LINES)
+      shown << "... and #{lines.size - shown.size} more" if lines.size > shown.size
+      "Tool calls, #{label.downcase} (#{calls.size}):\n\n```text\n#{shown.join("\n")}\n```"
+    end
   end
 
   # Collection of issues and metadata produced by a review run.
   class Report
     attr_reader :target, :issues, :processing_warnings, :created_at, :model,
-                :number_of_processed_files, :processed_files
+                :number_of_processed_files, :processed_files, :unreviewed_files
 
     # The System One change-risk summary, nil when scoring didn't run: `'max'` is the highest score
     # per question, `'files'` the per-file scores, `'escalations'` the escalations (a `label`
@@ -203,7 +297,8 @@ module Thingie
         issues: issues,
         processing_warnings: data['processing_warnings'] || [],
         number_of_processed_files: data['number_of_processed_files'],
-        processed_files: data['processed_files'] || []
+        processed_files: data['processed_files'] || [],
+        unreviewed_files: data['unreviewed_files'] || []
       ).tap { |report| report.change_risk = data['change_risk'] }
     end
 
@@ -216,13 +311,16 @@ module Thingie
     # @param number_of_processed_files [Integer, nil] files processed; defaults to the
     #   unique file count across `issues`
     # @param processed_files [Array<String>] paths of the files that were reviewed
+    # @param unreviewed_files [Array<String>] paths of the files that got no review: the call failed or ran past
+    #   its time limit, or the model answered with no JSON; the approver refuses to approve while any remain
     def initialize(target:, model:, issues: [], processing_warnings: [],
-                   number_of_processed_files: nil, processed_files: [])
+                   number_of_processed_files: nil, processed_files: [], unreviewed_files: [])
       @target = target
       @model = model
       @issues = Array(issues)
       @processing_warnings = Array(processing_warnings)
       @processed_files = Array(processed_files)
+      @unreviewed_files = Array(unreviewed_files)
       @number_of_processed_files = number_of_processed_files || @issues.map(&:file).compact.uniq.size
       @created_at = Time.now.iso8601
     end
@@ -244,6 +342,7 @@ module Thingie
         'issues' => @issues.map(&:to_h),
         'number_of_processed_files' => number_of_processed_files,
         'processed_files' => @processed_files,
+        'unreviewed_files' => @unreviewed_files,
         'total_issues' => total_issues,
         'processing_warnings' => @processing_warnings,
         'created_at' => @created_at

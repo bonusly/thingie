@@ -111,10 +111,11 @@ module Thingie
                     line
                     path
                     resolvedBy { login }
-                    comments(first: 1) {
+                    comments(first: 10) {
                       nodes {
                         author { login }
                         body
+                        url
                       }
                     }
                   }

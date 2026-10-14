@@ -42,5 +42,19 @@ module Thingie
 
       results
     end
+
+    # Runs the block, giving up when it takes longer than `seconds` in total. `request_timeout` limits one
+    # HTTP request, but a model call that retries or loops over tool calls can run far longer than that.
+    # Must run inside {.map} (or another reactor).
+    #
+    # @param seconds [Numeric, nil] the longest the block may run; nil or zero means no limit
+    # @yieldreturn [Object] the block's value
+    # @return [Object] the block's value
+    # @raise [Async::TimeoutError] when the block runs past `seconds`
+    def self.with_timeout(seconds, &)
+      return yield unless seconds&.positive?
+
+      Async::Task.current.with_timeout(seconds, &)
+    end
   end
 end

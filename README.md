@@ -162,7 +162,7 @@ jobs:
 
 ### Resolving stale review threads
 
-When Thingie re-reviews a PR, it can mark its earlier threads as resolved once the issue is fixed or the line is outdated. This uses the GraphQL `resolveReviewThread` mutation, which **requires a user-to-server token (a personal access token).**
+When Thingie re-reviews a PR, it marks its earlier threads as resolved once the code they commented on changes (GitHub marks the thread outdated). It does not resolve a thread just because the model did not repeat the finding on a later run, since the model mentions a different set of issues each time. This uses the GraphQL `resolveReviewThread` mutation, which **requires a user-to-server token (a personal access token).**
 
 > **The default `GITHUB_TOKEN` cannot do this, and neither can a GitHub App.** Both are *server-to-server* tokens, and `resolveReviewThread` returns `Resource not accessible by integration` for them even with `pull-requests: write` — including the installation token from `actions/create-github-app-token`. Only a user PAT works.
 
@@ -228,15 +228,39 @@ Re-runs are idempotent: Thingie won't stack a second approval on a head commit i
 
 > **Close the re-review window with branch protection.** Thingie now dismisses its own approvals **before** each review begins, so a stale approval can't be used to merge while the new review is running. For approvals from **other reviewers**, enable branch protection's **"Dismiss stale pull request approvals when new commits are pushed"** so a new commit invalidates those instantly too; Thingie then re-approves only if the new commit still passes.
 
-The approval comment lists the checks that passed and a collapsed **Thingie details** section (Thingie version and the review model). If you set `approve.external_checks` (e.g. `["Security review pass", "Full test suite"]`), those are listed under **Other checks that must pass before merge** — checks Thingie does not evaluate but that still gate merge, so it's clear Thingie's approval isn't the only gate (they don't affect Thingie's decision).
+The approval comment opens with the risk read, then folds the checks that passed and a **Thingie details** section (Thingie version and the review model). If you set `approve.external_checks` (e.g. `["Security review pass", "Full test suite"]`), those are listed under **Other checks that must pass before merge** — checks Thingie does not evaluate but that still gate merge, so it's clear Thingie's approval isn't the only gate (they don't affect Thingie's decision).
 
 When an LLM key is available in the `github-comment` step, it also adds an informational **risk assessment**. Rather than restating the rules, the LLM looks at the actual code diff and gives an honest Low/Medium risk read focused on regressions, downtime, and security impact, with a short reason that justifies the approval. The risk level never affects the decision — the deterministic rules above do — and the section is simply omitted if no LLM client is configured or the call fails.
 
-The approval needs the workflow's `pull-requests: write` permission (already required for comments). The risk assessment additionally needs an LLM key (`LLM_API_KEY`) available to the `github-comment` step; without it the approval still posts, just without that section. Thingie tries the approval with the main `github_token` first, then falls back to the `resolve_token` PAT if that attempt fails.
+The approval needs the workflow's `pull-requests: write` permission (already required for comments). The risk assessment and the repeat check each need an LLM key (`LLM_API_KEY`) available to the `github-comment` step, and the bundled action passes it there. Without it, each is skipped and a line in the log says so; without it the approval still posts, just without that section. Thingie tries the approval with the main `github_token` first, then falls back to the `resolve_token` PAT if that attempt fails.
 
 > **Heads up on which token approves.** An approval submitted by `GITHUB_TOKEN` (or a GitHub App installation token) does **not** count toward branch-protection "required approvals", and the fallback only triggers when the first attempt *errors* — a non-counting approval from `GITHUB_TOKEN` succeeds and won't fall through to the PAT. If you need the approval to satisfy required reviewers, run Thingie with the PAT as its main `github_token` (or as a bot user) so the counting identity is the one that approves.
 
 > **Limitation.** "Contributor" is determined from commit author/committer GitHub logins, so a `Co-authored-by:` trailer doesn't count as having committed. If a thread's resolver can't be determined (e.g. a deleted account), Thingie fails safe and does not approve.
+
+### Plain-language comments
+
+Both review prompts tell the model how to write each finding: a title of at most 8 words that says what breaks, and details in three short parts, **What's wrong**, **When it happens** and **Fix**, in plain words and under 80 words, with technical terms explained or left out. The goal is a comment someone can read in ten seconds without having seen the code. The file and line references stay in the collapsed Evidence block.
+
+The text is `lib/thingie/prompts/comment_style.txt`. To replace it, set `comment_style` under `[prompt_vars]` in your config; an empty string turns it off.
+
+```toml
+[prompt_vars]
+comment_style = "Write each finding in two sentences."
+```
+
+### Repeated findings and findings about another file
+
+- **Findings about another file.** A reviewer sometimes reports a problem it found in a different file than the one it was reviewing, so the line number belongs to that other file. When a finding's text cites only other files (`path/to/file.rb:17`) and never the file it is attached to, Thingie does not put it on a line. It lists the finding in the collapsed summary comment under the cited file instead.
+- **A short summary on every run.** Each run posts one short summary. With findings it says how many are new and lists each with its severity and a link to its comment (one that is not on a line of the diff has no comment of its own, so it points at the collapsed one); with none, or with only repeats, it says "No new changes recommended" (on the first review, "No changes recommended"). Findings from earlier runs that are still open are listed under it, each with its severity and a link to its comment. A finding that has since been resolved, or whose code has changed, is not listed. Before listing them, `[open_findings]` (on by default; `enabled = false` turns it off) checks each one against the current file with one model call per file (no tools), so a problem fixed on a different line from its comment is dropped from the list. One it cannot confirm is listed with "can't confirm this is resolved". The check also reads the replies on each thread and says what they claim, so a line can end "replied skip", "replied fixed, can't confirm" or "replied fixed, still looks open". If the call fails, they are all listed as open and a warning is printed. `[open_findings] model` picks the model, and the review model is the default. The thread itself stays open on GitHub, so auto-approval is not affected.
+- **A higher bar on re-runs (`[repeat_run] max_severity = 2`).** The model mentions a different set of issues each run, so re-reviewing a PR after a push can surface new findings about code that has not changed. On a re-run, a new finding about code unchanged since Thingie last commented is posted only if its severity is at or below this (1 = Critical, 2 = High). A finding about new or changed code, such as a new file or method, gets the normal bar. Held-back findings are listed in the log. Set it to 4 to post everything.
+- **An incomplete review never approves.** A finding whose second look failed twice is posted as the first pass wrote it, with a note, and is not held to the confidence cap, so it blocks auto-approval like any other finding of its severity. A file that got no review at all (its call failed or timed out, or the model answered with no JSON) blocks auto-approval with "N file(s) got no review" in the approval comment.
+- **Repeats (`[dedupe]`, on by default).** On a re-run, Thingie would otherwise post the same problem again beside the thread that is still open, and models word the same issue several ways within one run. With `[dedupe]` on, one extra model call (no tools) compares the new findings with each other and with the Thingie comments still open on the PR, and drops the repeats. Two different problems on the same line are kept. If the call fails, every finding is posted and a warning is printed. `[dedupe] model` picks the model, and the review model is the default.
+
+```toml
+[dedupe]
+enabled = false   # opt out
+```
 
 ### Configuration options
 
@@ -257,11 +281,14 @@ Key settings:
 | API key | — | `llm_api_key` | `LLM_API_KEY` | — |
 | API base URL | provider default | `llm_api_base` | `LLM_API_BASE` | — |
 | Request timeout (seconds) | `120` | `request_timeout` | `LLM_REQUEST_TIMEOUT` | — |
+| File review time limit (seconds, all tool calls included; `0` for none) | `600` | `call_timeout` | — | — |
+| Critic time limit per finding (seconds, retry included; a finding it could not grade is posted unchecked and not capped; `0` for none) | `120` | `[verify] timeout` | — | — |
+| Tool calls one model call may make (`0` for none) | `5` | `tool_budget` | — | — |
 | Retries | `3` | `retries` | `LLM_RETRIES` | — |
 | Log file | stdout | `log_file` | `THINGIE_LOG_FILE` | — |
 | Log level | `info` | `log_level` | `THINGIE_LOG_LEVEL` | — |
 | Max concurrent file reviews | `10` | `max_concurrent_tasks` | `MAX_CONCURRENT_TASKS` | — |
-| Confidence threshold (keep if ≤) | `1` | `post_process.max_confidence` | — | — |
+| Confidence threshold (keep if ≤, applied after the critic) | `2` | `post_process.max_confidence` | — | — |
 | Severity threshold (keep if ≤) | `3` | `post_process.max_severity` | — | — |
 | Critic pass enabled | `true` | `verify.enabled` | — | — |
 | Critic pass model | review model | `verify.model` | — | — |
@@ -370,24 +397,51 @@ filter that already let the finding through to the critic in the first place.
 
 ### Filtering findings (`post_process`)
 
-The model scores every finding on a 1–4 **severity** scale (1 = Critical) and a
-1–4 **confidence** scale (1 = highest). `post_process` is the **SHOW line**: it
-drops anything above your thresholds *before* the critic pass runs, controlling
-whether a finding is surfaced to maintainers as a PR comment at all:
+The model scores every finding on a 1–4 **severity** scale (1 = Critical), and
+the critic grades each finding's **confidence** on a 1–4 scale (1 = highest).
+`post_process` is the **SHOW line**: it controls whether a finding is surfaced to
+maintainers as a PR comment at all. `max_severity` drops findings *before* the
+critic pass runs. `max_confidence` drops them *after* it, on the critic's grade:
 
 ```toml
 [post_process]
-max_confidence = 1   # keep only the model's highest-confidence findings
+max_confidence = 1   # keep only findings the critic could confirm in the code
 max_severity = 3     # keep Critical/High/Medium, drop Low
 ```
 
-Lower numbers are stricter. An omitted threshold means "no limit". This is a
-cheap first filter; the critic pass is the precision filter on top of it.
+Lower numbers are stricter. An omitted threshold means "no limit". The severity
+cap is a cheap first filter; the critic pass is the precision filter on top of
+it, and its confidence grade is what `max_confidence` is applied to.
 
 This is independent from `approve.max_severity` (the **BLOCK line**, see
 [Auto-approving PRs](#auto-approving-prs)) — a finding can be shown as a
 comment without blocking auto-approval, e.g. `post_process.max_severity = 3`
 but `approve.max_severity = 2`.
+
+### Verified review (`review.prompt = "verified"`)
+
+The default prompt tells the model to report only what it is certain of, which in practice means it reports almost nothing and misses real bugs. The `verified` prompt asks for the opposite discipline: check each suspicion against the code with the tools (a read-only `git grep` search tool, the file tool, and the language server when configured), cite what was confirmed in the finding's `evidence`, and grade `confidence` by how far the verification got, not by how sure the model feels.
+
+```toml
+[review]
+prompt = "verified"
+
+[post_process]
+max_confidence = 2        # post confirmed and likely findings; hunches are dropped
+require_evidence = true   # a finding with no evidence is held to no better than confidence 3
+
+[confidence_scale]
+1 = "Confirmed: you traced the failing path through the code with your tools and cite it in evidence"
+2 = "Likely: plausible and mostly verified, but one link in the path is unchecked"
+3 = "Suspected: a hunch you could not verify"
+4 = "Speculative: do not report"
+```
+
+The confidence the first-pass reviewer writes about its own finding comes before any checking, so it tells you little. Thingie therefore applies `max_confidence` after the critic, to the grade the critic gives: the critic always grades confidence by how far its own check with the tools got. Severity is still capped before the critic. If the critic is disabled, `max_confidence` applies to the reviewer's own grade.
+
+On a benchmark of 303 graded findings, a cap of 2 dropped about a quarter of the nits and a seventh of the good findings, a cap of 3 changed almost nothing, and a cap of 1 dropped most of the good findings. The grade says whether the critic could confirm a finding, not whether it matters, so it does not remove true but minor nits.
+
+The evidence shows under each finding (inline comment and report), collapsed, with the tool calls the model made for debugging: what the second look asked its tools, and what the review pass asked for the file (a long list is cut at 25 lines). The evidence is also passed to the critic, so a reader can see why a finding was raised and the critic can check the claim. The search tool is always available to the reviewer and the critic; it is limited to tracked files under the working directory and runs without a shell.
 
 ### Language servers (LSP)
 

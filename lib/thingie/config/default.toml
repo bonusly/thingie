@@ -22,9 +22,26 @@ retries = 3
 # Maximum number of concurrent file reviews (uses fibers).
 max_concurrent_tasks = 10
 
+# Whether to also ask for schema-constrained JSON on calls that have tools. Some
+# models (GLM through OpenRouter) answer straight away instead of calling a tool
+# when a response schema is set, so the review is never verified. Set false for
+# those: the prompt describes the JSON and the reply is parsed instead.
+schema_with_tools = true
+
+# Most tool calls one model call may make, for a file review and for the second look at a
+# finding. The prompt tells the model the number so it spends them on what matters; past it, a
+# tool call returns a note to answer now instead of running. Without a cap, one file review made
+# 60 tool calls and took 22 minutes. 0 means no cap.
+tool_budget = 5
+
 # Timeout (in seconds) for a single LLM request, including connection and
 # response. Set lower to fail fast on unreachable providers.
 request_timeout = 120
+
+# Longest time (in seconds) one file's review may take in total, including retries and every tool
+# call the model makes. A file that runs past it is reported as failed in the warnings and the rest
+# of the review carries on. 0 means no limit.
+call_timeout = 600
 
 # Path to a log file for RubyLLM request logging. Leave empty to log to stdout.
 # Set to a file path to persist LLM request/response details for debugging.
@@ -182,6 +199,14 @@ json_requirements = """
   format.
 """
 
+[review]
+# Which bundled review prompt the first pass uses.
+#   "default"  - strict: report only what the model is certain of.
+#   "verified" - the model checks each suspicion with its search and file tools,
+#                cites what it confirmed in `evidence`, and grades `confidence`
+#                by how far verification got (see [confidence_scale]).
+prompt = "default"
+
 [post_process]
 # This is the SHOW line: thresholds applied to issues after the LLM returns
 # them, controlling whether a finding is surfaced to maintainers at all (as a
@@ -191,8 +216,47 @@ json_requirements = """
 # can be shown but not block, e.g. show max_severity=3, approve max_severity=2.
 # Both lines are also stated explicitly to the review/critic LLMs in their
 # prompts (see `severity_rubric` above and `PromptBuilder#show_threshold_text`).
-max_confidence = 1
+# max_severity is applied before the critic pass. max_confidence is applied after it, to the grade
+# the critic gives once it has checked the finding against the code with its tools (it always
+# grades), because the confidence a reviewer writes about its own finding comes before any
+# checking. On a benchmark of graded findings, 2 dropped about a quarter of the nits and a
+# seventh of the good findings; 1 dropped most of the good ones. Without the critic it applies
+# to the reviewer's own grade.
+max_confidence = 2
 max_severity = 4
+# With the "verified" prompt: a finding the reviewer gave no evidence for is held to
+# no better than `unverified_confidence` (default 3), whatever the model or the critic
+# graded it, so it cannot pass a stricter max_confidence. Applied together with that cap,
+# after the critic pass.
+require_evidence = false
+
+[repeat_run]
+# The model samples a different set of issues on each run, so re-reviewing a PR after a push can
+# surface new findings about code that has not changed. On a re-run of a PR Thingie has already
+# commented on, a new finding about code unchanged since the last review is posted only if its
+# severity is at or below this (1 = Critical, 2 = High). Findings about new or changed code, such
+# as a new file or method, always get the normal bar. Held-back findings are listed in the log.
+# Set to 4 to post everything. A thread already open is never resolved just because the model
+# did not repeat it; it resolves when the code it commented on changes.
+max_severity = 2
+
+[dedupe]
+# Before posting, drop findings that repeat another finding in the same run or a Thingie
+# comment that is still open on the pull request, so a re-run does not post the same
+# problem twice. One extra model call (no tools) per run, over the whole list. If the
+# call fails, every finding is posted and a warning is printed.
+enabled = true
+# Model for that call; defaults to the review model.
+# model = "..."
+
+[open_findings]
+# The summary lists earlier findings that are still open. Before listing them, check each one against
+# the current code: drop the ones that are fixed (even on a different line from the comment), and mark
+# the ones it cannot confirm as "can't confirm this is resolved". One model call (no tools) per file
+# with open findings. If the call fails, every open finding is listed as before and a warning is printed.
+enabled = true
+# Model for that call; defaults to the review model.
+# model = "..."
 
 [verify]
 # Critic / challenge pass: after filtering, re-examine each surviving finding
@@ -201,6 +265,17 @@ max_severity = 4
 # runs on findings that passed the thresholds above, so cost scales with finding
 # count, not file size. Fail-open: a finding is kept if the critic can't run.
 enabled = true
+# What the critic asks. "default": is it true and valuable to a maintainer. "user_impact":
+# is it true AND would someone using the product see a failure, an error, wrong data or
+# something missing (a concrete trigger and consequence)? Nits and maintainability
+# points must clear a much higher bar. Pair with tools (schema_with_tools = false for
+# models that skip tools when a schema is set) so the critic can check the code.
+bar = "default"
+# Longest time (in seconds) the critic may spend on one finding, tool calls and any retry included.
+# A call normally takes well under a minute. One that answers with no verdict is tried once more in
+# the time left; one that ran out the clock is not. A finding the critic could not grade is posted
+# unchecked and a warning is recorded. 0 means no limit.
+timeout = 120
 # Optional: run the critic on a stronger model than the review (same provider
 # and API key). Leave empty to reuse the review model.
 # model = "claude-opus-4.8"

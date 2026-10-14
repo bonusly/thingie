@@ -41,6 +41,15 @@ RSpec.describe Thingie::PromptBuilder do
       expect(builder.review(diff: '', symbol_lookup: true)).to include('symbol lookup tool')
     end
 
+    it 'tells the model its tool budget, in both review prompts, only when there is one', :aggregate_failures do
+      config = Thingie::Configuration.new(root: tmp_dir, overrides: { 'review' => { 'prompt' => 'verified' } })
+      [builder, described_class.new(config)].each do |b|
+        expect(b.review(diff: '', tool_budget: 5))
+          .to include('at most 5 tool calls for this file', 'most important questions first')
+        expect(b.review(diff: '')).not_to include('tool calls for this file')
+      end
+    end
+
     it 'inverts the diff-only guideline for whole-file reviews', :aggregate_failures do
       diff_prompt = builder.review(diff: "+ def hello\n", file_lines: "def hello\nend\n")
       expect(diff_prompt).to include('Only report issues on lines added or modified in the diff above')
@@ -81,7 +90,7 @@ RSpec.describe Thingie::PromptBuilder do
     it 'states the show-line threshold in terms of the default post_process config' do
       prompt = builder.review(diff: '')
       expect(prompt).to include('severity 4 (Low) or better')
-      expect(prompt).to include('confidence 1 (Highest, 100% confidence) or better')
+      expect(prompt).to include('confidence 2 (Very High) or better')
     end
 
     it 'states that auto-approval is disabled by default' do
@@ -124,11 +133,120 @@ RSpec.describe Thingie::PromptBuilder do
     end
   end
 
+  describe '#review prompt style' do
+    def prompt_for(config, symbol_lookup: false)
+      described_class.new(config).review(diff: '+x', file_lines: 'x', symbol_lookup: symbol_lookup)
+    end
+
+    let(:verified_config) do
+      Thingie::Configuration.new(root: tmp_dir, overrides: { 'review' => { 'prompt' => 'verified' } })
+    end
+
+    it 'uses the strict prompt unless told otherwise', :aggregate_failures do
+      prompt = prompt_for(config)
+      expect(prompt).to include('100% confident')
+      expect(prompt).not_to include('VERIFY BEFORE YOU REPORT')
+    end
+
+    it 'asks the verified prompt to check suspicions with the tools and cite evidence', :aggregate_failures do
+      prompt = prompt_for(verified_config)
+      expect(prompt).to include('VERIFY BEFORE YOU REPORT', '"evidence"', 'search tool')
+      expect(prompt).not_to include('100% confident')
+      expect(prompt).to include('- 1 — Highest, 100% confidence')
+    end
+
+    it 'mentions the symbol lookup tool only when it is available', :aggregate_failures do
+      expect(prompt_for(verified_config, symbol_lookup: true)).to include('symbol lookup tool')
+      expect(prompt_for(verified_config, symbol_lookup: false)).not_to include('symbol lookup tool')
+    end
+
+    it 'rejects an unknown prompt style' do
+      bad = Thingie::Configuration.new(root: tmp_dir, overrides: { 'review' => { 'prompt' => 'loose' } })
+      expect { prompt_for(bad) }.to raise_error(ArgumentError, /Unknown \[review\] prompt "loose"/)
+    end
+
+    it 'asks both prompts for a short plain title and three short parts in the details', :aggregate_failures do
+      [config, verified_config].each do |cfg|
+        prompt = prompt_for(cfg)
+        expect(prompt).to include('HOW TO WRITE EACH FINDING', 'at most 8 words', "**What's wrong:**",
+                                  '**When it happens:**', '**Fix:**', 'a ten-year-old', 'blank line between parts')
+      end
+    end
+
+    it 'lets the style be replaced from prompt_vars', :aggregate_failures do
+      overrides = { 'prompt_vars' => { 'comment_style' => 'WRITE TERSELY' } }
+      prompt = prompt_for(Thingie::Configuration.new(root: tmp_dir, overrides: overrides))
+
+      expect(prompt).to include('WRITE TERSELY')
+      expect(prompt).not_to include('HOW TO WRITE EACH FINDING')
+    end
+
+    it 'keeps the style out of the critic prompt' do
+      issue = Thingie::Issue.from_hash('title' => 't', 'details' => 'd', 'severity' => 2, 'confidence' => 1,
+                                       'tags' => [], 'file' => 'a.rb', 'affected_lines' => [{ 'start_line' => 1 }])
+
+      expect(described_class.new(config).verify(issue: issue, diff: 'x')).not_to include('HOW TO WRITE EACH FINDING')
+    end
+  end
+
+  describe '#duplicates' do
+    let(:open_comment) { { label: 'E1', location: 'a.rb:3', text: 'Query never returns users' } }
+    let(:finding) { { label: 'N1', location: 'a.rb:3', text: 'No users come back' } }
+
+    it 'lists the open comments and the new findings under their labels', :aggregate_failures do
+      prompt = builder.duplicates(existing: [open_comment], findings: [finding])
+
+      expect(prompt).to include('COMMENTS ALREADY OPEN', 'E1 | a.rb:3', 'Query never returns users',
+                                'NEW FINDINGS', 'N1 | a.rb:3', 'No users come back')
+    end
+
+    it 'leaves out the open-comments section when there are none', :aggregate_failures do
+      prompt = builder.duplicates(existing: [], findings: [finding])
+
+      expect(prompt).not_to include('COMMENTS ALREADY OPEN')
+      expect(prompt).to include('N1 | a.rb:3')
+    end
+  end
+
   describe '#verify' do
     let(:issue) do
       Thingie::Issue.from_hash('title' => 'Leaky query', 'details' => 'd', 'severity' => 1,
                                'confidence' => 2, 'tags' => [], 'file' => 'app.rb',
                                'affected_lines' => [{ 'start_line' => 1 }])
+    end
+
+    it 'tells the model its tool budget only when there is one', :aggregate_failures do
+      expect(builder.verify(issue: issue, diff: '', tool_budget: 5)).to include('at most 5 tool calls for this finding')
+      expect(builder.verify(issue: issue, diff: '')).not_to include('tool calls for this finding')
+    end
+
+    it 'asks whether it is true and would matter to a user when the bar is user_impact', :aggregate_failures do
+      impact = Thingie::Configuration.new(root: tmp_dir, overrides: { 'verify' => { 'bar' => 'user_impact' } })
+      prompt = described_class.new(impact).verify(issue: issue, diff: 'x')
+      expect(prompt).to include('Would it matter to someone using the product?', 'search and file tools')
+      expect(prompt).not_to include('materially valuable to a maintainer')
+    end
+
+    it 'tells the critic to always grade confidence by how far its own check got', :aggregate_failures do
+      prompt = builder.verify(issue: issue, diff: 'x')
+      expect(prompt).to include('Always give a confidence grade', '"confidence_override": <1-4>,')
+      expect(prompt).not_to include('or null to leave the original grade unchanged>,\n  "reasoning"')
+    end
+
+    it 'keeps the default bar unless told otherwise', :aggregate_failures do
+      prompt = builder.verify(issue: issue, diff: 'x')
+      expect(prompt).to include('materially valuable to a maintainer')
+      expect(prompt).not_to include('Would it matter to someone using the product?')
+    end
+
+    it 'shows the critic the evidence the reviewer gave', :aggregate_failures do
+      with_evidence = Thingie::Issue.from_hash('title' => 'Leaky query', 'details' => 'd', 'severity' => 1,
+                                               'confidence' => 2, 'tags' => [], 'file' => 'app.rb',
+                                               'evidence' => 'award.rb:31 skips the check',
+                                               'affected_lines' => [{ 'start_line' => 1 }])
+      expect(builder.verify(issue: with_evidence, diff: 'x'))
+        .to include('Evidence the reviewer gave: award.rb:31 skips')
+      expect(builder.verify(issue: issue, diff: 'x')).not_to include('Evidence the reviewer gave')
     end
 
     it 'shows the PR-wide changes only when there are some', :aggregate_failures do

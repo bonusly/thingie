@@ -7,7 +7,7 @@ require_relative 'json_extractor'
 module Thingie
   # Orchestrates reviewing the changeset: builds prompts, calls the LLM,
   # post-processes issues, and builds a Report.
-  class Reviewer
+  class Reviewer # rubocop:disable Metrics/ClassLength
     # Builds a reviewer for a single run of the pipeline.
     #
     # @param config [Thingie::Configuration] full merged configuration
@@ -29,6 +29,8 @@ module Thingie
       # file with a warning; failures on every file abort the run (see
       # #raise_if_total_failure). Same cooperative-single-thread guarantee.
       @file_failures = []
+      # Files that got no review at all, for the report: the approver will not approve while any remain.
+      @unreviewed_files = []
       @debug_output = DebugOutput.new(config: config, changeset: changeset, enabled: debug)
       @usage = Stats::Usage.new
       @pr_context = PrContext.new(changeset)
@@ -48,11 +50,12 @@ module Thingie
       @debug_output.banner
       @debug_output.review_section_start
       issues = gather_llm_issues
-      filtered = PostProcessor.new(@config['post_process']).call(issues)
+      post_processor = PostProcessor.new(@config['post_process'])
+      filtered = post_processor.call(issues)
       @debug_output.post_process(before: issues.size, after: filtered.size)
       enriched = CodeEnricher.new(@changeset).call(filtered)
       @debug_output.first_pass(enriched)
-      verified = verify(enriched)
+      verified = post_processor.cap_confidence(verify(enriched))
       obfuscated = ObfuscationDetector.new(@changeset).call
       sorted = (verified + obfuscated).sort_by { |issue| issue.severity || Float::INFINITY }
       sorted.each_with_index { |issue, index| issue.id = index + 1 }
@@ -69,7 +72,8 @@ module Thingie
         issues: issues,
         processing_warnings: @warnings,
         number_of_processed_files: @changeset.files.size,
-        processed_files: @changeset.files
+        processed_files: @changeset.files,
+        unreviewed_files: @unreviewed_files
       )
     end
 
@@ -120,20 +124,30 @@ module Thingie
       whole_file = @changeset.all?
       diff = @changeset.diff_text_for(file)
       full = whole_file ? nil : @changeset.full_content_for(file)
-      prompt = @prompt_builder.review(diff: diff, file_lines: full, symbol_lookup: @tools.any?,
-                                      whole_file: whole_file, pr_context: @pr_context.to_s)
-      response = @llm_client.complete_with_schema(prompt, Schemas::ISSUE_SCHEMA, tools: @tools)
+      budget = ToolBudget.new(@config['tool_budget'])
+      prompt = @prompt_builder.review(diff: diff, file_lines: full, symbol_lookup: @tools.any?(Lsp::SymbolTool),
+                                      whole_file: whole_file, pr_context: @pr_context.to_s,
+                                      tool_budget: (budget.limit if budget.active? && @tools.any?))
+      tool_names = []
+      response = Concurrency.with_timeout(@config['call_timeout']) do
+        @llm_client.complete_with_schema(prompt, Schemas::ISSUE_SCHEMA, tools: @tools, tool_log: tool_names,
+                                                                        tool_budget: budget)
+      end
+      @debug_output.tool_budget(tag: 'REVIEW', label: file, budget: budget)
       @usage.record(response)
       issues = parse_response(response, file)
-      @debug_output.review_call(file: file, response: response, issues: issues)
+      issues.each { |issue| issue.record_tool_calls(review: tool_names) }
+      @debug_output.review_call(file: file, response: response, issues: issues, tool_names: tool_names)
       only_changed_lines(issues, file)
     rescue JSON::ParserError => e
       @warnings << "Could not parse LLM response for #{file}: #{e.message}"
+      @unreviewed_files << file
       @debug_output.review_error(file: file, error: e)
       []
     rescue StandardError => e
       @warnings << "Failed to review #{file}: #{e.class}: #{e.message}"
       @file_failures << [file, e]
+      @unreviewed_files << file
       @debug_output.review_error(file: file, error: e)
       []
     end
@@ -157,7 +171,13 @@ module Thingie
     # Some models answer in the reasoning channel and leave the content empty.
     def parse_response(response, file)
       content = response&.content
-      return IssueParser.new.parse(JsonExtractor.issues_in(response&.thinking) || [], file) if content.to_s.strip.empty?
+      if content.to_s.strip.empty?
+        reasoning = response&.thinking
+        # An empty reply is not "no issues": the model said nothing, so the file got no review.
+        raise JSON::ParserError, 'the reply is empty' if reasoning.nil?
+
+        return IssueParser.new.parse(JsonExtractor.issues_in(reasoning) || [], file)
+      end
 
       parsed = content.is_a?(String) ? JsonExtractor.parse(content) : content
       raise JSON::ParserError, 'no valid JSON found in response' if parsed.nil?

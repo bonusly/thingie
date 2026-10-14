@@ -3,6 +3,7 @@
 require 'spec_helper'
 require 'tmpdir'
 require 'fileutils'
+require 'benchmark'
 
 RSpec.describe Thingie::Reviewer do
   subject(:reviewer) do
@@ -35,7 +36,15 @@ RSpec.describe Thingie::Reviewer do
                               input_tokens: 100, output_tokens: 50, tool_calls: {},
                               cache_read_tokens: nil, cache_write_tokens: nil, cost: cost_stub,
                               model_info: nil, thinking: nil, thinking_tokens: nil)
-    instance_double(Thingie::LlmClient, complete_with_schema: response)
+    verdict = message_double(content: { 'verdict' => 'uphold' },
+                             input_tokens: 100, output_tokens: 50, tool_calls: {},
+                             cache_read_tokens: nil, cache_write_tokens: nil, cost: cost_stub,
+                             model_info: nil, thinking: nil, thinking_tokens: nil)
+    instance_double(Thingie::LlmClient).tap do |client|
+      allow(client).to receive(:complete_with_schema) do |prompt, *|
+        prompt.include?('FINDING TO CHALLENGE') ? verdict : response
+      end
+    end
   end
 
   after do
@@ -51,6 +60,54 @@ RSpec.describe Thingie::Reviewer do
     expect(report.number_of_processed_files).to eq(1)
   end
 
+  context 'when the review pass uses its tools' do
+    let(:fake_llm_client) do
+      issues = [{ 'title' => 'Missing return', 'details' => 'No return value', 'severity' => 2,
+                  'confidence' => 1, 'tags' => ['bug'], 'affected_lines' => [{ 'start_line' => 1 }] }]
+      response = message_double(content: { 'issues' => issues }, input_tokens: 1, output_tokens: 1, tool_calls: {},
+                                cache_read_tokens: nil, cache_write_tokens: nil, cost: nil, model_info: nil,
+                                thinking: nil, thinking_tokens: nil)
+      instance_double(Thingie::LlmClient).tap do |client|
+        allow(client).to receive(:complete_with_schema) do |_prompt, _schema, tool_log: nil, **|
+          tool_log&.push('thingie--search hello')
+          response
+        end
+      end
+    end
+
+    it 'keeps what it asked the tools on each finding from that file' do
+      expect(reviewer.review.issues.first.review_tool_calls).to eq(['thingie--search hello'])
+    end
+  end
+
+  context 'with the default tool budget' do
+    let(:seen) { {} }
+    let(:fake_llm_client) do
+      instance_double(Thingie::LlmClient).tap do |client|
+        allow(client).to receive(:complete_with_schema) do |prompt, _schema, tool_budget: nil, **|
+          seen[:prompt] = prompt
+          seen[:budget] = tool_budget
+          message_double(content: { 'issues' => [] }, input_tokens: 1, output_tokens: 1, tool_calls: {},
+                         cache_read_tokens: nil, cache_write_tokens: nil, cost: nil, model_info: nil,
+                         thinking: nil, thinking_tokens: nil)
+        end
+      end
+    end
+
+    it 'gives each file review a budget of 5, and says so only when there are tools', :aggregate_failures do
+      reviewer.review
+
+      expect(seen[:budget]).to be_a(Thingie::ToolBudget)
+      expect(seen[:budget].limit).to eq(5)
+      expect(seen[:prompt]).not_to include('tool calls for this file')
+
+      described_class.new(config: config, changeset: fake_changeset, prompt_builder: Thingie::PromptBuilder.new(config),
+                          llm_client: fake_llm_client, tools: [instance_double(RubyLLM::Tool)]).review
+
+      expect(seen[:prompt]).to include('at most 5 tool calls for this file')
+    end
+  end
+
   it 'accumulates LLM usage and enriches the target with the head commit sha', :aggregate_failures do
     report = reviewer.review
     expect(reviewer.usage).to be_a(Thingie::Stats::Usage)
@@ -59,6 +116,34 @@ RSpec.describe Thingie::Reviewer do
     expect(reviewer.usage.output_tokens).to eq(100)
     expect(reviewer.usage.cost).to be_within(1e-9).of(0.0003)
     expect(report.target.commit_sha).to eq('abc123')
+  end
+
+  context 'when deciding whether to tell the model about the symbol lookup tool' do
+    let(:prompts) { [] }
+    let(:fake_llm_client) do
+      response = message_double(content: { 'issues' => [] }, input_tokens: 1, output_tokens: 1, tool_calls: {},
+                                cache_read_tokens: nil, cache_write_tokens: nil, cost: nil, model_info: nil,
+                                thinking: nil, thinking_tokens: nil)
+      instance_double(Thingie::LlmClient).tap do |client|
+        allow(client).to receive(:complete_with_schema) { |prompt, *_| (prompts << prompt) && response }
+      end
+    end
+    let(:file_tool) { Thingie::FileTool.new(root: tmp_dir) }
+    let(:symbol_tool) { Thingie::Lsp::SymbolTool.new(client: instance_double(Thingie::Lsp::Client), root: tmp_dir) }
+
+    def first_prompt_with(tools)
+      described_class.new(config: config, changeset: fake_changeset, llm_client: fake_llm_client, tools: tools,
+                          prompt_builder: Thingie::PromptBuilder.new(config)).review
+      prompts.first
+    end
+
+    it 'does not mention it when the only tools read and search files' do
+      expect(first_prompt_with([file_tool])).not_to include('symbol lookup')
+    end
+
+    it 'mentions it when the symbol tool is there' do
+      expect(first_prompt_with([file_tool, symbol_tool])).to include('symbol lookup')
+    end
   end
 
   context 'when an issue falls on an unchanged line' do
@@ -156,11 +241,53 @@ RSpec.describe Thingie::Reviewer do
       end
     end
 
-    it 'skips the failed file with a warning and reviews the rest', :aggregate_failures do
+    it 'skips the failed file with a warning, lists it as unreviewed, and reviews the rest', :aggregate_failures do
       report = reviewer.review
       expect(report.total_issues).to eq(1)
       expect(report.processing_warnings).to include(/Failed to review other.rb: .*Rate limit exceeded/)
+      expect(report.unreviewed_files).to eq(['other.rb'])
       expect(report.number_of_processed_files).to eq(2)
+    end
+  end
+
+  context 'when one file takes longer than the time limit' do
+    let(:config) { Thingie::Configuration.new(root: tmp_dir, overrides: { 'call_timeout' => 0.05 }) }
+    let(:fake_changeset) do
+      instance_double(Thingie::Changeset).tap do |changeset|
+        allow(changeset).to receive_messages(files: ['app.rb', 'other.rb'], patches: [],
+                                             changed_lines_for: Set.new([1]), all?: false,
+                                             base_ref: 'main', head_ref: 'HEAD', head_sha: 'abc123')
+        allow(changeset).to receive(:diff_text_for) { |file| file == 'other.rb' ? "+ def other\n" : "+ def hello\n" }
+        allow(changeset).to receive(:full_content_for) { |file|
+          "#{file == 'other.rb' ? 'def other' : 'def hello'}\nend\n"
+        }
+      end
+    end
+    let(:fake_llm_client) do
+      issues = [{ 'title' => 'Missing return', 'details' => 'No return value', 'severity' => 2,
+                  'confidence' => 1, 'tags' => ['bug'], 'affected_lines' => [{ 'start_line' => 1 }] }]
+      response = message_double(content: { 'issues' => issues },
+                                input_tokens: 100, output_tokens: 50, tool_calls: {},
+                                cache_read_tokens: nil, cache_write_tokens: nil,
+                                cost: instance_double(RubyLLM::Cost, total: nil),
+                                thinking: nil, thinking_tokens: nil)
+      instance_double(Thingie::LlmClient).tap do |client|
+        allow(client).to receive(:complete_with_schema) do |prompt, _schema, _tools|
+          sleep(5) if prompt.include?('def other')
+
+          response
+        end
+      end
+    end
+
+    it 'gives up on that file with a warning and reviews the rest', :aggregate_failures do
+      report = nil
+      elapsed = Benchmark.realtime { report = reviewer.review }
+
+      expect(report.total_issues).to eq(1)
+      expect(report.processing_warnings).to include(/Failed to review other.rb: .*TimeoutError/)
+      expect(report.unreviewed_files).to eq(['other.rb'])
+      expect(elapsed).to be < 2
     end
   end
 
@@ -189,7 +316,8 @@ RSpec.describe Thingie::Reviewer do
     it 'marks the prompt as whole-file and does not duplicate the content' do
       reviewer.review
       expect(prompt_builder).to have_received(:review)
-        .with(diff: "def hello\nend\n", file_lines: nil, symbol_lookup: false, whole_file: true, pr_context: '')
+        .with(diff: "def hello\nend\n", file_lines: nil, symbol_lookup: false, whole_file: true, pr_context: '',
+              tool_budget: nil)
     end
   end
 
@@ -261,8 +389,12 @@ RSpec.describe Thingie::Reviewer do
       instance_double(Thingie::LlmClient, complete_with_schema: nil)
     end
 
-    it 'treats the file as having no issues' do
-      expect(reviewer.review.total_issues).to eq(0)
+    it 'treats the file as unreviewed, with a warning, not as having no issues', :aggregate_failures do
+      report = reviewer.review
+
+      expect(report.total_issues).to eq(0)
+      expect(report.unreviewed_files).to eq(['app.rb'])
+      expect(report.processing_warnings).to include(/Could not parse LLM response for app.rb: the reply is empty/)
     end
   end
 

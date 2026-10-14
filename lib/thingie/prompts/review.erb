@@ -44,15 +44,21 @@ contents to confirm a finding.
   C-extension and other native gem methods often have no indexable definition.
   When you cannot verify a third-party API, do not report it.
 <%- end -%>
+<%- if tool_budget -%>
+- You have at most <%= tool_budget %> tool calls for this file. Use a tool only when its answer
+  decides whether to report something, and answer the most important questions first. When the
+  calls are spent, answer with what you have.
+<%- end -%>
 <%= requirements %>
 <%= json_requirements %>
 
+<%= comment_style %>
 Respond with a JSON object containing an "issues" array following this schema:
 {
   "issues": [
     {
-      "title": "<issue_title>",
-      "details": "<issue_description>",
+      "title": "<short plain title>",
+      "details": "<what's wrong, when it happens, and the fix, as described above>",
       "tags": ["<tag1>", "<tag2>", ...],
       "severity": <1-4>,
       "confidence": <1-4>,

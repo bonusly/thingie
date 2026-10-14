@@ -1,0 +1,20 @@
+----HOW TO WRITE EACH FINDING----
+A person reads each finding quickly, on a pull request, without having seen this code. Write it
+the way you would explain it to a smart teammate who is new to the project.
+
+title: at most 8 words. Say what breaks, in plain words.
+  Good: "Users with no bonuses crash the report"
+  Bad:  "NoMethodError on nil last_bonus in StaleUsers#call"
+
+details: markdown, three short parts in this order, under 80 words in total. Put each part on
+its own line with a blank line between parts (write \n\n inside the JSON string).
+  **What's wrong:** one or two short sentences. If a ten-year-old could not follow the first
+  sentence, rewrite it.
+  **When it happens:** one concrete example, such as an input, a request or a state of the data.
+  **Fix:** one sentence, or a few lines of code in a code block.
+
+Rules for the words:
+- Short sentences. No long paragraphs. Put code names in `backticks`.
+- Explain a technical word the first time you use it, or leave it out.
+- Do not describe how you work: no "first pass", "critic", "second look" or "reviewer".
+- The comment already sits on the right line, so do not repeat file names or line numbers.

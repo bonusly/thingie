@@ -12,6 +12,10 @@ exclude_files = [
 command = ["bundle", "exec", "ruby-lsp"]
 extensions = [".rb", ".rake"]
 
+# Post Critical, High and Medium findings; Low ones are not posted.
+[post_process]
+max_severity = 3
+
 # Critic pass: review runs on the model from the workflow (vars.LLM_MODEL via
 # OpenRouter); the verify pass re-checks each surviving finding on a stronger
 # model. Same provider/key (OpenRouter), so the slug is provider-prefixed.

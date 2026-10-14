@@ -35,6 +35,17 @@ module Thingie
       end
     end
 
+    # Registers a hook that runs for every tool call the model makes. ruby_llm renamed
+    # `on_tool_call` to `before_tool_call` and removes the old name in 2.x.
+    #
+    # @param chat [RubyLLM::Chat] the chat to hook
+    # @param handler [#call] called with each tool call, before it runs
+    # @return [RubyLLM::Chat] the chat
+    def on_tool_call(chat, handler)
+      hook = chat.respond_to?(:before_tool_call) ? :before_tool_call : :on_tool_call
+      chat.public_send(hook) { |call| handler.call(call) }
+    end
+
     # Reads a token count off a response. 1.16 has both the readers and a
     # differently shaped #tokens, so the readers win when they exist.
     #

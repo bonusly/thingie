@@ -1,0 +1,28 @@
+You are checking a pull request's review findings for repeats, so reviewers are not shown the same problem twice.
+
+<%- unless existing.empty? -%>
+----COMMENTS ALREADY OPEN ON THE PULL REQUEST----
+<%- existing.each do |item| -%>
+<%= item[:label] %> | <%= item[:location] %>
+<%= item[:text] %>
+
+<%- end -%>
+--------
+
+<%- end -%>
+----NEW FINDINGS----
+<%- findings.each do |item| -%>
+<%= item[:label] %> | <%= item[:location] %>
+<%= item[:text] %>
+
+<%- end -%>
+--------
+
+For each new finding, say which earlier item it repeats, or null if it is new.
+
+- Two items repeat each other when they describe the same root problem in the same code, so fixing one fixes the other. Different wording, a different line inside the same statement, or a different level of detail does not make them different.
+- Two different problems that happen to sit on the same line or in the same method are NOT repeats. A missing method and a missing nil check are different problems.
+- Point to the earliest repeat: an open comment (labels starting with E) or an earlier new finding (labels starting with N, with a smaller number). Never point to a later finding.
+- When you are not sure, answer null. A repeat that gets posted is a minor annoyance; a real problem that gets dropped is a loss.
+
+Respond with a JSON object: {"findings": [{"id": "<label of the new finding>", "duplicate_of": "<label or null>"}]} with one entry for every new finding.

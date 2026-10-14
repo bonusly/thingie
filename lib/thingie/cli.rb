@@ -92,6 +92,7 @@ module Thingie
       clients = build_lsp_clients(config, changeset)
       tools = clients.map { |client| Thingie::Lsp::SymbolTool.new(client: client, root: changeset.workdir) }
       tools << Thingie::FileTool.new(root: changeset.workdir)
+      tools << Thingie::SearchTool.new(root: changeset.workdir)
       skill_tool = Thingie::SkillCatalog.tool(config)
       tools << skill_tool if skill_tool
       mcp_toolset = Thingie::Mcp::Toolset.build(config)
@@ -362,12 +363,16 @@ module Thingie
       # @param context [Thingie::GitHub::Context, nil] the resolved GitHub Action context
       # @return [Thingie::GitHub::Commenter] a commenter configured for the target PR
       def build_commenter(context)
+        config = Thingie::Configuration.new
         Thingie::GitHub::Commenter.new(
           token: options[:token] || Env.fetch('GITHUB_TOKEN', nil),
           resolve_token: options[:resolve_token] || Env.fetch('THINGIE_RESOLVE_TOKEN', nil),
           owner: repo_owner(context),
           repo: repo_name(context),
-          pr_number: options[:pr] || context&.pr_number
+          pr_number: options[:pr] || context&.pr_number,
+          duplicate_filter: build_duplicate_filter(config),
+          open_finding_check: build_open_finding_check(config),
+          repeat_max_severity: Thingie::Threshold.parse(config.dig('repeat_run', 'max_severity'))
         )
       end
 
@@ -424,6 +429,40 @@ module Thingie
         ).call(report.change_risk['max'].fetch('overall', 0.0))
       rescue StandardError => e
         warn "Escalation failed: #{e.class}: #{e.message}"
+      end
+
+      # The repeat check is on unless `[dedupe] enabled = false`. It uses
+      # `[dedupe] model` when set, else the review model.
+      #
+      # @param config [Thingie::Configuration] the loaded configuration
+      # @return [Thingie::DuplicateFilter, nil] the filter, or nil when disabled or unavailable
+      def build_duplicate_filter(config)
+        settings = config['dedupe']
+        return unless settings.is_a?(Hash) && settings['enabled']
+
+        model = settings['model'].to_s.strip
+        client = model.empty? ? Thingie::LlmClient.new(config) : Thingie::LlmClient.new(config, model: model)
+        Thingie::DuplicateFilter.new(llm_client: client, prompt_builder: Thingie::PromptBuilder.new(config))
+      rescue StandardError => e
+        warn "Repeated-finding check disabled — #{e.message}"
+        nil
+      end
+
+      # The check that drops fixed findings from the "still open" list is on unless
+      # `[open_findings] enabled = false`. It uses `[open_findings] model` when set, else the review model.
+      #
+      # @param config [Thingie::Configuration] the loaded configuration
+      # @return [Thingie::OpenFindingCheck, nil] the check, or nil when disabled or unavailable
+      def build_open_finding_check(config)
+        settings = config['open_findings']
+        return unless settings.is_a?(Hash) && settings['enabled']
+
+        model = settings['model'].to_s.strip
+        client = model.empty? ? Thingie::LlmClient.new(config) : Thingie::LlmClient.new(config, model: model)
+        Thingie::OpenFindingCheck.new(llm_client: client, prompt_builder: Thingie::PromptBuilder.new(config))
+      rescue StandardError => e
+        warn "Fixed-finding check disabled — #{e.message}"
+        nil
       end
 
       # Auto-approve the PR when the [approve] config block is enabled. Loads

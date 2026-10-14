@@ -70,4 +70,41 @@ RSpec.describe Thingie::LlmCompat do
       expect(described_class.load_models_from_json('models.json', models)).to eq(:loaded)
     end
   end
+
+  describe '.on_tool_call' do
+    let(:seen) { [] }
+    let(:handler) { ->(call) { seen << call } }
+
+    it 'hooks before_tool_call when the chat has it' do
+      chat = Class.new do
+        def before_tool_call(&block)
+          @block = block
+          self
+        end
+
+        def fire(call) = @block.call(call)
+      end.new
+
+      described_class.on_tool_call(chat, handler)
+      chat.fire(:a_tool_call)
+
+      expect(seen).to eq([:a_tool_call])
+    end
+
+    it 'falls back to on_tool_call on older ruby_llm' do
+      chat = Class.new do
+        def on_tool_call(&block)
+          @block = block
+          self
+        end
+
+        def fire(call) = @block.call(call)
+      end.new
+
+      described_class.on_tool_call(chat, handler)
+      chat.fire(:a_tool_call)
+
+      expect(seen).to eq([:a_tool_call])
+    end
+  end
 end

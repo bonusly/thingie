@@ -59,9 +59,10 @@ RSpec.describe Thingie::ReportRenderer do
       )
     end
 
-    it 'names the commit, lists the files and records the run', :aggregate_failures do
+    it 'names the commit out of sight, lists the files and records the run', :aggregate_failures do
       output = renderer.to_md
-      expect(output).to include('### Review of `abc1234`')
+      expect(output).to include('<!-- thingie-reviewed abc1234 -->')
+      expect(output).not_to include('Review of')
       expect(output).to include('Files reviewed (2)', '- `app.rb`', '- `lib/foo.rb`')
       expect(output).to include('Thingie details', "Thingie version: #{Thingie::VERSION}",
                                 'Review model: gpt-4o', 'Base: `c3d89f5`', 'UTC')
@@ -153,5 +154,24 @@ RSpec.describe Thingie::ReportRenderer do
   it 'omits the change risk section when System One did not score the change', :aggregate_failures do
     expect(renderer.to_md).not_to include('Change risk')
     expect(renderer.to_cli).not_to include('Change risk')
+  end
+
+  context 'with a finding that carries evidence' do
+    let(:report) do
+      raw = Thingie::RawIssue.new(title: 'Guard skipped', severity: 2, confidence: 1, details: 'd',
+                                  evidence: 'award.rb:31 skips the check',
+                                  affected_lines: [Thingie::AffectedRange.new(start_line: 3, end_line: 3)])
+      Thingie::Report.new(
+        target: Thingie::ReviewTarget.new(platform: 'local', repo_url: nil, pr_number: nil, commit_sha: nil,
+                                          branch: nil, base_ref: 'main', head_ref: 'HEAD', merge_base: false),
+        model: 'm',
+        issues: [Thingie::Issue.new(id: 1, file: 'app.rb', raw_issue: raw, affected_lines: raw.affected_lines)]
+      )
+    end
+
+    it 'shows the evidence under the finding' do
+      expect(renderer.to_md)
+        .to include("<details><summary>Evidence</summary>\n\naward.rb:31 skips the check\n\n</details>")
+    end
   end
 end
