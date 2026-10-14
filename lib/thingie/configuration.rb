@@ -47,9 +47,7 @@ module Thingie
     end
 
     def string_env_overrides
-      ENV_OVERRIDES.transform_values do |env_key|
-        Env.fetch(env_key, nil)
-      end.compact
+      env_overrides_for(ENV_OVERRIDES, &:itself)
     end
 
     def boolean_env_overrides

@@ -22,6 +22,12 @@ RSpec.describe Thingie::EscalationRules do
       expect(rules.labels_for(0.49)).to be_empty
     end
 
+    it 'is empty without a score, even for a threshold of 0' do
+      zero = described_class.new([{ 'threshold' => 0, 'label' => 'any' }])
+
+      expect(zero.labels_for(nil)).to be_empty
+    end
+
     it 'lists a label shared by two rules once' do
       shared = described_class.new([{ 'threshold' => 0.2, 'label' => 'risk' },
                                     { 'threshold' => 0.4, 'label' => 'risk' }])
@@ -70,6 +76,14 @@ RSpec.describe Thingie::EscalationRules do
     it 'rejects a blank label' do
       expect { described_class.new([{ 'threshold' => 0.5, 'label' => ' ' }]) }
         .to raise_error(Thingie::ConfigurationError, /label/)
+    end
+
+    { nil => 'a missing label', 5 => 'a non-string label', ' x ' => 'a label with surrounding whitespace' }
+      .each do |label, desc|
+      it "rejects #{desc}" do
+        expect { described_class.new([{ 'threshold' => 0.5, 'label' => label }]) }
+          .to raise_error(Thingie::ConfigurationError, /label/)
+      end
     end
 
     it 'rejects a single [escalations] table instead of a list of tables' do

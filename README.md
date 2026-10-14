@@ -185,7 +185,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: Bonusly/rubyrt/.github/actions/thingie@v1
+      - uses: Bonusly/thingie/.github/actions/thingie@v1
         with:
           api_key: ${{ secrets.LLM_API_KEY }}
           provider: openrouter

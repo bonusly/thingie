@@ -5,8 +5,13 @@ skill_directories = [
 ]
 
 exclude_files = [
-  ".thingie/skills/**/*"
+  ".thingie/skills/**/*",
+  ".thingie/models.json"
 ]
+
+system_one_enabled = true
+system_one_model = "jev-latest"
+system_one_api_base = "https://openrouter.ai/api"
 
 [lsp.ruby]
 command = ["bundle", "exec", "ruby-lsp"]
@@ -41,3 +46,11 @@ protected_paths = [
   "thingie.gemspec",
   ".thingie/**/*"
 ]
+
+[[escalations]]
+threshold=0.5
+label="claude-code-review"
+
+[[escalations]]
+threshold=0.75
+label="no-auto-approve"

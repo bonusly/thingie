@@ -118,6 +118,18 @@ RSpec.describe Thingie::Configuration do
     end
   end
 
+  context 'with blank string environment variables' do
+    before do
+      Thingie::Env['LLM_MODEL'] = '  '
+      Thingie::Env['SYSTEM_ONE_API_BASE'] = ''
+    end
+
+    it 'keeps the default values', :aggregate_failures do
+      expect(config['model']).to eq('gpt-5.4-nano')
+      expect(config['system_one_api_base']).to eq('https://openrouter.ai/api')
+    end
+  end
+
   context 'with THINGIE_MODELS_FILE environment variable' do
     before { Thingie::Env['THINGIE_MODELS_FILE'] = '/tmp/thingie-models.json' }
 

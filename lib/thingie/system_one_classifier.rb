@@ -18,6 +18,7 @@ module Thingie
   #   # => { security: 0.04, ..., overall: 0.2 }
   class SystemOneClassifier
     PATH = '/v1/systemone'
+    ERROR_BODY_LIMIT = 200
 
     # Each risk is a yes/no (`noul`) question with explicit true/false criteria, so the model
     # knows what to look for. `overall` is an ordered `score` question.
@@ -114,15 +115,23 @@ module Thingie
 
     def value_of(answer, question)
       raise TypeError, "answer is #{answer.class}, not an object" unless answer.is_a?(Hash)
-      return Float(answer.fetch('noul')) unless answer.fetch('type') == 'score'
+      return in_range(Float(answer.fetch('noul')), 1) unless answer.fetch('type') == 'score'
 
-      Float(answer.fetch('score')) / [question[:criteria].size - 1, 1].max
+      top = question[:criteria].size - 1
+      in_range(Float(answer.fetch('score')), top) / [top, 1].max
+    end
+
+    # @raise [ArgumentError] if the value is not finite or outside 0..max
+    def in_range(value, max)
+      raise ArgumentError, "score #{value} is outside 0..#{max}" unless value.finite? && value.between?(0, max)
+
+      value
     end
 
     def request(state:, questions:)
       response = post(model: @model, state: state, questions: questions)
       unless response.is_a?(Net::HTTPSuccess)
-        raise SystemOneError, "System One request failed (#{response.code}): #{response.body}"
+        raise SystemOneError, "System One request failed (#{response.code}): #{response.body.to_s[0, ERROR_BODY_LIMIT]}"
       end
 
       answers = JSON.parse(response.body).fetch('answers')
@@ -131,15 +140,30 @@ module Thingie
       answers
     end
 
+    # Posts once more on a timeout, 429 or 5xx.
     def post(payload)
+      response = begin
+        attempt(payload)
+      rescue Net::OpenTimeout, Net::ReadTimeout, Net::WriteTimeout
+        nil
+      end
+      response = attempt(payload) if response.nil? || retryable?(response)
+      response
+    rescue Net::OpenTimeout, Net::ReadTimeout, Net::WriteTimeout, SocketError, SystemCallError, OpenSSL::SSL::SSLError,
+           IOError, Net::ProtocolError, Net::HTTPBadResponse => e
+      raise SystemOneError, "System One request failed: #{e.class}: #{e.message}"
+    end
+
+    def retryable?(response)
+      response.is_a?(Net::HTTPTooManyRequests) || response.is_a?(Net::HTTPServerError)
+    end
+
+    def attempt(payload)
       http = Net::HTTP.new(@uri.host, @uri.port)
       http.use_ssl = @uri.scheme == 'https'
       http.open_timeout = http.read_timeout = http.write_timeout = @timeout
       headers = { 'Authorization' => "Bearer #{@api_key}", 'Content-Type' => 'application/json' }
       http.post(@uri.path, JSON.generate(payload), headers)
-    rescue Net::OpenTimeout, Net::ReadTimeout, Net::WriteTimeout, SocketError, SystemCallError, OpenSSL::SSL::SSLError,
-           IOError, Net::ProtocolError, Net::HTTPBadResponse => e
-      raise SystemOneError, "System One request failed: #{e.class}: #{e.message}"
     end
   end
 end

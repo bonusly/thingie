@@ -88,6 +88,7 @@ module Thingie
     def review(*)
       # Thor passes positional args we don't use; accept and ignore them.
       config = Thingie::Configuration.new(overrides: { model: options[:model], provider: options[:provider] }.compact)
+      rules = Thingie::EscalationRules.new(config['escalations']) # fail fast, before the LLM review
       changeset = build_changeset(config)
       clients = build_lsp_clients(config, changeset)
       tools = clients.map { |client| Thingie::Lsp::SymbolTool.new(client: client, root: changeset.workdir) }
@@ -102,7 +103,7 @@ module Thingie
       started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
       report = reviewer.review
       duration_ms = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - started) * 1000).round
-      attach_change_risk(report, config, changeset)
+      attach_change_risk(report, config, changeset, rules)
       render_report(report, config)
       Thingie::Stats::Emitter.new(config).emit_review_completed(report: report, duration_ms: duration_ms,
                                                                 usage: reviewer.usage)
@@ -378,26 +379,32 @@ module Thingie
 
       # Scores the changeset with System One when it's enabled and records the scores, and the
       # labels the `[[escalations]]` rules call for, on the report. A scoring failure is a warning,
-      # never a failed review.
+      # never a failed review, and leaves the PR's existing labels unchanged.
       #
       # @param report [Thingie::Report] the report to attach the change risk to
       # @param config [Thingie::Configuration] the loaded configuration
       # @param changeset [Thingie::Changeset] the changeset that was reviewed
+      # @param rules [Thingie::EscalationRules] the validated escalation rules
       # @return [void]
-      def attach_change_risk(report, config, changeset)
-        rules = Thingie::EscalationRules.new(config['escalations'])
+      def attach_change_risk(report, config, changeset, rules)
         unless config['system_one_enabled']
-          warn '[thingie] escalations are configured but System One is disabled' unless rules.empty?
+          unless rules.empty?
+            warn '[thingie] escalations are configured but System One is disabled; existing labels left unchanged'
+          end
           return
         end
 
+        score_change_risk(report, config, changeset, rules)
+      end
+
+      def score_change_risk(report, config, changeset, rules)
         scorer = Thingie::ChangeRiskScorer.new(changeset: changeset, concurrency: config['max_concurrent_tasks'],
                                                classifier: Thingie::SystemOneClassifier.new(config))
-        result = scorer.call
-        report.change_risk = change_risk_summary(result, rules)
+        report.change_risk = change_risk_summary(scorer.call, rules)
       rescue StandardError => e
-        warn "[thingie] Change risk scoring skipped: #{e.message}"
-        report.processing_warnings << "Change risk scoring skipped: #{e.message}"
+        message = "Change risk scoring skipped: #{e.message} (existing labels left unchanged)"
+        warn "[thingie] #{message}"
+        report.processing_warnings << message
       end
 
       # @param result [Thingie::ChangeRiskScorer::Result] the scored changeset
@@ -406,7 +413,7 @@ module Thingie
       def change_risk_summary(result, rules)
         { 'max' => result.max.transform_keys(&:to_s),
           'files' => result.files.transform_values { |scores| scores.transform_keys(&:to_s) },
-          'escalations' => rules.matching(result.max.fetch(:overall, 0.0)),
+          'escalations' => rules.matching(result.max[:overall]),
           'rules' => rules.to_a }
       end
 
@@ -426,7 +433,7 @@ module Thingie
           token: options[:token] || Env.fetch('GITHUB_TOKEN', nil),
           owner: repo_owner(context), repo: repo_name(context),
           pr_number: options[:pr] || context&.pr_number, rules: rules
-        ).call(report.change_risk['max'].fetch('overall', 0.0))
+        ).call(report.change_risk['max']['overall'])
       rescue StandardError => e
         warn "Escalation failed: #{e.class}: #{e.message}"
       end

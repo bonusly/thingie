@@ -35,9 +35,12 @@ module Thingie
 
     # The escalations the score reaches, as the report records them.
     #
-    # @param score [Float] the overall change-risk score, 0.0-1.0
+    # @param score [Float, nil] the overall change-risk score, 0.0-1.0; nil when nothing was scored,
+    #   which reaches no rule (not even a threshold of 0)
     # @return [Array<Hash>] one per label, each with a `label` and the configured `title` and `description`
     def matching(score)
+      return [] if score.nil?
+
       @rules.select { |rule| score >= rule['threshold'] }.uniq { |rule| rule['label'] }.map do |rule|
         rule.slice('label', 'title', 'description').reject { |_, value| value.to_s.strip.empty? }
       end
@@ -45,7 +48,7 @@ module Thingie
 
     # The labels of every rule the score reaches.
     #
-    # @param score [Float] the overall change-risk score, 0.0-1.0
+    # @param score [Float, nil] the overall change-risk score, 0.0-1.0; nil when nothing was scored
     # @return [Array<String>] the matching labels, without duplicates
     def labels_for(score)
       matching(score).map { |escalation| escalation['label'] }
@@ -65,9 +68,11 @@ module Thingie
       unless threshold.is_a?(Numeric) && threshold.between?(0, 1)
         raise ConfigurationError, "escalations threshold must be a number from 0 to 1, got #{threshold.inspect}"
       end
-      return unless rule['label'].to_s.strip.empty?
 
-      raise ConfigurationError, 'escalations label must not be blank'
+      label = rule['label']
+      return if label.is_a?(String) && !label.strip.empty? && label == label.strip
+
+      raise ConfigurationError, 'escalations label must be a non-blank string without surrounding whitespace'
     end
   end
 end

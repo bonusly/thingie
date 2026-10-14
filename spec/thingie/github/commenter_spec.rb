@@ -430,6 +430,62 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
                                  .and(satisfy { |body| !body.include?('<details>') }))
   end
 
+  it 'splits a large off-diff set into several comments under the size limit', :aggregate_failures do
+    issues = Array.new(3) { build_issue('app.rb', 999) }
+    allow(issues[0]).to receive(:details_markdown).and_return('x' * 25_000)
+    allow(issues[1]).to receive(:details_markdown).and_return('y' * 25_000)
+    allow(issues[2]).to receive(:details_markdown).and_return('z' * 25_000)
+    bodies = []
+    allow(client).to receive(:add_comment) { |_repo, _pr, body| bodies << body }
+
+    commenter.post_review(summary: 'S', report: report_for(issues))
+
+    off_diff = bodies.select { |body| body.start_with?(described_class::OFF_DIFF_MARKER) }
+    expect(off_diff.size).to be > 1
+    expect(bodies.map(&:size).max).to be <= described_class::OFF_DIFF_BODY_LIMIT
+  end
+
+  it 'cuts a single oversized off-diff finding at a paragraph break and says so', :aggregate_failures do
+    issue = build_issue('app.rb', 999)
+    details = Array.new(3) { "#{'p' * 30_000}\n\n<details>x</details>" }.join("\n\n")
+    allow(issue).to receive(:details_markdown).and_return(details)
+    bodies = []
+    allow(client).to receive(:add_comment) { |_repo, _pr, body| bodies << body }
+
+    commenter.post_review(summary: 'S', report: report_for([issue]))
+
+    off_diff = bodies.find { |body| body.start_with?(described_class::OFF_DIFF_MARKER) }
+    expect(off_diff.size).to be <= described_class::OFF_DIFF_BODY_LIMIT
+    expect(off_diff).to end_with(described_class::CUT_NOTE)
+    expect(off_diff.scan('<details>').size).to eq(off_diff.scan('</details>').size)
+  end
+
+  context 'when posting an inline comment fails with a server error' do
+    let(:old) do
+      double('comment', id: 7, node_id: 'NODE7', created_at: Time.utc(2026, 1, 1), # rubocop:disable RSpec/VerifiedDoubles
+                        body: "#{Thingie::GitHub::Context::SUMMARY_MARKER}\n\nOld")
+    end
+    let(:order) { [] }
+
+    before do
+      allow(client).to receive(:issue_comments).and_return([old])
+      allow(client).to receive(:create_pull_request_comment).and_raise(Octokit::BadGateway)
+      allow(client).to receive(:add_comment) do |_repo, _pr, body|
+        order << (body.include?('thingie-off-diff') ? :off_diff : :summary)
+      end
+      allow(client).to receive(:post) do |_path, query|
+        order << :hide if query.include?('minimizeComment')
+        {}
+      end
+    end
+
+    it 'posts the finding off-diff and hides the old summary only after the new one', :aggregate_failures do
+      expect { commenter.post_review(summary: 'S', report: report_for([build_issue('app.rb', 11)])) }
+        .to output(/Could not post comment on app.rb:11/).to_stderr
+      expect(order).to eq(%i[off_diff summary hide])
+    end
+  end
+
   it 'posts the marker once when the summary already carries it' do
     marker = Thingie::GitHub::Context::SUMMARY_MARKER
     commenter.post_review(summary: "#{marker}\n\nAll good", report: report_for([]))

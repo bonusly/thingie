@@ -117,6 +117,66 @@ RSpec.describe Thingie::SystemOneClassifier do
     end.to raise_error(Thingie::SystemOneError, /Unexpected/)
   end
 
+  it 'truncates a long error body in the message' do
+    stub_response(Net::HTTPBadRequest, 'x' * 500)
+
+    expect { classifier.classify(state: {}, questions: questions) }
+      .to raise_error(Thingie::SystemOneError) { |error| expect(error.message.length).to be < 300 }
+  end
+
+  [
+    ['a noul above 1', '{"type":"noul","noul":1.5}', { type: 'noul' }],
+    ['a negative noul', '{"type":"noul","noul":-0.1}', { type: 'noul' }],
+    ['a score above the last level', '{"type":"score","score":2.5}', { type: 'score', criteria: %w[low mid high] }],
+    ['an infinite score', '{"type":"score","score":1e999}', { type: 'score', criteria: %w[low mid high] }]
+  ].each do |description, answer, question|
+    it "raises SystemOneError for an out-of-range answer: #{description}" do
+      response = Net::HTTPOK.new('1.1', '200', 'msg')
+      allow(response).to receive(:body).and_return(%({"answers":{"q":#{answer}}}))
+      allow(http).to receive(:post).and_return(response)
+
+      expect { classifier.classify(state: {}, questions: { q: question }) }
+        .to raise_error(Thingie::SystemOneError, /Unexpected/)
+    end
+  end
+
+  describe 'retrying' do
+    let(:ok) do
+      Net::HTTPOK.new('1.1', '200', 'msg').tap do |response|
+        allow(response).to receive(:body).and_return({ answers: { sqli: { type: 'noul', noul: 0.3 } } }.to_json)
+      end
+    end
+
+    [Net::HTTPTooManyRequests, Net::HTTPServiceUnavailable].each do |klass|
+      it "retries once after #{klass}" do
+        allow(http).to receive(:post).and_return(klass.new('1.1', '503', 'busy'), ok)
+
+        expect(classifier.classify(state: {}, questions: questions)).to eq(sqli: 0.3)
+      end
+    end
+
+    it 'retries once after a timeout' do
+      calls = 0
+      allow(http).to receive(:post) { (calls += 1) == 1 ? raise(Net::ReadTimeout) : ok }
+
+      expect(classifier.classify(state: {}, questions: questions)).to eq(sqli: 0.3)
+    end
+
+    it 'gives up after the second failure' do
+      allow(http).to receive(:post).and_raise(Net::ReadTimeout)
+
+      expect { classifier.classify(state: {}, questions: questions) }.to raise_error(Thingie::SystemOneError)
+      expect(http).to have_received(:post).twice
+    end
+
+    it 'does not retry a client error' do
+      stub_response(Net::HTTPUnauthorized, error: 'no')
+
+      expect { classifier.classify(state: {}, questions: questions) }.to raise_error(Thingie::SystemOneError)
+      expect(http).to have_received(:post).once
+    end
+  end
+
   it 'refuses to run unless enabled' do
     expect { described_class.new(settings.merge('system_one_enabled' => false)) }
       .to raise_error(Thingie::ConfigurationError, /disabled/)

@@ -317,10 +317,33 @@ RSpec.describe Thingie::CLI do
       expect(report.change_risk).to eq('max' => {}, 'files' => {}, 'escalations' => [], 'rules' => rules)
     end
 
+    context 'with a threshold-zero rule and nothing scored' do
+      let(:rules) { [{ 'threshold' => 0, 'label' => 'risk: any' }] }
+
+      it 'matches no rule on the absent score' do
+        allow(scorer).to receive(:call)
+          .and_return(Thingie::ChangeRiskScorer::Result.new(files: {}, max: {}, obfuscation: []))
+
+        run_review
+
+        expect(report.change_risk['escalations']).to eq([])
+      end
+    end
+
+    context 'with a malformed escalation rule' do
+      let(:rules) { [{ 'threshold' => 0.5, 'label' => ' ' }] }
+
+      it 'fails the review before the LLM review starts', :aggregate_failures do
+        expect { expect { run_review }.to raise_error(SystemExit) }
+          .to output(/Review failed: Thingie::ConfigurationError: escalations label/).to_stderr
+        expect(Thingie::Reviewer).not_to have_received(:new)
+      end
+    end
+
     it 'keeps the review when scoring fails', :aggregate_failures do
       allow(scorer).to receive(:call).and_raise(Thingie::SystemOneError, 'boom')
 
-      expect { run_review }.to output(/Change risk scoring skipped: boom/).to_stderr
+      expect { run_review }.to output(/Change risk scoring skipped: boom.*existing labels left unchanged/).to_stderr
       expect(report.change_risk).to be_nil
       expect(report.processing_warnings).to include(/boom/)
     end
@@ -338,7 +361,8 @@ RSpec.describe Thingie::CLI do
       end
 
       it 'warns, skips scoring and leaves the report without a change risk', :aggregate_failures do
-        expect { run_review }.to output(/escalations are configured but System One is disabled/).to_stderr
+        expect { run_review }.to output(/escalations are configured but System One is disabled.*left unchanged/)
+          .to_stderr
         expect(scorer).not_to have_received(:call)
         expect(report.change_risk).to be_nil
       end
@@ -376,6 +400,15 @@ RSpec.describe Thingie::CLI do
       run_github_comment
 
       expect(escalator).to have_received(:call).with(0.7)
+    end
+
+    it 'clears stale labels when the report scored nothing' do
+      report.change_risk = { 'max' => {}, 'files' => {}, 'rules' => rules, 'escalations' => [] }
+      report.save(tmp_dir)
+
+      run_github_comment
+
+      expect(escalator).to have_received(:call).with(nil)
     end
 
     it 'builds the rules from the report, not the current config', :aggregate_failures do

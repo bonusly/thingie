@@ -30,6 +30,13 @@ RSpec.describe Thingie::GitHub::Escalator do # rubocop:disable RSpec/SpecFilePat
     expect(client).not_to have_received(:add_labels_to_an_issue)
   end
 
+  it 'treats a missing score as reaching no rule, even a threshold of 0' do
+    zero = [{ 'threshold' => 0, 'label' => 'risk: any' }]
+
+    expect(escalator(rules: zero).call(nil)).to be_empty
+    expect(client).to have_received(:remove_label).with('o/r', 7, 'risk: any')
+  end
+
   it 'removes the labels of rules the score no longer reaches' do
     escalator.call(0.6)
 

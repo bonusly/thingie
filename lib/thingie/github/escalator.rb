@@ -27,7 +27,8 @@ module Thingie
       # rules it no longer reaches, so the labels follow the current diff. Every label named
       # in a rule is managed here, so don't reuse one for something applied by hand.
       #
-      # @param score [Float] the overall change-risk score, 0.0-1.0
+      # @param score [Float, nil] the overall change-risk score, 0.0-1.0; nil when nothing was scored,
+      #   which reaches no rule and so clears every managed label
       # @return [Array<String>] the labels added, empty when no rule matched
       def call(score)
         labels = @rules.labels_for(score)
