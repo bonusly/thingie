@@ -75,6 +75,7 @@ module Thingie
       Faraday::TimeoutError, Faraday::ConnectionFailed,
       RubyLLM::RateLimitError, RubyLLM::ServerError, RubyLLM::ServiceUnavailableError, RubyLLM::OverloadedError
     ].freeze
+    ISSUES_ONLY = 'Reply now with only the JSON object of issues for this file, no other text.'
 
     private
 
@@ -175,16 +176,52 @@ module Thingie
                                       whole_file: whole_file, pr_context: @pr_context.to_s,
                                       tool_budget: (budget.limit if budget.active? && @tools.any?))
       tool_names = []
+      chats = []
+      deadline = deadline_for(@config['call_timeout'])
       response = Concurrency.with_timeout(@config['call_timeout']) do
         @llm_client.complete_with_schema(prompt, Schemas::ISSUE_SCHEMA, tools: @tools, tool_log: tool_names,
-                                                                        tool_budget: budget)
+                                                                        tool_budget: budget, chats: chats)
       end
       @debug_output.tool_budget(tag: 'REVIEW', label: file, budget: budget)
       @usage.record(response)
-      issues = parse_response(response, file)
+      issues, response = parse_or_ask_again(response, file, chats.last, deadline)
       issues.each { |issue| issue.record_tool_calls(review: tool_names) }
       @debug_output.review_call(file: file, response: response, issues: issues, tool_names: tool_names)
       only_changed_lines(issues, file)
+    end
+
+    def parse_or_ask_again(response, file, chat, deadline)
+      [parse_response(response, file), response]
+    rescue JSON::ParserError => e
+      issues_only(chat, deadline, file, e) || raise(e)
+    end
+
+    # A reply with no JSON usually holds the whole review, just not the JSON. Asking for the JSON in the same
+    # conversation takes seconds; reviewing the file again from scratch takes as long as the first review.
+    #
+    # @return [Array(Array<Thingie::Issue>, Object), nil] the issues and the reply, or nil when this did not
+    #   produce them
+    def issues_only(chat, deadline, file, error)
+      return if chat.nil? || (deadline && now >= deadline)
+
+      @warnings << "Asked again for the review JSON of #{file} after #{error.message}"
+      reply = Concurrency.with_timeout(time_left(deadline)) { chat.ask(ISSUES_ONLY) }
+      @usage.record(reply)
+      [parse_response(reply, file), reply]
+    rescue *RETRIABLE
+      nil
+    end
+
+    def deadline_for(timeout)
+      now + timeout.to_f if timeout.to_f.positive?
+    end
+
+    def time_left(deadline)
+      deadline && [deadline - now, 0.001].max
+    end
+
+    def now
+      Process.clock_gettime(Process::CLOCK_MONOTONIC)
     end
 
     # The full file is sent to the LLM as context, so it can flag issues on

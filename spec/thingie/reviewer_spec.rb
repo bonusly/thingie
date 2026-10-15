@@ -607,6 +607,82 @@ RSpec.describe Thingie::Reviewer do
     end
   end
 
+  context 'when a review reply has no JSON and the same chat can be asked again' do
+    let(:review_prompts) { [] }
+    let(:chat) { double('chat') } # rubocop:disable RSpec/VerifiedDoubles
+    let(:reply) do
+      cost_stub = instance_double(RubyLLM::Cost, total: nil)
+      lambda do |content|
+        message_double(content: content, input_tokens: nil, output_tokens: nil, tool_calls: {},
+                       cache_read_tokens: nil, cache_write_tokens: nil, cost: cost_stub,
+                       model_info: nil, thinking: nil, thinking_tokens: nil)
+      end
+    end
+    let(:issues_reply) do
+      issue = { 'title' => 'Missing return', 'details' => 'No return value', 'severity' => 2,
+                'confidence' => 1, 'tags' => ['bug'], 'affected_lines' => [{ 'start_line' => 1 }] }
+      reply.call({ 'issues' => [issue] })
+    end
+    let(:fake_llm_client) do
+      instance_double(Thingie::LlmClient).tap do |client|
+        allow(client).to receive(:complete_with_schema) do |prompt, _schema, chats: nil, **|
+          next reply.call({ 'verdict' => 'uphold' }) if prompt.include?('FINDING TO CHALLENGE')
+
+          review_prompts << prompt
+          chats << chat
+          review_replies.shift
+        end
+      end
+    end
+
+    before { allow(chat).to receive(:ask).with(described_class::ISSUES_ONLY).and_return(*follow_ups) }
+
+    context 'when the follow-up has the JSON' do
+      let(:review_replies) { [reply.call('Looks like a missing return.')] }
+      let(:follow_ups) { [issues_reply] }
+
+      it 'reviews the file without reviewing it again', :aggregate_failures do
+        report = reviewer.review
+
+        expect(report.total_issues).to eq(1)
+        expect(report.unreviewed_files).to be_empty
+        expect(review_prompts.size).to eq(1)
+        expect(chat).to have_received(:ask).once
+        expect(report.processing_warnings).to eq(
+          ['Asked again for the review JSON of app.rb after no valid JSON found in response']
+        )
+      end
+    end
+
+    context 'when the follow-up has no JSON either' do
+      let(:review_replies) { [reply.call('Looks like a missing return.'), issues_reply] }
+      let(:follow_ups) { [reply.call('Still prose.')] }
+
+      it 'reviews the file again', :aggregate_failures do
+        report = reviewer.review
+
+        expect(report.total_issues).to eq(1)
+        expect(review_prompts.size).to eq(2)
+        expect(report.processing_warnings).to include(/Asked again for the review JSON of app.rb/,
+                                                      /Retried the review of app.rb after JSON::ParserError/)
+      end
+    end
+
+    context 'when neither review nor either follow-up has JSON' do
+      let(:review_replies) { [reply.call('Prose.'), reply.call('More prose.')] }
+      let(:follow_ups) { [reply.call('Still prose.'), reply.call('Prose again.')] }
+
+      it 'reviews the file at most twice, then leaves it unreviewed', :aggregate_failures do
+        report = reviewer.review
+
+        expect(review_prompts.size).to eq(2)
+        expect(chat).to have_received(:ask).twice
+        expect(report.unreviewed_files).to eq(['app.rb'])
+        expect(report.processing_warnings).to include(/Could not parse LLM response for app.rb/)
+      end
+    end
+  end
+
   context 'when the LLM returns a nil response' do
     let(:fake_llm_client) do
       instance_double(Thingie::LlmClient, complete_with_schema: nil)
