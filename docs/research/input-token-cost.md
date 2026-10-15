@@ -21,7 +21,7 @@ Leaving out the `models.json` reads, every review and critic call in these runs 
 
 ## Change in this PR
 
-The file tool stops at 2,000 lines or 100 KB, whichever comes first, and says so: "Truncated: showing lines 1-N of M. Use the search tool with this path to find the lines you need further down." A single line over 100 KB shows its first 100 KB. Through the capped tool, `models.json` is 42,808 bytes (about 12k tokens) instead of about 760k.
+The file tool now reads like Claude Code's Read tool: optional `offset` and `limit` (1-based lines), at most 2,000 lines (Claude Code's default) or 100 KB per call, whichever comes first. A partial read ends with, for example, "Showing lines 1-2000 of 115790. Read on with offset: 2001, or use the search tool with this path to find the lines you need." A single line over 100 KB shows its first 100 KB. The tool description and the review and critic prompts tell the model to search first and read only the lines it needs. Through the capped tool, `models.json` is 42,808 bytes (about 12k tokens) instead of about 760k.
 
 ## Not verified / still open
 

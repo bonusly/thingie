@@ -17,16 +17,22 @@ module Thingie
     # vendored file (a 2.7 MB JSON fixture, say) cannot fill the model's context.
     MAX_LINES = 2000
     MAX_BYTES = 100_000
-    SEARCH_HINT = 'Use the search tool with this path to find the lines you need further down.'
+    SEARCH_HINT = 'Use the search tool with this path to find the lines you need.'
 
     description <<~DESC
       Check whether a path relative to the working directory exists, and read its
       contents when it is a non-binary file. Paths cannot escape the working
       directory: `..`, absolute paths, and symlinks pointing outside it are
       rejected. Use this to inspect existing files for context during a review.
+      Reads at most #{MAX_LINES} lines at a time. You rarely need a whole file: search
+      for what you need first, then read just those lines with `offset` and `limit`.
     DESC
 
     LlmCompat.parameter(self, :path, description: 'Path relative to the working directory to inspect', required: true)
+    LlmCompat.parameter(self, :offset, description: 'Line number to start reading from (optional, default 1)',
+                                       type: 'integer', required: false)
+    LlmCompat.parameter(self, :limit, description: "Number of lines to read (optional, at most #{MAX_LINES})",
+                                      type: 'integer', required: false)
 
     # Builds a file tool constrained to reads under `root`.
     #
@@ -42,8 +48,10 @@ module Thingie
     # contents when it is a non-binary, readable file.
     #
     # @param path [String] path relative to the working directory
+    # @param offset [Integer, String, nil] first line to return, 1-based
+    # @param limit [Integer, String, nil] most lines to return, capped at MAX_LINES
     # @return [String] a human-readable result: file contents, or a status message
-    def execute(path:)
+    def execute(path:, offset: nil, limit: nil)
       resolved = resolve(path)
       return "Path `#{path}` is outside the working directory." if resolved.nil?
       return "Path `#{relative(resolved)}` does not exist." unless File.exist?(resolved)
@@ -54,7 +62,7 @@ module Thingie
 
       return binary_message(resolved) if binary?(resolved)
 
-      contents, note = read_capped(resolved)
+      contents, note = read_window(resolved, line_number(offset, 1), [line_number(limit, MAX_LINES), MAX_LINES].min)
       result = "#{relative(resolved)}\n```\n#{contents}\n```"
       note ? "#{result}\n#{note}" : result
     rescue StandardError => e
@@ -110,26 +118,45 @@ module Thingie
       true
     end
 
-    # Returns the file's leading lines up to MAX_LINES / MAX_BYTES, and a note
-    # saying what was left out (nil when the whole file fit).
-    def read_capped(path)
+    def line_number(value, default)
+      number = Integer(value, exception: false)
+      number&.positive? ? number : default
+    end
+
+    # Returns up to `limit` lines from line `offset` on, stopping early at MAX_BYTES, and a note saying what
+    # was left out (nil when the whole file was returned).
+    def read_window(path, offset, limit)
       kept = []
       bytes = 0
       total = 0
       stopped = false
       File.foreach(path) do |line|
         total += 1
-        stopped ||= kept.size >= MAX_LINES || bytes + line.bytesize > MAX_BYTES
+        next if total < offset
+
+        stopped ||= kept.size >= limit || bytes + line.bytesize > MAX_BYTES
         next if stopped
 
         kept << line
         bytes += line.bytesize
       end
-      return [kept.join, nil] unless stopped
-      return [kept.join, "Truncated: showing lines 1-#{kept.size} of #{total}. #{SEARCH_HINT}"] if kept.any?
+      window_result(path, kept, offset, total)
+    end
 
-      head = File.foreach(path).first.byteslice(0, MAX_BYTES).scrub('')
-      [head, "Truncated: line 1 is longer than #{MAX_BYTES} bytes; showing its start. #{SEARCH_HINT}"]
+    def window_result(path, kept, offset, total)
+      return ['', "The file has #{total} lines; offset #{offset} is past the end."] if offset > total && total.positive?
+
+      last = offset + kept.size - 1
+      return [kept.join, nil] if offset == 1 && last >= total
+      return [kept.join, window_note(offset, last, total)] if kept.any?
+
+      head = File.foreach(path).drop(offset - 1).first.to_s.byteslice(0, MAX_BYTES).scrub('')
+      [head, "Line #{offset} is longer than #{MAX_BYTES} bytes; showing its start. #{SEARCH_HINT}"]
+    end
+
+    def window_note(offset, last, total)
+      more = last < total ? " Read on with offset: #{last + 1}, or #{SEARCH_HINT.sub('Use', 'use')}" : ''
+      "Showing lines #{offset}-#{last} of #{total}.#{more}"
     end
 
     def binary_message(path)
