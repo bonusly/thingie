@@ -4,7 +4,7 @@ Why some Thingie runs on special_sauce used 0.9–2.2 million input tokens, and 
 
 ## Where the input tokens went
 
-Per-call `tokens:` debug lines summed from each run's job log, checked against `thingie-stats.jsonl`; they account for 96–99% of each run's input (the rest is dedupe and open-finding calls, which don't log per-call tokens). Reviewer `z-ai/glm-5.3`, critic `z-ai/glm-5.3-flash`, OpenRouter.
+Per-call `tokens:` debug lines summed from each run's job log, checked against `thingie-stats.jsonl`; they account for 95–99% of each run's input (the rest is dedupe and open-finding calls, which don't log per-call tokens). Reviewer `z-ai/glm-5.3`, critic `z-ai/glm-5.3-flash`, OpenRouter.
 
 | Run (special_sauce test PR) | Run input | Review calls | Critic calls | `models.json` reads | Their cost / run cost |
 |---|---|---|---|---|---|
