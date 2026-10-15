@@ -127,6 +127,16 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
                           a_string_including("<details><summary>Evidence</summary>\n\naward.rb:31 skips the check"))
   end
 
+  it 'says where else the problem was found when repeats of it were dropped' do
+    issue = build_issue('app.rb', 11).tap do |kept|
+      kept.add_also_found('app_spec.rb:40')
+      kept.add_also_found('bonus.rb:114')
+    end
+    commenter.post_review(summary: 'S', report: report_for([issue]))
+
+    expect_review_comment('app.rb', 11, a_string_including('Also found in `app_spec.rb:40`, `bonus.rb:114`.'))
+  end
+
   it 'puts the parts of a finding on separate paragraphs in the inline comment' do
     run_together = "**What's wrong:** It crashes. **When it happens:** On a new user. **Fix:** Skip them."
     raw = Thingie::RawIssue.new(title: 'T', severity: 1, confidence: 1, tags: [], details: run_together)

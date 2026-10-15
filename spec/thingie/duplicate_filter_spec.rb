@@ -50,6 +50,24 @@ RSpec.describe Thingie::DuplicateFilter do
     expect(filter.call([medium, high, critical], [])).to eq([medium, critical])
   end
 
+  it 'notes where each dropped repeat was found on the finding that is kept, through a chain', :aggregate_failures do
+    first = issue('first', severity: 1, file: 'lib/cards/deliver.rb')
+    second = issue('second', severity: 2, file: 'spec/cards/deliver_spec.rb')
+    third = issue('third', severity: 3, file: 'app/models/bonus.rb')
+    answer_with([['N1', nil], %w[N2 N1], %w[N3 N2]])
+
+    expect(filter.call([first, second, third], [])).to eq([first])
+    expect(first.also_found).to eq(['deliver_spec.rb:3', 'bonus.rb:3'])
+  end
+
+  it 'notes nothing for a finding dropped as a repeat of an open comment' do
+    answer_with([%w[N1 E1], ['N2', nil]])
+
+    filter.call([critical, high], open_comments)
+
+    expect(high.also_found).to be_empty
+  end
+
   it 'at equal severity keeps the finding on source code over its repeat on a test file' do
     in_spec = issue('in spec', severity: 2, file: 'spec/lib/a_spec.rb')
     in_source = issue('in source', severity: 2, file: 'lib/a.rb')

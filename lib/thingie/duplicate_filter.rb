@@ -20,7 +20,9 @@ module Thingie
       @prompt_builder = prompt_builder
     end
 
-    # Returns the findings to post, without the ones that repeat another finding or an open comment.
+    # Returns the findings to post, without the ones that repeat another finding or an open comment. A finding
+    # dropped as a repeat of another new finding is noted on the one kept (`Issue#also_found`), so its thread
+    # says where else the problem was seen.
     #
     # @param issues [Array<Thingie::Issue>] the findings about to be posted
     # @param open_comments [Array<Hash>] earlier Thingie comments, open or answered, each `{ file:, line:, text: }`
@@ -32,6 +34,7 @@ module Thingie
       ranked = issues.sort_by.with_index { |issue, index| [*rank_of(issue), index] }
       verdicts = verdicts_for(ranked, open_comments)
       dropped = dropped_labels(ranked, verdicts, open_comments.size)
+      note_repeats(ranked, verdicts, dropped)
       ranked_kept = ranked.each_with_index.reject { |_, index| dropped.include?("N#{index + 1}") }.map(&:first)
       issues.select { |issue| ranked_kept.include?(issue) }
     end
@@ -61,6 +64,30 @@ module Thingie
         target = verdicts["N#{index + 1}"].to_s.strip
         dropped << "N#{index + 1}" if repeats_open_comment?(target, open_count) || repeats_earlier?(target, index)
       end
+    end
+
+    def note_repeats(ranked, verdicts, dropped)
+      ranked.each_with_index do |issue, index|
+        next unless dropped.include?("N#{index + 1}")
+
+        kept_finding(ranked, verdicts, dropped, index)&.add_also_found(location_of(issue))
+      end
+    end
+
+    # Follows a dropped finding's pointer through any findings that were dropped too, to the one that is
+    # posted. Nil when the chain ends at an open comment. Pointers only go to earlier findings, so it ends.
+    def kept_finding(ranked, verdicts, dropped, index)
+      loop do
+        match = verdicts["N#{index + 1}"].to_s.strip.match(/\AN(\d+)\z/)
+        return unless match
+
+        index = match[1].to_i - 1
+        return ranked[index] unless dropped.include?("N#{index + 1}")
+      end
+    end
+
+    def location_of(issue)
+      [File.basename(issue.file.to_s), line_of(issue)].compact.join(':')
     end
 
     def repeats_open_comment?(target, open_count)

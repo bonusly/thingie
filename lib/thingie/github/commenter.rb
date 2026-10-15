@@ -239,6 +239,10 @@ module Thingie
         "- **#{severity_label(issue.severity)}:** #{title} (`#{names[issue.cited_other_file || issue.file]}`)#{place}"
       end
 
+      def also_found_note(issue)
+        "Also found in #{issue.also_found.map { |location| "`#{location}`" }.join(', ')}."
+      end
+
       # Each path as its file name, or `folder/name` when another path in the list has the same name:
       # `lib/thingie/reviewer.rb` → `reviewer.rb`, but `streaks/users_controller.rb` beside
       # `user_popover/users_controller.rb`.
@@ -457,6 +461,7 @@ module Thingie
           "**[#{severity_label(issue.severity)}] #{issue.title}**",
           issue.details_markdown,
           (UNCHECKED_NOTE if issue.unchecked?),
+          (also_found_note(issue) if issue.also_found.any?),
           issue.evidence_block,
           tags
         ].compact.join("\n\n")
