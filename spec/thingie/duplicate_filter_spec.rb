@@ -16,9 +16,9 @@ RSpec.describe Thingie::DuplicateFilter do
   let(:high) { issue('high', severity: 2) }
   let(:medium) { issue('medium', severity: 3) }
 
-  def issue(title, severity:)
+  def issue(title, severity:, file: 'a.rb')
     Thingie::Issue.from_hash('title' => title, 'details' => "#{title} details", 'severity' => severity,
-                             'confidence' => 3, 'tags' => [], 'file' => 'a.rb',
+                             'confidence' => 3, 'tags' => [], 'file' => file,
                              'affected_lines' => [{ 'start_line' => 3 }])
   end
 
@@ -48,6 +48,22 @@ RSpec.describe Thingie::DuplicateFilter do
     answer_with([['N1', nil], %w[N2 N1], ['N3', nil]])
 
     expect(filter.call([medium, high, critical], [])).to eq([medium, critical])
+  end
+
+  it 'at equal severity keeps the finding on source code over its repeat on a test file' do
+    in_spec = issue('in spec', severity: 2, file: 'spec/lib/a_spec.rb')
+    in_source = issue('in source', severity: 2, file: 'lib/a.rb')
+    answer_with([['N1', nil], %w[N2 N1]])
+
+    expect(filter.call([in_spec, in_source], [])).to eq([in_source])
+  end
+
+  it 'keeps a more severe finding on a test file over its repeat on source code' do
+    in_spec = issue('in spec', severity: 1, file: 'src/a.test.ts')
+    in_source = issue('in source', severity: 2, file: 'src/a.ts')
+    answer_with([['N1', nil], %w[N2 N1]])
+
+    expect(filter.call([in_source, in_spec], [])).to eq([in_spec])
   end
 
   it 'drops a finding whose pointer chain leads back to a repeat' do

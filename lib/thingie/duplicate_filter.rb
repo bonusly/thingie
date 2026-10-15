@@ -5,9 +5,11 @@ module Thingie
   # review comment that is still open or that a person answered, so a re-run does not
   # post the same problem a second time. One model call, no tools, over the whole
   # list: the wording of a finding changes between runs, so matching by title or
-  # line would miss most repeats.
+  # line would miss most repeats. Of several repeats the most severe is kept,
+  # and at equal severity the one on source code wins over the one on a test.
   class DuplicateFilter
     TEXT_LIMIT = 600
+    TEST_PATH = %r{(?:\A|/)(?:spec|test|tests|__tests__)/|[._](?:spec|test)\.\w+\z}
 
     # Builds a filter that asks the given model whether findings repeat each other.
     #
@@ -27,7 +29,7 @@ module Thingie
     def call(issues, open_comments)
       return issues if issues.empty? || (issues.size < 2 && open_comments.empty?)
 
-      ranked = issues.sort_by.with_index { |issue, index| [issue.severity || 99, index] }
+      ranked = issues.sort_by.with_index { |issue, index| [*rank_of(issue), index] }
       verdicts = verdicts_for(ranked, open_comments)
       dropped = dropped_labels(ranked, verdicts, open_comments.size)
       ranked_kept = ranked.each_with_index.reject { |_, index| dropped.include?("N#{index + 1}") }.map(&:first)
@@ -69,6 +71,10 @@ module Thingie
     def repeats_earlier?(target, index)
       match = target.match(/\AN(\d+)\z/)
       match && match[1].to_i.between?(1, index)
+    end
+
+    def rank_of(issue)
+      [issue.severity || 99, issue.file.to_s.match?(TEST_PATH) ? 1 : 0]
     end
 
     def describe(label, file, line, text)

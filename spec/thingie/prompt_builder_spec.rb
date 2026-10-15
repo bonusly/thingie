@@ -206,6 +206,15 @@ RSpec.describe Thingie::PromptBuilder do
       expect(prompt).not_to include('COMMENTS ALREADY OPEN')
       expect(prompt).to include('N1 | a.rb:3')
     end
+
+    it 'counts one root problem reported on different files as a repeat', :aggregate_failures do
+      prompt = builder.duplicates(existing: [], findings: [finding])
+
+      expect(prompt).to include('The same root problem can be reported on different files',
+                                "about that bug's missing test, repeats the finding on the code",
+                                'a race reported where a method is called repeats the same race')
+      expect(prompt).not_to include('same root problem in the same code')
+    end
   end
 
   describe '#verify' do
