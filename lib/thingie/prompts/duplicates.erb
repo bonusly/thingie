@@ -20,7 +20,8 @@ You are checking a pull request's review findings for repeats, so reviewers are 
 
 For each new finding, say which earlier item it repeats, or null if it is new.
 
-- Two items repeat each other when they describe the same root problem in the same code, so fixing one fixes the other. Different wording, a different line inside the same statement, or a different level of detail does not make them different.
+- Two items repeat each other when they describe the same root problem, so fixing one fixes the other. Different wording, a different line inside the same statement, or a different level of detail does not make them different.
+- The same root problem can be reported on different files: a finding on a test file about a bug, or about that bug's missing test, repeats the finding on the code that has the bug, and a race reported where a method is called repeats the same race reported inside that method.
 - Two different problems that happen to sit on the same line or in the same method are NOT repeats. A missing method and a missing nil check are different problems.
 - Point to the earliest repeat: a comment already on the pull request (labels starting with E) or an earlier new finding (labels starting with N, with a smaller number). Never point to a later finding.
 - When you are not sure, answer null. A repeat that gets posted is a minor annoyance; a real problem that gets dropped is a loss.

@@ -148,6 +148,21 @@ module Thingie
       @unchecked = false
     end
 
+    # Where else the same problem was found, as `file:line`, from findings dropped as repeats of this one.
+    #
+    # @return [Array<String>]
+    def also_found
+      @also_found ||= []
+    end
+
+    # Notes a place where a repeat of this finding was found.
+    #
+    # @param location [String] `file:line` of the repeat
+    # @return [void]
+    def add_also_found(location)
+      also_found << location unless also_found.include?(location)
+    end
+
     # Records that the second look at this finding never produced a verdict, so it stands on the first
     # pass's grade alone. Such a finding is posted as it is rather than judged by a cap that was meant
     # for the critic's grade, and it blocks auto-approval like any other finding of its severity.

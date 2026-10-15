@@ -5,9 +5,11 @@ module Thingie
   # review comment that is still open or that a person answered, so a re-run does not
   # post the same problem a second time. One model call, no tools, over the whole
   # list: the wording of a finding changes between runs, so matching by title or
-  # line would miss most repeats.
+  # line would miss most repeats. Of several repeats the most severe is kept,
+  # and at equal severity the one on source code wins over the one on a test.
   class DuplicateFilter
     TEXT_LIMIT = 600
+    TEST_PATH = %r{(?:\A|/)(?:spec|test|tests|__tests__)/|[._](?:spec|test)\.\w+\z}
 
     # Builds a filter that asks the given model whether findings repeat each other.
     #
@@ -18,7 +20,9 @@ module Thingie
       @prompt_builder = prompt_builder
     end
 
-    # Returns the findings to post, without the ones that repeat another finding or an open comment.
+    # Returns the findings to post, without the ones that repeat another finding or an open comment. A finding
+    # dropped as a repeat of another new finding is noted on the one kept (`Issue#also_found`), so its thread
+    # says where else the problem was seen.
     #
     # @param issues [Array<Thingie::Issue>] the findings about to be posted
     # @param open_comments [Array<Hash>] earlier Thingie comments, open or answered, each `{ file:, line:, text: }`
@@ -27,9 +31,10 @@ module Thingie
     def call(issues, open_comments)
       return issues if issues.empty? || (issues.size < 2 && open_comments.empty?)
 
-      ranked = issues.sort_by.with_index { |issue, index| [issue.severity || 99, index] }
+      ranked = issues.sort_by.with_index { |issue, index| [*rank_of(issue), index] }
       verdicts = verdicts_for(ranked, open_comments)
       dropped = dropped_labels(ranked, verdicts, open_comments.size)
+      note_repeats(ranked, verdicts, dropped)
       ranked_kept = ranked.each_with_index.reject { |_, index| dropped.include?("N#{index + 1}") }.map(&:first)
       issues.select { |issue| ranked_kept.include?(issue) }
     end
@@ -61,6 +66,30 @@ module Thingie
       end
     end
 
+    def note_repeats(ranked, verdicts, dropped)
+      ranked.each_with_index do |issue, index|
+        next unless dropped.include?("N#{index + 1}")
+
+        kept_finding(ranked, verdicts, dropped, index)&.add_also_found(location_of(issue))
+      end
+    end
+
+    # Follows a dropped finding's pointer through any findings that were dropped too, to the one that is
+    # posted. Nil when the chain ends at an open comment. Pointers only go to earlier findings, so it ends.
+    def kept_finding(ranked, verdicts, dropped, index)
+      loop do
+        match = verdicts["N#{index + 1}"].to_s.strip.match(/\AN(\d+)\z/)
+        return unless match
+
+        index = match[1].to_i - 1
+        return ranked[index] unless dropped.include?("N#{index + 1}")
+      end
+    end
+
+    def location_of(issue)
+      [File.basename(issue.file.to_s), line_of(issue)].compact.join(':')
+    end
+
     def repeats_open_comment?(target, open_count)
       match = target.match(/\AE(\d+)\z/)
       match && match[1].to_i.between?(1, open_count)
@@ -69,6 +98,10 @@ module Thingie
     def repeats_earlier?(target, index)
       match = target.match(/\AN(\d+)\z/)
       match && match[1].to_i.between?(1, index)
+    end
+
+    def rank_of(issue)
+      [issue.severity || 99, issue.file.to_s.match?(TEST_PATH) ? 1 : 0]
     end
 
     def describe(label, file, line, text)
