@@ -164,6 +164,66 @@ RSpec.describe Thingie::LlmClient do
       expect(log.last).to eq("thingie--search #{'x' * 97}...")
     end
 
+    context 'when the provider is OpenRouter' do
+      let(:config) do
+        Thingie::Configuration.new(root: tmp_dir, overrides: { provider: 'openrouter', llm_api_key: 'secret' })
+      end
+      let(:params_method) { RubyLLM::Chat.method_defined?(:with_params) ? :with_params : :with_provider_options }
+      let(:chat_double) do
+        instance_double(RubyLLM::Chat, with_schema: instance_double(RubyLLM::Chat, ask: 'response'))
+      end
+
+      before do
+        allow(chat_double).to receive_messages(with_tools: chat_double, params_method => chat_double)
+      end
+
+      def complete(client, tools)
+        allow(client.llm_context).to receive(:chat).and_return(chat_double)
+        client.complete_with_schema('prompt', { type: 'object' }, tools: tools)
+      end
+
+      it 'asks for the fastest providers that support every request parameter when the call has tools' do
+        complete(described_class.new(config), [instance_double(RubyLLM::Tool)])
+
+        expect(chat_double).to have_received(params_method)
+          .with(provider: { sort: 'throughput', require_parameters: true })
+      end
+
+      it 'asks for the fastest providers by default when the call has no tools' do
+        complete(described_class.new(config), [])
+
+        expect(chat_double).to have_received(params_method).with(provider: { sort: 'throughput' })
+      end
+
+      it 'routes freely when [openrouter] require_parameters is false' do
+        overrides = { provider: 'openrouter', llm_api_key: 'secret', 'openrouter' => { 'require_parameters' => false } }
+        off = Thingie::Configuration.new(root: tmp_dir, overrides: overrides)
+        complete(described_class.new(off), [instance_double(RubyLLM::Tool)])
+
+        expect(chat_double).not_to have_received(params_method)
+      end
+
+      def with_provider_table
+        table = { 'quantizations' => %w[fp8 bf16], 'sort' => 'throughput' }
+        overrides = { provider: 'openrouter', llm_api_key: 'secret', 'openrouter' => { 'provider' => table } }
+        described_class.new(Thingie::Configuration.new(root: tmp_dir, overrides: overrides))
+      end
+
+      it 'sends the [openrouter.provider] table on a call without tools' do
+        complete(with_provider_table, [])
+
+        expect(chat_double).to have_received(params_method)
+          .with(provider: { quantizations: %w[fp8 bf16], sort: 'throughput' })
+      end
+
+      it 'adds require_parameters to the [openrouter.provider] table on a call with tools' do
+        complete(with_provider_table, [instance_double(RubyLLM::Tool)])
+
+        expect(chat_double).to have_received(params_method)
+          .with(provider: { quantizations: %w[fp8 bf16], sort: 'throughput', require_parameters: true })
+      end
+    end
+
     it 'gives the chat the budgeted copies of the tools, not the tools themselves', :aggregate_failures do
       client = described_class.new(config)
       chat_double = instance_double(RubyLLM::Chat, with_schema: instance_double(RubyLLM::Chat, ask: 'response'))
