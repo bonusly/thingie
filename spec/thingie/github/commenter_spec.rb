@@ -465,6 +465,18 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
   end
 
   context 'when the run posts new findings' do
+    it 'names each file by its file name, adding the folder only when two share a name' do
+      issues = ['lib/thingie/reviewer.rb', 'app/streaks/users_controller.rb', 'app/user_popover/users_controller.rb']
+               .map { |path| build_issue(path, 5) }
+
+      commenter.post_review(summary: 'S', report: report_for(issues))
+
+      expect(client).to have_received(:add_comment).with(
+        'o/r', 1, a_string_including('(`reviewer.rb`)', '(`streaks/users_controller.rb`)',
+                                     '(`user_popover/users_controller.rb`)')
+      )
+    end
+
     it 'lists each with its severity and a link, and the off-diff one without', :aggregate_failures do
       issues = [build_issue('app.rb', 11, severity: 2), build_issue('changed.rb', 99, severity: 3)]
       allow(client).to receive(:pull_request_review_comments)

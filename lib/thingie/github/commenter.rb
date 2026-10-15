@@ -21,7 +21,7 @@ module Thingie
       UNCHECKED_NOTE = '_The second look at this finding did not complete, so it is posted as the first pass wrote it._'
       NEW_FINDINGS_SHOWN = 10
       # GitHub wants a body on a COMMENT review; the summary comment says the rest.
-      REVIEW_BODY = 'Thingie review'
+      REVIEW_BODY = 'Review'
       UNCONFIRMED_NOTE = "can't confirm this is resolved"
       REPLIED_FIXED_UNCONFIRMED_NOTE = "replied fixed, can't confirm"
 
@@ -225,33 +225,46 @@ module Thingie
       # The findings this run posted, each with its severity and a link to its comment. One that is not on a
       # line of the diff has no comment of its own, so it points at the collapsed comment instead.
       def new_findings_list(new_issues, links)
-        lines = new_issues.first(NEW_FINDINGS_SHOWN).map { |issue| new_finding_line(issue, links) }
+        names = short_names(new_issues.map { |issue| issue.cited_other_file || issue.file })
+        lines = new_issues.first(NEW_FINDINGS_SHOWN).map { |issue| new_finding_line(issue, links, names) }
         extra = new_issues.size - NEW_FINDINGS_SHOWN
         lines << "- and #{extra} more" if extra.positive?
         lines.join("\n")
       end
 
-      def new_finding_line(issue, links)
+      def new_finding_line(issue, links, names)
         url = links[issue]
         title = url ? "[#{issue.title}](#{url})" : issue.title
         place = links.key?(issue) ? '' : ', not on a changed line'
-        "- **#{severity_label(issue.severity)}:** #{title} (`#{issue.cited_other_file || issue.file}`)#{place}"
+        "- **#{severity_label(issue.severity)}:** #{title} (`#{names[issue.cited_other_file || issue.file]}`)#{place}"
+      end
+
+      # Each path as its file name, or `folder/name` when another path in the list has the same name:
+      # `lib/thingie/reviewer.rb` → `reviewer.rb`, but `streaks/users_controller.rb` beside
+      # `user_popover/users_controller.rb`.
+      def short_names(paths)
+        paths.to_h do |path|
+          name = File.basename(path.to_s)
+          shared = paths.any? { |other| other != path && File.basename(other.to_s) == name }
+          [path, shared ? File.join(File.basename(File.dirname(path.to_s)), name) : name]
+        end
       end
 
       # The findings from earlier runs that are still open, each with its severity and a link to its comment.
       def open_findings_list(open_findings)
-        lines = open_findings.first(OPEN_FINDINGS_SHOWN).map { |thread, note| open_finding_line(thread, note) }
+        names = short_names(open_findings.map { |thread, _note| thread['path'] })
+        lines = open_findings.first(OPEN_FINDINGS_SHOWN).map { |thread, note| open_finding_line(thread, note, names) }
         extra = open_findings.size - OPEN_FINDINGS_SHOWN
         lines << "- and #{extra} more" if extra.positive?
         "**Still open from earlier reviews (#{open_findings.size}):**\n\n#{lines.join("\n")}"
       end
 
-      def open_finding_line(thread, note)
+      def open_finding_line(thread, note, names)
         comment = thread.dig('comments', 'nodes', 0) || {}
         match = comment['body'].to_s.match(/\*\*\[(\w+)\] (.+?)\*\*/)
         severity, title = match ? match.captures : ['Finding', 'An earlier finding']
         label = comment['url'] ? "[#{title}](#{comment['url']})" : title
-        line = "- **#{severity}:** #{label} (`#{thread['path']}`)"
+        line = "- **#{severity}:** #{label} (`#{names[thread['path']]}`)"
         note ? "#{line}, #{note}" : line
       end
 
