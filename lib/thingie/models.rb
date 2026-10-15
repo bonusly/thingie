@@ -124,6 +124,7 @@ module Thingie
       new(id: hash['id'], file: hash['file'], raw_issue: raw, affected_lines: affected_lines).tap do |issue|
         issue.record_tool_calls(review: hash['review_tool_calls'], critic: hash['critic_tool_calls'])
         issue.mark_unchecked if hash['unchecked']
+        issue.hold_back(hash['held_back_because']) if hash['held_back_because']
       end
     end
 
@@ -177,6 +178,19 @@ module Thingie
     # @return [Boolean]
     def unchecked?
       @unchecked
+    end
+
+    # Why the second look found this finding true but not worth a thread, e.g. nothing reaches it today.
+    #
+    # @return [String, nil]
+    attr_reader :held_back_because
+
+    # Records that the second look upheld this finding but would fold it into the summary rather than post it.
+    #
+    # @param reason [String] why, in a phrase that reads after "Held back: "
+    # @return [void]
+    def hold_back(reason)
+      @held_back_because = reason
     end
 
     # Keeps the tool calls the model made while producing and while checking this finding, for debugging.
@@ -253,6 +267,7 @@ module Thingie
         'review_tool_calls' => @review_tool_calls,
         'critic_tool_calls' => @critic_tool_calls,
         'unchecked' => @unchecked,
+        'held_back_because' => @held_back_because,
         'severity' => @severity,
         'confidence' => @confidence,
         'tags' => @tags,

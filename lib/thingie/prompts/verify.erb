@@ -79,8 +79,22 @@ verdict, and ask the most important question first. When the calls are spent, an
   C-extension and other native gem methods often have no indexable definition.
 <%- end -%>
 
+----WHAT REACHES IT TODAY----
+Whatever your verdict, fill in two more fields:
+- `trigger`: what in this codebase, as it stands at this commit, reaches the problem: a caller, request,
+  job, input or data state that exists today, naming the file or call site. Use null when only a
+  caller that does not exist yet, an input no current caller sends, or a failure on top of another
+  failure would reach it. Check the callers before you answer; do not name one you have not seen.
+- `would_act`: true when a reviewer reading this PR would change the code before merging because of
+  this finding. False when they would read it and merge anyway, for example because it is a test gap,
+  a style or speed preference, a message that is misleading but leads to no wrong result, or a trade-off
+  the code or PR already states.
+A finding with a null `trigger` or `would_act` false is folded into the summary instead of posted.
+
 Respond with a JSON object following this schema:
 {
+  "trigger": "<what reaches the problem today, with its file or call site>" | null,
+  "would_act": true | false,
   "verdict": "uphold" | "reject",
   "severity_override": <1-4, or null to leave the original grade unchanged>,
   "confidence_override": <1-4>,

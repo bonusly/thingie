@@ -14,11 +14,13 @@ module Thingie
   class PostProcessor
     # Builds a filter from the `[post_process]` config section.
     #
-    # @param settings [Hash, nil] the `[post_process]` config section: `max_confidence`/`max_severity`, and
-    #   `require_evidence` (a finding with no evidence is graded `unverified_confidence`, default 3)
+    # @param settings [Hash, nil] the `[post_process]` config section: `max_confidence`/`max_severity`,
+    #   `require_evidence` (a finding with no evidence is graded `unverified_confidence`, default 3), and
+    #   `hold_back_unactionable` (a finding the critic says nothing reaches today, or no reviewer would act on)
     def initialize(settings)
       settings = (settings || {}).transform_keys(&:to_s)
       @require_evidence = settings['require_evidence'] == true
+      @hold_back_unactionable = settings['hold_back_unactionable'] == true
       @unverified_confidence = Integer(settings.fetch('unverified_confidence', 3), exception: false) || 3
       # Parse thresholds once; an absent/invalid value means "no limit".
       @max_confidence = Threshold.parse(settings['max_confidence'])
@@ -40,6 +42,8 @@ module Thingie
     # A finding the critic never graded is kept whatever its first-pass confidence: the cap judges the
     # critic's grade, and dropping an unchecked finding would hide it from the reader and the approver.
     # A Critical is always kept: an under-graded SQL injection must still get a thread and block approval.
+    # With `hold_back_unactionable`, a finding the critic upheld but found unreachable today, or not worth
+    # changing before merge, is held back like one past the cap.
     #
     # @param issues [Array<Thingie::Issue>] issues that survived the critic pass
     # @return [Array<Thingie::Issue>] the issues at or below `max_confidence`, plus any left unchecked
@@ -53,10 +57,14 @@ module Thingie
     # @return [Array(Array<Thingie::Issue>, Array<Thingie::Issue>)] `[kept, held_back]`
     def split_confidence(issues)
       issues.each { |issue| demote_unverified(issue) } if @require_evidence
-      issues.partition { |issue| issue.unchecked? || critical?(issue) || within?(issue.confidence, @max_confidence) }
+      issues.partition { |issue| issue.unchecked? || critical?(issue) || shown?(issue) }
     end
 
     private
+
+    def shown?(issue)
+      within?(issue.confidence, @max_confidence) && !(@hold_back_unactionable && issue.held_back_because)
+    end
 
     def critical?(issue)
       Integer(issue.severity, exception: false) == 1

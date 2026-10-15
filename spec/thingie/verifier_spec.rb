@@ -41,13 +41,13 @@ RSpec.describe Thingie::Verifier do
                              'affected_lines' => [{ 'start_line' => 1 }])
   end
 
-  def verdict(value, severity_override: nil, confidence_override: nil)
+  def verdict(value, severity_override: nil, confidence_override: nil, **reach)
     message_double(
       content: {
         'verdict' => value, 'reasoning' => 'r',
         'severity_override' => severity_override,
         'confidence_override' => confidence_override
-      },
+      }.merge(reach.transform_keys(&:to_s)),
       thinking: nil, thinking_tokens: nil,
       input_tokens: nil, output_tokens: nil, tool_calls: {},
       cache_read_tokens: nil, cache_write_tokens: nil,
@@ -60,6 +60,33 @@ RSpec.describe Thingie::Verifier do
   it 'drops findings the critic rejects and keeps the rest' do
     kept = verifier.call(issues)
     expect(kept.map(&:title)).to eq(['keep-me'])
+  end
+
+  context 'when the critic says what reaches the finding today' do
+    let(:answers) do
+      {
+        'finding-reached' => { trigger: 'POST /bonuses in bonuses_controller.rb:40', would_act: true },
+        'finding-latent' => { trigger: nil, would_act: true },
+        'finding-merge-anyway' => { trigger: 'Card#show', would_act: false },
+        'finding-no-answer' => {}
+      }
+    end
+    let(:issues) { answers.keys.map { |title| issue(title) } }
+    let(:fake_llm_client) do
+      instance_double(Thingie::LlmClient).tap do |client|
+        allow(client).to receive(:complete_with_schema) do |prompt, *_|
+          verdict('uphold', **answers.fetch(answers.keys.find { |title| prompt.include?(title) }))
+        end
+      end
+    end
+
+    it 'keeps every upheld finding, noting why it would hold back the latent one and the one to merge anyway' do
+      held = verifier.call(issues).to_h { |kept| [kept.title, kept.held_back_because] }
+
+      expect(held).to eq('finding-reached' => nil, 'finding-latent' => 'nothing in the code reaches it today',
+                         'finding-merge-anyway' => 'a reviewer would merge without changing it',
+                         'finding-no-answer' => nil)
+    end
   end
 
   context 'when the critic reply has no JSON' do

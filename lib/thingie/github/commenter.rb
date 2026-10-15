@@ -347,14 +347,14 @@ module Thingie
         issue.unchecked? && !@max_confidence.nil? && !confidence.nil? && confidence > @max_confidence
       end
 
-      # Findings below the confidence line, folded into one section of the summary: a line each, with the
-      # finding's text folded under its line, so the section stays short even with many.
+      # Findings below the confidence line or held back by the critic, folded into one section of the summary:
+      # a line each, with the finding's text folded under its line, so the section stays short even with many.
       def quiet_findings_section(issues)
         return if issues.empty?
 
         entries = issues.map { |issue| quiet_entry(issue) }
         noun = issues.one? ? 'finding' : 'findings'
-        heading = "#{issues.size} lower-confidence #{noun}, not posted as review comments"
+        heading = "#{issues.size} #{noun} held back, not posted as review comments"
         "<details><summary>#{heading}</summary>\n\n#{entries.join("\n\n")}\n\n</details>"
       end
 
@@ -362,7 +362,8 @@ module Thingie
         line = issue.affected_lines.first&.start_line
         location = issue.cited_other_file || [issue.file, line].compact.join(':')
         label = [severity_label(issue.severity), html_text(issue.title), "<code>#{CGI.escapeHTML(location)}</code>"]
-        body = [issue.details_markdown, (UNCHECKED_NOTE if issue.unchecked?)].compact.join("\n\n")
+        held = "_Held back: #{issue.held_back_because}._" if issue.held_back_because
+        body = [held, issue.details_markdown, (UNCHECKED_NOTE if issue.unchecked?)].compact.join("\n\n")
         "<details><summary>#{label.join(' · ')}</summary>\n\n#{body}\n\n</details>"
       end
 

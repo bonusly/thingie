@@ -56,13 +56,14 @@ module Thingie
       issues.zip(verdicts).select { |_issue, verdict| verdict[:keep] }.map do |issue, verdict|
         issue.apply_override(severity: verdict[:severity], confidence: verdict[:confidence])
         issue.mark_unchecked if verdict[:unchecked]
+        issue.hold_back(verdict[:held_back_because]) if verdict[:held_back_because]
         issue
       end
     end
 
     # Fail-open default for a slot whose critic call never completes: keep the
     # finding, unchanged.
-    FAIL_OPEN_RESULT = { keep: true, severity: nil, confidence: nil, unchecked: true }.freeze
+    FAIL_OPEN_RESULT = { keep: true, severity: nil, confidence: nil, unchecked: true, held_back_because: nil }.freeze
 
     # Errors worth one more try while the finding's time allows: a call that ran past the limit, or a reply
     # with no verdict in it. Both come and go at random, so a second call usually succeeds, and a finding
@@ -109,7 +110,7 @@ module Thingie
       Concurrency.map(issues, concurrency, default: FAIL_OPEN_RESULT) { |issue| uphold?(issue) }
     end
 
-    # @return [Hash] `{ keep:, severity:, confidence: }` — `severity`/`confidence`
+    # @return [Hash] `{ keep:, severity:, confidence:, held_back_because: }` — `severity`/`confidence`
     #   are non-nil only when the critic supplied a validated override.
     def uphold?(issue)
       budget = tool_budget
@@ -130,7 +131,8 @@ module Thingie
       {
         keep: verdict != 'reject',
         severity: valid_override(content['severity_override'], @config.severity_scale),
-        confidence: valid_override(content['confidence_override'], @config.confidence_scale)
+        confidence: valid_override(content['confidence_override'], @config.confidence_scale),
+        held_back_because: held_back_because(content)
       }
     rescue StandardError => e
       # Fail open: keep the finding unchanged, but surface that the critic didn't run.
@@ -206,6 +208,16 @@ module Thingie
       raise JSON::ParserError, 'the critic reply has no verdict' unless content.key?('verdict')
 
       content
+    end
+
+    # A verdict that leaves out `trigger` or `would_act` holds nothing back: only an explicit null trigger or
+    # an explicit false counts, so an older or off-schema reply keeps the finding as it was.
+    def held_back_because(content)
+      if content.key?('trigger') && content['trigger'].to_s.strip.empty?
+        'nothing in the code reaches it today'
+      elsif content['would_act'] == false
+        'a reviewer would merge without changing it'
+      end
     end
 
     # A malformed or out-of-range override is a no-op rather than an error —

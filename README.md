@@ -293,6 +293,7 @@ Key settings:
 | Max concurrent LLM calls (file reviews and critic checks together) | `10` | `max_concurrent_tasks` | `MAX_CONCURRENT_TASKS` | — |
 | Confidence threshold (keep if ≤, applied after the critic) | `2` | `post_process.max_confidence` | — | — |
 | Severity threshold (keep if ≤) | `3` | `post_process.max_severity` | — | — |
+| Hold back findings the critic finds unreachable today or not worth acting on | `false` | `post_process.hold_back_unactionable` | — | — |
 | Critic pass enabled | `true` | `verify.enabled` | — | — |
 | Critic pass model | review model | `verify.model` | — | — |
 | Auto-approve PRs | `false` | `approve.enabled` | — | — |
@@ -443,6 +444,13 @@ require_evidence = true   # a finding with no evidence is held to no better than
 The confidence the first-pass reviewer writes about its own finding comes before any checking, so it tells you little. Thingie therefore applies `max_confidence` after the critic, to the grade the critic gives: the critic always grades confidence by how far its own check with the tools got. Severity is still capped before the critic. If the critic is disabled, `max_confidence` applies to the reviewer's own grade.
 
 On a benchmark of 303 graded findings, a cap of 2 dropped about a quarter of the nits and a seventh of the good findings, a cap of 3 changed almost nothing, and a cap of 1 dropped most of the good findings. The grade says whether the critic could confirm a finding, not whether it matters, so it does not remove true but minor nits.
+
+For those, `hold_back_unactionable` uses two more answers the critic gives on every finding: `trigger`, what in the codebase reaches the problem today (null when only a future caller, an input nobody sends, or a failure on top of another failure would), and `would_act`, whether a reviewer would change the code before merging. A finding the critic upholds with no trigger, or that no reviewer would act on, is held back with its reason in the summary's collapsed section. A Critical is always posted.
+
+```toml
+[post_process]
+hold_back_unactionable = true
+```
 
 The evidence shows under each finding (inline comment and report), collapsed, with the tool calls the model made for debugging: what the second look asked its tools, and what the review pass asked for the file (a long list is cut at 25 lines). The evidence is also passed to the critic, so a reader can see why a finding was raised and the critic can check the claim. The search tool is always available to the reviewer and the critic; it is limited to tracked files under the working directory and runs without a shell.
 

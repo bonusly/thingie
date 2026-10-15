@@ -247,6 +247,12 @@ max_severity = 4
 # graded it, so it cannot pass a stricter max_confidence. Applied together with that cap,
 # after the critic pass.
 require_evidence = false
+# The critic names what reaches each finding today (`trigger`) and whether a reviewer would
+# change the code before merging because of it (`would_act`). With this on, a finding it
+# upholds with no trigger, or that no reviewer would act on, is held back like one past
+# max_confidence: listed in the summary's collapsed section with the reason, no thread, and
+# no block on approval. A Critical is always posted.
+hold_back_unactionable = false
 
 [repeat_run]
 # The model samples a different set of issues on each run, so re-reviewing a PR after a push can

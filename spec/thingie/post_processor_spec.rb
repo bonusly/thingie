@@ -48,6 +48,30 @@ RSpec.describe Thingie::PostProcessor do
     expect(filter(nil, issues)).to eq(issues)
   end
 
+  context 'with hold_back_unactionable' do
+    def finding(severity:, held_back_because: nil)
+      Thingie::Issue.from_hash('title' => 't', 'severity' => severity, 'confidence' => 1, 'file' => 'a.rb',
+                               'held_back_because' => held_back_because,
+                               'affected_lines' => [{ 'start_line' => 1 }])
+    end
+
+    let(:reached) { finding(severity: 3) }
+    let(:latent) { finding(severity: 2, held_back_because: 'nothing in the code reaches it today') }
+    let(:critical) { finding(severity: 1, held_back_because: 'nothing in the code reaches it today') }
+
+    it 'holds back what the critic found unreachable or not worth acting on, but never a Critical' do
+      processor = described_class.new('max_confidence' => 2, 'hold_back_unactionable' => true)
+
+      expect(processor.split_confidence([reached, latent, critical])).to eq([[reached, critical], [latent]])
+    end
+
+    it 'posts them as before when it is off' do
+      processor = described_class.new('max_confidence' => 2)
+
+      expect(processor.split_confidence([reached, latent])).to eq([[reached, latent], []])
+    end
+  end
+
   context 'with require_evidence' do
     def finding(confidence:, evidence:)
       Thingie::Issue.from_hash('title' => 't', 'severity' => 2, 'confidence' => confidence, 'evidence' => evidence,

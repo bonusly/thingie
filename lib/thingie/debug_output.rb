@@ -95,7 +95,7 @@ module Thingie
     def verdict(content, tag:)
       return if content.nil? || content.empty?
 
-      primary = %w[verdict severity_override confidence_override].each_with_object([]) do |key, acc|
+      primary = %w[verdict severity_override confidence_override would_act trigger].each_with_object([]) do |key, acc|
         val = content[key]
         next if val.nil? || (val.respond_to?(:empty?) && val.empty?)
 
@@ -112,7 +112,7 @@ module Thingie
       end
 
       # Surface any unexpected keys the schema didn't define.
-      extras = content.keys - %w[verdict severity_override confidence_override reasoning]
+      extras = content.keys - %w[verdict severity_override confidence_override would_act trigger reasoning]
       extras.each do |key|
         warn "[DEBUG][#{tag}]   #{key}: #{content[key]}"
       end
