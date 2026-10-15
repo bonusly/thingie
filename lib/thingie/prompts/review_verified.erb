@@ -38,7 +38,8 @@ A suspicion is not a finding until you have checked it against the code. Use the
 search tool to find callers, usages and existing guards, and the file tool to read
 related files<%= symbol_lookup ? ', and the symbol lookup tool to confirm how a method or constant is defined' : '' %>.
 Look for the code that would already prevent the problem; if it exists, drop the
-finding.
+finding. You rarely need a whole file: search first, then read just the lines you
+need with the file tool's `offset` and `limit`.
 <%- if tool_budget -%>
 You have at most <%= tool_budget %> tool calls for this file. Use a tool only when its answer decides
 whether to report something, and answer the most important questions first: a suspected crash, wrong

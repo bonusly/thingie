@@ -85,6 +85,65 @@ RSpec.describe Thingie::FileTool do
     expect(result).not_to include("\x00") # never dumps binary bytes
   end
 
+  it 'stops a long file at MAX_LINES and says how much was left out' do
+    File.write(File.join(tmp_dir, 'long.txt'), (1..2500).map { |n| "line #{n}\n" }.join)
+
+    result = tool.execute(path: 'long.txt')
+
+    expect(result).to include("line 2000\n")
+    expect(result).not_to include("line 2001\n")
+    expect(result).to end_with('Showing lines 1-2000 of 2500. Read on with offset: 2001, or use the search tool ' \
+                               'with this path to find the lines you need.')
+  end
+
+  it 'reads the lines asked for with offset and limit', :aggregate_failures do
+    File.write(File.join(tmp_dir, 'long.txt'), (1..2500).map { |n| "line #{n}\n" }.join)
+
+    result = tool.execute(path: 'long.txt', offset: 2100, limit: 50)
+
+    expect(result).to include("line 2100\nline 2101\n", "line 2149\n")
+    expect(result).not_to include("line 2099\n", "line 2150\n")
+    expect(result).to end_with('Showing lines 2100-2149 of 2500. Read on with offset: 2150, or use the search tool ' \
+                               'with this path to find the lines you need.')
+  end
+
+  it 'caps a limit above MAX_LINES' do
+    File.write(File.join(tmp_dir, 'long.txt'), (1..2500).map { |n| "line #{n}\n" }.join)
+
+    expect(tool.execute(path: 'long.txt', limit: 5000)).to include('Showing lines 1-2000 of 2500.')
+  end
+
+  it 'says so when the offset is past the end' do
+    File.write(File.join(tmp_dir, 'short.txt'), "one\ntwo\n")
+
+    expect(tool.execute(path: 'short.txt', offset: 10)).to include('The file has 2 lines; offset 10 is past the end.')
+  end
+
+  it 'reads the last part of a file without a note to read on' do
+    File.write(File.join(tmp_dir, 'short.txt'), "one\ntwo\nthree\n")
+
+    expect(tool.execute(path: 'short.txt', offset: 2)).to end_with("```\nShowing lines 2-3 of 3.")
+  end
+
+  it 'stops a file of long lines at MAX_BYTES' do
+    File.write(File.join(tmp_dir, 'wide.json'), Array.new(30) { |n| "#{n}#{'x' * 9_999}\n" }.join)
+
+    result = tool.execute(path: 'wide.json')
+
+    expect(result.bytesize).to be < 101_000
+    expect(result).to include('Showing lines 1-9 of 30. Read on with offset: 10')
+  end
+
+  it 'shows the start of a single line longer than MAX_BYTES' do
+    File.write(File.join(tmp_dir, 'minified.js'), 'a' * 300_000)
+
+    result = tool.execute(path: 'minified.js')
+
+    expect(result).to include('a' * 100_000)
+    expect(result).not_to include('a' * 100_001)
+    expect(result).to include('Line 1 is longer than 100000 bytes; showing its start.')
+  end
+
   it 'degrades gracefully on unexpected errors' do
     allow(File).to receive(:exist?).and_raise(Errno::EACCES, 'boom')
 
