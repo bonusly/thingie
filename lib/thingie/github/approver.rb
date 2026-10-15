@@ -363,11 +363,7 @@ module Thingie
       end
 
       def approval_body(pr, report)
-        [
-          APPROVAL_MARKER,
-          'Approved automatically by Thingie: all auto-approval rules passed.',
-          *approval_details(pr, report)
-        ].compact.join("\n\n")
+        [APPROVAL_MARKER, *approval_details(pr, report)].compact.join("\n\n")
       end
 
       def dry_run_approval_body(pr, report)
@@ -380,18 +376,13 @@ module Thingie
       end
 
       # The risk read is the part a person reads, so it comes first and stays short; the rule and check
-      # lists are there for the record and fold away.
+      # lists are there for the record and fold away under Thingie details.
       def approval_details(pr, report)
-        [
-          risk_assessment_section(pr, report),
-          passed_rules_section(pr),
-          external_checks_section,
-          details_section(report)
-        ]
+        [risk_assessment_section(pr, report), details_section(report, pr)]
       end
 
-      def folded(title, lines)
-        "<details><summary>#{title}</summary>\n\n#{lines.map { |line| "- #{line}" }.join("\n")}\n\n</details>"
+      def listed(title, lines)
+        "**#{title}**\n#{lines.map { |line| "- #{line}" }.join("\n")}"
       end
 
       # Deterministic list of the gates that were satisfied for this approval.
@@ -404,7 +395,7 @@ module Thingie
         checks << 'No human reviewer requested changes'
         checks << 'Every file was reviewed'
         checks << "Author is a member of #{approval_team}" unless approval_team.empty?
-        folded('Checks passed', checks)
+        listed('Checks passed', checks)
       end
 
       def severity_label(severity)
@@ -418,7 +409,7 @@ module Thingie
         checks = Array(@config['external_checks']).map(&:to_s).reject(&:empty?)
         return nil if checks.empty?
 
-        folded('Other checks that must pass before merge (not evaluated by Thingie)', checks)
+        listed('Checks not evaluated', checks)
       end
 
       def change_size_check(pr)
@@ -497,10 +488,11 @@ module Thingie
         ''
       end
 
-      def details_section(report)
+      def details_section(report, pr)
         rows = ["- Thingie version: #{Thingie::VERSION}"]
         rows << "- Review model: #{report.model}" unless report.model.to_s.strip.empty?
-        "<details><summary>Thingie details</summary>\n\n#{rows.join("\n")}\n\n</details>"
+        parts = [rows.join("\n"), passed_rules_section(pr), external_checks_section].compact
+        "<details><summary>Thingie details</summary>\n\n#{parts.join("\n\n")}\n\n</details>"
       end
 
       def version_line(report)

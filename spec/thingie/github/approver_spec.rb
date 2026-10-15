@@ -119,7 +119,7 @@ RSpec.describe Thingie::GitHub::Approver do # rubocop:disable RSpec/SpecFilePath
     config['external_checks'] = ['Security review pass', 'Full test suite']
     approver.run(report_for([]))
 
-    expected = a_string_including('Other checks that must pass before merge')
+    expected = a_string_including('**Checks not evaluated**')
                .and(a_string_including('Security review pass'))
                .and(a_string_including('Full test suite'))
     expect(client).to have_received(:create_pull_request_review).with('o/r', 1, hash_including(body: expected))
@@ -242,7 +242,7 @@ RSpec.describe Thingie::GitHub::Approver do # rubocop:disable RSpec/SpecFilePath
     expect(client).to have_received(:create_pull_request_review)
   end
 
-  it 'folds the check lists away and keeps the risk read short', :aggregate_failures do
+  it 'folds the check lists into Thingie details and keeps the risk read short', :aggregate_failures do
     stub_threads([])
     long = (['The change narrows one parse path and touches no query or permission surface.'] * 12).join(' ')
     response = double('resp', content: { 'risk_level' => 'Low', 'summary' => long }) # rubocop:disable RSpec/VerifiedDoubles
@@ -254,10 +254,10 @@ RSpec.describe Thingie::GitHub::Approver do # rubocop:disable RSpec/SpecFilePath
 
     expect(client).to have_received(:create_pull_request_review).with('o/r', 1, hash_including(body: satisfy { |body|
       risk = body[/\*\*Risk assessment: Low\*\*\n\n(.*?)\n\n</m, 1]
-      other = 'Other checks that must pass before merge (not evaluated by Thingie)'
-      body.include?('<details><summary>Checks passed</summary>') &&
-        body.include?("<details><summary>#{other}</summary>") &&
-        body.index('Risk assessment') < body.index('Checks passed') &&
+      details = body[%r{<details><summary>Thingie details</summary>(.*?)</details>}m, 1].to_s
+      details.include?('**Checks passed**') && details.include?("**Checks not evaluated**\n- RSpec test suite") &&
+        body.index('Risk assessment') < body.index('Thingie details') &&
+        !body.include?('Approved automatically') &&
         risk.length <= described_class::RISK_SUMMARY_LIMIT && risk.end_with?('.')
     }))
   end
