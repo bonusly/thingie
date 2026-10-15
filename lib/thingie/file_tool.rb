@@ -13,6 +13,11 @@ module Thingie
     # NUL byte anywhere in this window, or a UTF-8 decoding failure, marks the
     # file as binary so we never dump non-textual bytes into the model context.
     SNIFF_BYTES = 8192
+    # A read stops at whichever of these comes first, so one generated or
+    # vendored file (a 2.7 MB JSON fixture, say) cannot fill the model's context.
+    MAX_LINES = 2000
+    MAX_BYTES = 100_000
+    SEARCH_HINT = 'Use the search tool with this path to find the lines you need further down.'
 
     description <<~DESC
       Check whether a path relative to the working directory exists, and read its
@@ -49,8 +54,9 @@ module Thingie
 
       return binary_message(resolved) if binary?(resolved)
 
-      contents = File.read(resolved)
-      "#{relative(resolved)}\n```\n#{contents}\n```"
+      contents, note = read_capped(resolved)
+      result = "#{relative(resolved)}\n```\n#{contents}\n```"
+      note ? "#{result}\n#{note}" : result
     rescue StandardError => e
       "File lookup unavailable for `#{path}`: #{e.message}"
     end
@@ -102,6 +108,28 @@ module Thingie
       !head.valid_encoding?
     rescue StandardError
       true
+    end
+
+    # Returns the file's leading lines up to MAX_LINES / MAX_BYTES, and a note
+    # saying what was left out (nil when the whole file fit).
+    def read_capped(path)
+      kept = []
+      bytes = 0
+      total = 0
+      stopped = false
+      File.foreach(path) do |line|
+        total += 1
+        stopped ||= kept.size >= MAX_LINES || bytes + line.bytesize > MAX_BYTES
+        next if stopped
+
+        kept << line
+        bytes += line.bytesize
+      end
+      return [kept.join, nil] unless stopped
+      return [kept.join, "Truncated: showing lines 1-#{kept.size} of #{total}. #{SEARCH_HINT}"] if kept.any?
+
+      head = File.foreach(path).first.byteslice(0, MAX_BYTES).scrub('')
+      [head, "Truncated: line 1 is longer than #{MAX_BYTES} bytes; showing its start. #{SEARCH_HINT}"]
     end
 
     def binary_message(path)

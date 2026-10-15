@@ -85,6 +85,36 @@ RSpec.describe Thingie::FileTool do
     expect(result).not_to include("\x00") # never dumps binary bytes
   end
 
+  it 'stops a long file at MAX_LINES and says how much was left out' do
+    File.write(File.join(tmp_dir, 'long.txt'), (1..2500).map { |n| "line #{n}\n" }.join)
+
+    result = tool.execute(path: 'long.txt')
+
+    expect(result).to include("line 2000\n")
+    expect(result).not_to include("line 2001\n")
+    expect(result).to end_with('Truncated: showing lines 1-2000 of 2500. Use the search tool with this path ' \
+                               'to find the lines you need further down.')
+  end
+
+  it 'stops a file of long lines at MAX_BYTES' do
+    File.write(File.join(tmp_dir, 'wide.json'), Array.new(30) { |n| "#{n}#{'x' * 9_999}\n" }.join)
+
+    result = tool.execute(path: 'wide.json')
+
+    expect(result.bytesize).to be < 101_000
+    expect(result).to include('Truncated: showing lines 1-9 of 30.')
+  end
+
+  it 'shows the start of a single line longer than MAX_BYTES' do
+    File.write(File.join(tmp_dir, 'minified.js'), 'a' * 300_000)
+
+    result = tool.execute(path: 'minified.js')
+
+    expect(result).to include('a' * 100_000)
+    expect(result).not_to include('a' * 100_001)
+    expect(result).to include('Truncated: line 1 is longer than 100000 bytes; showing its start.')
+  end
+
   it 'degrades gracefully on unexpected errors' do
     allow(File).to receive(:exist?).and_raise(Errno::EACCES, 'boom')
 
