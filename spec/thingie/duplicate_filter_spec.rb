@@ -60,11 +60,10 @@ RSpec.describe Thingie::DuplicateFilter do
     expect(first.also_found).to eq(['deliver_spec.rb:3', 'bonus.rb:3'])
   end
 
-  it 'notes nothing for a finding dropped as a repeat of an open comment' do
+  it 'notes nothing for a finding dropped as a repeat of an open comment', :aggregate_failures do
     answer_with([%w[N1 E1], ['N2', nil]])
 
-    filter.call([critical, high], open_comments)
-
+    expect(filter.call([critical, high], open_comments)).to eq([high])
     expect(high.also_found).to be_empty
   end
 
