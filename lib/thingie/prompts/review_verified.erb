@@ -26,6 +26,12 @@ This file is reviewed on its own, but it belongs to a larger PR.
 --------
 
 <%- end -%>
+<%- unless companion.to_s.empty? -%>
+----RELATED FILE----
+<%= companion %>
+--------
+
+<%- end -%>
 <%- if whole_file -%>
 Every line of the file is under review.
 <%- else -%>

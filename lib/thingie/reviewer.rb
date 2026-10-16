@@ -36,6 +36,7 @@ module Thingie
       @debug_output = DebugOutput.new(config: config, changeset: changeset, enabled: debug)
       @usage = Stats::Usage.new
       @pr_context = PrContext.new(changeset)
+      @test_pair = TestPair.new(changeset)
     end
 
     # Accumulated LLM token/cost usage for the run, fed each review and critic
@@ -107,7 +108,7 @@ module Thingie
       @verifier = Verifier.new(
         config: @config, changeset: @changeset, prompt_builder: @prompt_builder,
         llm_client: @llm_client, tools: @tools, debug_output: @debug_output, usage: @usage,
-        pr_context: @pr_context, limit: limit
+        pr_context: @pr_context, test_pair: @test_pair, limit: limit
       )
       # Per-file failures are rescued inside #review_file, so a file's block only raises on a bug.
       results = Concurrency.map(files, [files.size, 1].max) { |file| review_and_check(file, limit) }
@@ -178,7 +179,8 @@ module Thingie
       budget = ToolBudget.new(@config['tool_budget'])
       prompt = @prompt_builder.review(diff: diff, file_lines: full, symbol_lookup: @tools.any?(Lsp::SymbolTool),
                                       whole_file: whole_file, pr_context: @pr_context.to_s,
-                                      tool_budget: (budget.limit if budget.active? && @tools.any?))
+                                      tool_budget: (budget.limit if budget.active? && @tools.any?),
+                                      companion: @test_pair.section_for(file))
       tool_names = []
       chats = []
       deadline = deadline_for(@config['call_timeout'])
