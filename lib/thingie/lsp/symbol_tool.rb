@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require 'ruby_llm'
-require_relative '../llm_compat'
 require 'uri'
 require_relative '../errors'
 
@@ -24,7 +23,7 @@ module Thingie
         "process_payment".
       DESC
 
-      LlmCompat.parameter(self, :query, description: 'Name of the class, module, or method to look up', required: true)
+      parameter :query, description: 'Name of the class, module, or method to look up', required: true
 
       # Wraps an LSP client as a `ruby_llm` tool.
       #

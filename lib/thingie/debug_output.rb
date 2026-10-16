@@ -30,7 +30,7 @@ module Thingie
       text = thinking.respond_to?(:text) ? thinking.text : thinking.to_s
       return if text.nil? || text.to_s.strip.empty?
 
-      thinking_tokens = LlmCompat.tokens(response, :thinking_tokens)
+      thinking_tokens = response.tokens&.thinking
       token_note = thinking_tokens&.positive? ? " (#{thinking_tokens} tokens)" : ''
       warn "[DEBUG][#{tag}]   reasoning#{token_note}:"
       text.to_s.split("\n").each do |line|
@@ -123,18 +123,17 @@ module Thingie
     # @param response [Object, nil] the ruby_llm response object
     # @return [String] a token summary string like "tokens: 100 in / 50 out / 150 total"
     def token_summary(response)
-      input = LlmCompat.tokens(response, :input_tokens)
-      output = LlmCompat.tokens(response, :output_tokens)
+      tokens = response&.tokens || RubyLLM::Tokens.new
+      input = tokens.input
+      output = tokens.output
       return 'tokens: n/a' if input.nil? && output.nil?
 
       parts = ["#{input || '?'} in", "#{output || '?'} out"]
       parts << "#{input + output} total" if input && output
-      cache_read = LlmCompat.tokens(response, :cache_read_tokens)
-      parts << "#{cache_read} cache_read" if cache_read&.positive?
-      cache_write = LlmCompat.tokens(response, :cache_write_tokens)
-      parts << "#{cache_write} cache_write" if cache_write&.positive?
-      thinking = LlmCompat.tokens(response, :thinking_tokens)
-      parts << "#{thinking} thinking" if thinking&.positive?
+      %i[cache_read cache_write thinking].each do |kind|
+        count = tokens.public_send(kind)
+        parts << "#{count} #{kind}" if count&.positive?
+      end
       context = context_window_summary(response, input, output)
       parts << context if context
       "tokens: #{parts.join(' / ')}"

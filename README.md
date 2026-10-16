@@ -327,7 +327,7 @@ floor = 0.81
 description = "changes authentication or authorization, moves money, changes account balances or ledger entries, or could cause an outage, data loss, or a security incident if wrong; needs the strongest review available"
 ```
 
-Supported providers match whatever RubyLLM supports, including `openai`, `anthropic`, `gemini`, `ollama`, `deepseek`, `openrouter`, `mistral`, `perplexity`, `xai`, `azure`, `bedrock`, `vertexai`, and `gpustack`.
+Supported providers match whatever RubyLLM supports, including `openai`, `anthropic`, `gemini`, `ollama`, `deepseek`, `openrouter`, `mistral`, `perplexity`, `xai`, `azure`, `bedrock`, `vertexai`, and `gpustack`. Thingie requires ruby_llm 2.1 or later.
 
 Example `.thingie/config.toml`:
 

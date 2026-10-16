@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require 'ruby_llm'
-require_relative 'llm_compat'
 
 module Thingie
   # RubyLLM tool that lets the model check whether a path relative to the working
@@ -28,11 +27,11 @@ module Thingie
       for what you need first, then read just those lines with `offset` and `limit`.
     DESC
 
-    LlmCompat.parameter(self, :path, description: 'Path relative to the working directory to inspect', required: true)
-    LlmCompat.parameter(self, :offset, description: 'Line number to start reading from (optional, default 1)',
-                                       type: 'integer', required: false)
-    LlmCompat.parameter(self, :limit, description: "Number of lines to read (optional, at most #{MAX_LINES})",
-                                      type: 'integer', required: false)
+    parameter :path, description: 'Path relative to the working directory to inspect', required: true
+    parameter :offset, description: 'Line number to start reading from (optional, default 1)',
+                       type: 'integer', required: false
+    parameter :limit, description: "Number of lines to read (optional, at most #{MAX_LINES})",
+                      type: 'integer', required: false
 
     # Builds a file tool constrained to reads under `root`.
     #

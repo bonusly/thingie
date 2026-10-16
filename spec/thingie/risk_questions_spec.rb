@@ -21,12 +21,19 @@ RSpec.describe Thingie::RiskQuestions do
     end
   end
 
-  it 'sends each level, lowest first, as a criterion of the overall question' do
+  it 'sends each level, lowest first, as a level of the overall question' do
     ratings['critical'] = { 'floor' => 0.9, 'description' => '  outage risk  ' }
 
-    expect(risk_questions.questions[:overall][:criteria].map { |criterion| criterion.split(':').first })
+    expect(risk_questions.questions[:overall][:levels].map { |level| level.split(':').first })
       .to eq(%w[Trivial Routine Risky Critical])
-    expect(risk_questions.questions[:overall][:criteria].last).to eq('Critical: outage risk')
+    expect(risk_questions.questions[:overall][:levels].last).to eq('Critical: outage risk')
+  end
+
+  it 'builds questions ruby_llm accepts as judgment questions' do
+    types = risk_questions.questions.to_h { |name, question| [name, RubyLLM::Judge::Question.from_h(name, question).type] }
+
+    expect(types).to eq(security: :probability, user_impact: :probability, performance: :probability,
+                        new_dependencies: :probability, maintainability: :probability, overall: :score)
   end
 
   it 'rates by configured floors' do
@@ -41,7 +48,7 @@ RSpec.describe Thingie::RiskQuestions do
 
     expect(risk_questions.rating_for(0.85)).to eq('risky')
     expect(risk_questions.rating_for(0.5)).to eq('risky')
-    expect(risk_questions.questions[:overall][:criteria].last).to start_with('Critical: changes authentication')
+    expect(risk_questions.questions[:overall][:levels].last).to start_with('Critical: changes authentication')
   end
 
   {

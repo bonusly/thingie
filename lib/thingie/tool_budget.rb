@@ -54,8 +54,7 @@ module Thingie
 
     private
 
-    # ruby_llm 1.16 calls `tool.call(args)` and 2.x calls `tool.call(**args, tool_call:)`; passing everything
-    # through covers both.
+    # ruby_llm calls `tool.call(**args, tool_call:)`; pass everything through so the copy stays a drop-in.
     def budgeted(tool)
       budget = self
       tool.dup.tap do |copy|
