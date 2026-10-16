@@ -1,0 +1,100 @@
+en:
+  connectors:
+    title: Connectors
+    providers:
+      github: GitHub
+      slack: Slack
+      linear: Linear
+    states:
+      connected: Connected
+      paused: Paused
+      disconnected: Disconnected
+    actions:
+      connect: Connect
+      disconnect: Disconnect
+      sync: Sync now
+      pause: Pause
+      resume: Resume
+      import: Import as task
+    kinds:
+      issue: Issue
+      pull_request: Pull request
+      message: Message
+      channel: Channel
+      project: Project
+    synced:
+      never: Never synced
+      at: Synced %{at}
+      items:
+        one: "%{count} item"
+        other: "%{count} items"
+    errors:
+      unauthorized: "%{provider} rejected the token. Reconnect to continue."
+      rate_limited: "%{provider} is rate limiting us. We will retry shortly."
+      unknown_provider: Unknown provider %{provider}.
+      invalid_input: The connector request was invalid.
+    imported: Imported as a task.
+    already_imported: Already imported.
+  members:
+    title: Members
+    roles:
+      member: Member
+      admin: Admin
+    actions:
+      invite: Invite
+      promote: Make admin
+      demote: Make member
+      remove: Remove
+    invitations:
+      pending: Pending invitations
+      sent: Invitation sent to %{email}.
+      accepted: You joined %{company}.
+      expired: This invitation has expired.
+      resend: Resend
+    last_admin: You cannot demote the last admin.
+    removed: "%{name} was removed."
+  webhooks:
+    title: Webhooks
+    events:
+      task.created: Task created
+      task.completed: Task completed
+      task.archived: Task archived
+      comment.created: Comment added
+      list.delivered: List delivered
+      draft_task.sent: Draft sent
+    states:
+      pending: Pending
+      delivered: Delivered
+      failed: Failed
+    disabled: Disabled after %{count} failures.
+    secret_hint: Verify requests with the X-Tasker-Signature header.
+    recent_deliveries: Recent deliveries
+  admin:
+    title: Admin
+    companies:
+      title: Companies
+      suspend: Suspend
+      unsuspend: Unsuspend
+      suspended: Suspended
+      active: Active
+      plans:
+        free: Free
+        team: Team
+        business: Business
+      reason: Reason
+    stats:
+      members: Members
+      admins: Admins
+      lists: Active lists
+      open_tasks: Open tasks
+      done_tasks: Done tasks
+      ready_drafts: Ready drafts
+      points_awarded_this_week: Points this week
+      connected_accounts: Connected accounts
+    routes:
+      title: Route index
+      reindex: Reindex
+      indexed: "%{count} routes indexed"
+      gated: Requires %{permission}
+      open: Open to everyone
+    not_staff: Staff only.

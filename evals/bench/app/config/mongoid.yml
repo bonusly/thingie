@@ -1,0 +1,30 @@
+development:
+  clients:
+    default:
+      database: tasker_development
+      hosts:
+        - localhost:27017
+      options:
+        server_selection_timeout: 5
+  options:
+    belongs_to_required_by_default: true
+
+test:
+  clients:
+    default:
+      database: tasker_test
+      hosts:
+        - localhost:27017
+      options:
+        read:
+          mode: :primary
+        max_pool_size: 5
+
+production:
+  clients:
+    default:
+      uri: <%= ENV["MONGODB_URI"] %>
+      options:
+        max_pool_size: 20
+        retry_writes: true
+        server_selection_timeout: 10
