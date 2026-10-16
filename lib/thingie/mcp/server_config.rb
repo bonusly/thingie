@@ -7,24 +7,17 @@ module Thingie
   module Mcp
     # Normalizes `[mcp.<name>]` TOML tables (from {Thingie::Configuration#mcp_servers})
     # and `.thingie/mcp.{yml,yaml,json}` entries (from
-    # {Thingie::Configuration#mcp_config_file}) into ruby_llm-mcp client options,
+    # {Thingie::Configuration#mcp_config_file}) into `RubyLLM.mcp` settings,
     # interpolating `${VAR}` placeholders via {Thingie::Env} (so `~/.thingie/.env`
-    # values apply and specs stay isolated). Pure parsing — no gem dependency,
-    # fully unit-testable. {Thingie::Mcp::Toolset} consumes the result.
+    # values apply and specs stay isolated). Pure parsing, fully unit-testable.
+    # {Thingie::Mcp::Toolset} consumes the result.
     class ServerConfig
       # Outcome of {ServerConfig.load}: the normalized server option hashes and
       # any non-fatal warnings recorded for misconfigured/skipped servers.
       Result = Data.define(:servers, :warnings)
 
-      # Keys forwarded into the gem's `config:` hash (symbolized top-level;
-      # nested `env`/`headers` keep their string keys verbatim).
-      GEM_CONFIG_KEYS = %w[command args env url headers oauth protocol_version with_prefix].freeze
-
-      # Thingie-level keys consumed here, never seen by the gem.
-      THINGIE_KEYS = %w[enabled request_timeout include_tools exclude_tools].freeze
-
-      # Transport names the gem accepts (a subset of its VALID_TRANSPORTS).
-      TRANSPORTS = %w[stdio sse streamable].freeze
+      # Transports the built-in client supports: `stdio` (command) and `streamable` (url).
+      TRANSPORTS = %w[stdio streamable].freeze
 
       VAR_PATTERN = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/
 
@@ -72,16 +65,13 @@ module Thingie
             return nil
           end
 
-          transport_type = resolve_transport(name, interpolated, warnings)
-          return nil unless transport_type
+          return nil unless resolve_transport(name, interpolated, warnings)
 
           {
             name: name,
-            transport_type: transport_type,
-            request_timeout: interpolated['request_timeout'],
             include_tools: Array(interpolated['include_tools']),
             exclude_tools: Array(interpolated['exclude_tools']),
-            config: gem_config(interpolated)
+            settings: settings(name, interpolated)
           }
         end
 
@@ -108,13 +98,24 @@ module Thingie
           nil
         end
 
-        # Builds the gem `config:` hash: only present gem-level keys, symbolized
-        # at the top level. Nested `env`/`headers` hashes are copied verbatim
-        # (string keys) — they become process env / HTTP headers as written.
-        def gem_config(entry)
-          GEM_CONFIG_KEYS.each_with_object({}) do |key, acc|
-            acc[key.to_sym] = entry[key] if entry.key?(key)
-          end
+        # Builds the `RubyLLM.mcp` keywords from the present keys. A CLI review can't answer a
+        # server's input requests, so they are always off. `request_timeout` is in ms; the client
+        # wants seconds. `protocol_version` has no equivalent and is ignored.
+        def settings(name, entry)
+          settings = { name: name, input_requests: false }
+          settings[:command] = [entry['command'], *Array(entry['args'])] if entry.key?('command')
+          settings[:url] = entry['url'] if entry.key?('url')
+          settings[:headers] = entry['headers'] if entry.key?('headers')
+          settings[:env] = entry['env'].transform_keys(&:to_sym) if entry.key?('env')
+          settings[:timeout] = entry['request_timeout'] / 1000.0 if entry.key?('request_timeout')
+          settings[:prefix] = name if entry['with_prefix'] == true
+          settings[:oauth] = oauth(entry['oauth']) if entry.key?('oauth')
+          settings
+        end
+
+        # `oauth = true` or a table of `RubyLLM::MCP.oauth` keywords.
+        def oauth(value)
+          value.is_a?(Hash) ? value.transform_keys(&:to_sym) : value
         end
 
         # Recursively interpolates `${VAR}` in every String value (in hashes,
