@@ -1,0 +1,104 @@
+en:
+  tasks:
+    states:
+      open: Open
+      done: Done
+      archived: Archived
+    actions:
+      complete: Mark done
+      reopen: Reopen
+      archive: Archive
+      assign: Assign
+      edit: Edit
+      delete: Delete
+    filters:
+      all: All tasks
+      mine: Assigned to me
+      overdue: Overdue
+      due_today: Due today
+      due_this_week: Due this week
+      unassigned: Unassigned
+      rewarded: With points
+    empty:
+      all: No tasks yet. Create one to get started.
+      mine: Nothing assigned to you.
+      overdue: Nothing overdue. Nice.
+    due:
+      today: Due today
+      tomorrow: Due tomorrow
+      in_days:
+        one: Due in %{count} day
+        other: Due in %{count} days
+      overdue_by:
+        one: "%{count} day overdue"
+        other: "%{count} days overdue"
+      none: No due date
+    points:
+      one: "%{count} point"
+      other: "%{count} points"
+      none: No reward
+    assignees:
+      none: Unassigned
+      one: "%{name}"
+      many: "%{name} and %{count} more"
+    comments:
+      title: Comments
+      placeholder: Write a comment. Use @handle to mention someone.
+      submit: Comment
+      edited: edited
+      from_draft: Added from a draft
+      empty: No comments yet.
+    attachments:
+      title: Attachments
+      add: Add file
+      too_large: Files must be under %{max}.
+      remove: Remove
+    reminders:
+      title: Reminders
+      add: Remind me
+      channels:
+        email: Email
+        slack: Slack
+        in_app: In app
+      sent: Sent %{at}
+    created: Task created.
+    updated: Task updated.
+    completed: Task marked done.
+    reopened: Task reopened.
+    archived: Task archived.
+  draft_tasks:
+    title: Drafts
+    states:
+      drafting: Drafting
+      ready: Ready to send
+      sent: Sent
+    actions:
+      mark_ready: Mark ready
+      release: Back to drafting
+      send_now: Send now
+      delete: Delete draft
+    visibility:
+      shared: Shared with the list
+      private: Private until sent
+    schedule:
+      none: Not scheduled
+      at: Sends %{at}
+      on_delivery: Sends when the list is delivered
+    reservation:
+      held: "%{points} points held in escrow from this week's budget"
+      released: Escrow released
+      settled: Points moved to the task
+      insufficient: You only have %{remaining} points left this week.
+      busy: Your balance is being updated. Try again in a moment.
+    reservations:
+      title: Points in escrow
+      empty: No drafts are holding points right now.
+    empty: No drafts. Start one from any list.
+    created: Draft saved.
+    updated: Draft updated.
+    marked_ready: Draft is ready to send.
+    released: Draft moved back to drafting.
+    sent: Draft sent as a task.
+    deleted: Draft deleted.
+    locked: This draft is being updated elsewhere. Try again.
+    not_editable: Ready drafts cannot be edited. Move it back to drafting first.
