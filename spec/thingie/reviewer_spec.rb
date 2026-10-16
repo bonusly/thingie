@@ -191,7 +191,20 @@ RSpec.describe Thingie::Reviewer do
 
     it 'lists them in the review prompt' do
       reviewer.review
-      expect(prompts.first).to include('----OTHER CHANGES IN THIS PR----', '- added app/granola_gated.rb')
+      expect(prompts.first).to include('----THE PULL REQUEST----', '- added app/granola_gated.rb')
+    end
+
+    context 'when the pull request is known' do
+      let(:reviewer) do
+        described_class.new(config: config, changeset: fake_changeset, llm_client: fake_llm_client,
+                            prompt_builder: Thingie::PromptBuilder.new(config),
+                            pull_request: { title: 'Gate granola', body: 'Behind a flag.' })
+      end
+
+      it 'puts its title and description in the review prompt' do
+        reviewer.review
+        expect(prompts.first).to include('Pull request title: Gate granola', 'Behind a flag.')
+      end
     end
   end
 

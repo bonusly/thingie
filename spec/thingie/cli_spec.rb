@@ -98,6 +98,41 @@ RSpec.describe Thingie::CLI do
       Thingie::CLI.start(['review'])
     end
 
+    it 'gives the reviewer no pull request without an event payload' do
+      run_review
+      expect(Thingie::Reviewer).to have_received(:new).with(hash_including(pull_request: nil))
+    end
+
+    context 'with a pull request event payload' do
+      let(:event_path) { File.join(tmp_dir, 'event.json') }
+
+      before do
+        File.write(event_path, JSON.generate('pull_request' => { 'number' => 7, 'title' => 'Gate granola',
+                                                                 'body' => 'Behind a flag.' }))
+        Thingie::Env['GITHUB_EVENT_PATH'] = event_path
+      end
+
+      it 'tells the reviewer what the pull request is for' do
+        run_review
+        expect(Thingie::Reviewer).to have_received(:new)
+          .with(hash_including(pull_request: { title: 'Gate granola', body: 'Behind a flag.' }))
+      end
+    end
+
+    context 'with an event payload that is not JSON' do
+      let(:event_path) { File.join(tmp_dir, 'event.json') }
+
+      before do
+        File.write(event_path, 'not json')
+        Thingie::Env['GITHUB_EVENT_PATH'] = event_path
+      end
+
+      it 'reviews without a pull request and says why', :aggregate_failures do
+        expect { run_review }.to output(/Could not read the pull request from GITHUB_EVENT_PATH/).to_stderr
+        expect(Thingie::Reviewer).to have_received(:new).with(hash_including(pull_request: nil))
+      end
+    end
+
     it 'emits a review.completed stats line to the configured sink', :aggregate_failures do
       run_review
 

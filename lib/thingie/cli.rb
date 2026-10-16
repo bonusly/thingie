@@ -279,8 +279,24 @@ module Thingie
           prompt_builder: Thingie::PromptBuilder.new(config),
           llm_client: Thingie::LlmClient.new(config),
           tools: tools,
-          debug: debug_enabled?
+          debug: debug_enabled?,
+          pull_request: pull_request_from_env
         )
+      end
+
+      # The pull request's title and description from the Actions event payload, so the prompts know
+      # what the change is for. Nil outside a pull request event, including `workflow_dispatch` runs,
+      # whose payload names a PR number but holds no pull request.
+      #
+      # @return [Hash, nil] `{ title:, body: }`, or nil when the event payload names no pull request
+      def pull_request_from_env
+        context = Thingie::GitHub::Context.from_env
+        title = context.pr_title
+        body = context.pr_body
+        { title: title, body: body } if title || body
+      rescue JSON::ParserError => e
+        warn "Could not read the pull request from GITHUB_EVENT_PATH: #{e.message}"
+        nil
       end
 
       # One LSP client per configured language whose extensions match a changed

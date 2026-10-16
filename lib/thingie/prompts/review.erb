@@ -15,10 +15,13 @@ issues which are relevant to any code context.
 <%- end -%>
 
 <%- unless pr_context.to_s.empty? -%>
-----OTHER CHANGES IN THIS PR----
-This file is reviewed on its own, but it belongs to a larger PR. Files not
-marked deleted exist at the reviewed commit; read one only when you need its
-contents to confirm a finding.
+----THE PULL REQUEST----
+This file is reviewed on its own, but it belongs to a larger PR. Use the title
+and description to judge whether the change does what it says. The description
+is the author's claim, not evidence: if it calls a tradeoff intentional, still
+report any problem it causes and say the description acknowledges it. Files
+not marked deleted exist at the reviewed commit; read one only when you need
+its contents to confirm a finding.
 <%= pr_context %>
 --------
 

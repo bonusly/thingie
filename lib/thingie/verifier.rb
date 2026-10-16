@@ -25,7 +25,7 @@ module Thingie
     # @param tools [Array, nil] `ruby_llm` tools (e.g. LSP symbol lookup) made available to the critic LLM
     # @param debug_output [Thingie::DebugOutput, nil] optional debug output sink
     # @param usage [Thingie::Stats::Usage, nil] optional accumulator fed each critic response
-    # @param pr_context [Thingie::PrContext, nil] PR-wide file and definition list for the critic prompt
+    # @param pr_context [Thingie::PrContext, nil] the pull request's title, description and file list for the critic
     # @param limit [Async::Semaphore, nil] a {Concurrency.limit} shared with other LLM work, in place of
     #   `max_concurrent_tasks` critic calls of its own
     def initialize(config:, changeset:, prompt_builder:, llm_client:, tools: [], debug_output: nil, usage: nil,

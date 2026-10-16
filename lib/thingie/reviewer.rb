@@ -16,7 +16,8 @@ module Thingie
     # @param llm_client [Thingie::LlmClient] wraps the LLM used for review calls
     # @param tools [Array, nil] `ruby_llm` tools (e.g. LSP symbol lookup) made available to the LLM
     # @param debug [Boolean] enable verbose debug output during the pipeline
-    def initialize(config:, changeset:, prompt_builder:, llm_client:, tools: [], debug: false)
+    # @param pull_request [Hash, nil] `{ title:, body: }` of the pull request under review, when known
+    def initialize(config:, changeset:, prompt_builder:, llm_client:, tools: [], debug: false, pull_request: nil)
       @config = config
       @changeset = changeset
       @prompt_builder = prompt_builder
@@ -33,7 +34,7 @@ module Thingie
       @unreviewed_files = []
       @debug_output = DebugOutput.new(config: config, changeset: changeset, enabled: debug)
       @usage = Stats::Usage.new
-      @pr_context = PrContext.new(changeset)
+      @pr_context = PrContext.new(changeset, pull_request: pull_request)
     end
 
     # Accumulated LLM token/cost usage for the run, fed each review and critic
