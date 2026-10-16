@@ -26,6 +26,12 @@ RSpec.describe Thingie::PromptBuilder do
       expect(builder.review(diff: 'x')).not_to include('THE PULL REQUEST')
     end
 
+    it 'shows the related file only when there is one', :aggregate_failures do
+      expect(builder.review(diff: 'x', companion: 'The code these tests exercise: a.rb.'))
+        .to include('----RELATED FILE----', 'The code these tests exercise: a.rb.')
+      expect(builder.review(diff: 'x')).not_to include('RELATED FILE')
+    end
+
     it 'includes prompt_vars requirements' do
       prompt = builder.review(diff: '')
       expect(prompt).to include('Lack of DRY principle enforcement')
@@ -262,6 +268,12 @@ RSpec.describe Thingie::PromptBuilder do
       expect(builder.verify(issue: issue, diff: 'x', pr_context: "Files this PR touches:\n- added a.rb"))
         .to include('----THE PULL REQUEST----', '- added a.rb')
       expect(builder.verify(issue: issue, diff: 'x')).not_to include('THE PULL REQUEST')
+    end
+
+    it 'shows the related file only when there is one', :aggregate_failures do
+      expect(builder.verify(issue: issue, diff: 'x', companion: 'The code these tests exercise: a.rb.'))
+        .to include('----RELATED FILE----', 'The code these tests exercise: a.rb.')
+      expect(builder.verify(issue: issue, diff: 'x')).not_to include('RELATED FILE')
     end
 
     it 'includes the finding\'s current severity and confidence', :aggregate_failures do

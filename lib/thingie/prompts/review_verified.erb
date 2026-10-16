@@ -29,6 +29,12 @@ report any problem it causes and say the description acknowledges it.
 --------
 
 <%- end -%>
+<%- unless companion.to_s.empty? -%>
+----RELATED FILE----
+<%= companion %>
+--------
+
+<%- end -%>
 <%- if whole_file -%>
 Every line of the file is under review.
 <%- else -%>

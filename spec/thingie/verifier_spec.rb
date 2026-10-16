@@ -185,6 +185,13 @@ RSpec.describe Thingie::Verifier do
     it 'mentions it when the symbol tool is there', :aggregate_failures do
       expect(critic_prompt_with([file_tool, symbol_tool])).to include('"No definition found" result')
     end
+
+    it 'shows the critic the finding file\'s changed spec' do
+      allow(fake_changeset).to receive(:diff_text_for) { |path| path == 'spec/app_spec.rb' ? "+ it 'x'\n" : nil }
+
+      expect(critic_prompt_with([file_tool]))
+        .to include('----RELATED FILE----', 'The tests for this file, changed in this PR: spec/app_spec.rb', "+ it 'x'")
+    end
   end
 
   context 'when the critic supplies a severity/confidence override' do
