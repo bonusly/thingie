@@ -1,0 +1,57 @@
+en:
+  notifications:
+    title: Notifications
+    mark_read: Mark read
+    mark_all_read: Mark all read
+    empty: You are all caught up.
+    unread:
+      one: "%{count} unread"
+      other: "%{count} unread"
+    kinds:
+      task_assigned: '%{assigned_by} assigned you "%{title}"'
+      task_completed: '%{completed_by} completed "%{title}"'
+      task_due_soon: '"%{title}" is due %{due_on}'
+      comment_added: New comment on "%{title}"
+      mentioned: "%{by} mentioned you: %{excerpt}"
+      list_delivered: '%{delivered_by} delivered "%{name}"'
+      draft_sent: '%{sent_by} sent your draft "%{title}"'
+      points_awarded: You received %{amount} points
+      invitation: Invitation sent to %{email}
+  mailers:
+    footer:
+      sent_by: Sent by Tasker
+      manage: Manage notification settings in your profile.
+    task:
+      reminder:
+        subject: 'Reminder: %{title}'
+        greeting: Hi %{name},
+        body: This is your reminder about "%{title}".
+        due: It is due on %{date}.
+        open: 'Open it: %{url}'
+      assigned:
+        subject: 'You were assigned: %{title}'
+        greeting: Hi %{name},
+        body: '%{by} assigned "%{title}" to you.'
+        points:
+          one: It carries %{count} point.
+          other: It carries %{count} points.
+    notification:
+      single:
+        greeting: Hi %{name},
+        open: 'See all notifications: %{url}'
+      digest:
+        subject:
+          one: "%{count} thing waiting for you"
+          other: "%{count} things waiting for you"
+        greeting: Hi %{name}, you have %{count} unread notifications.
+  permissions:
+    tasks:read: View tasks
+    tasks:write: Edit tasks
+    lists:read: View lists
+    lists:share: Share lists
+    drafts:read: View drafts
+    points:read: View points
+    connectors:read: View connectors
+    members:manage: Manage members
+    webhooks:manage: Manage webhooks
+    admin:staff: Staff admin

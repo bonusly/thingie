@@ -1,0 +1,12 @@
+<%= t("mailers.notification.single.greeting", name: @user.display_name) %>
+
+<%= @title %>
+
+<% if @notification.payload["excerpt"].present? %>
+> <%= @notification.payload["excerpt"] %>
+<% end %>
+<% if @notification.payload["due_on"].present? %>
+<%= t("mailers.task.reminder.due", date: @notification.payload["due_on"]) %>
+<% end %>
+
+<%= t("mailers.notification.single.open", url: @notifications_url) %>

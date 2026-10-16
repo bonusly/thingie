@@ -1,0 +1,106 @@
+en:
+  app:
+    name: Tasker
+    tagline: Team tasks with a weekly points budget
+  date:
+    formats:
+      short: "%b %-d"
+      long: "%B %-d, %Y"
+      iso: "%Y-%m-%d"
+  errors:
+    internal: Something went wrong on our side. Please try again.
+    not_found: We could not find that %{resource}.
+    forbidden: You do not have access to this %{resource}.
+    unauthorized: Sign in or provide a valid API key.
+    conflict: Someone else is changing this right now. Try again in a moment.
+    rate_limited: Too many requests. Slow down and retry after %{seconds} seconds.
+    messages:
+      wrong_company: belongs to a different company
+      in_past: must be in the future
+      unknown: 'contains unknown events: %{events}'
+      unknown_keys: 'contains unsupported keys: %{keys}'
+  mongoid:
+    models:
+      company:
+        one: Company
+        other: Companies
+      user:
+        one: User
+        other: Users
+      membership:
+        one: Membership
+        other: Memberships
+      list:
+        one: List
+        other: Lists
+      task:
+        one: Task
+        other: Tasks
+      draft_task:
+        one: Draft
+        other: Drafts
+      comment:
+        one: Comment
+        other: Comments
+      attachment:
+        one: Attachment
+        other: Attachments
+      label:
+        one: Label
+        other: Labels
+      reminder:
+        one: Reminder
+        other: Reminders
+      notification:
+        one: Notification
+        other: Notifications
+      points_ledger_entry:
+        one: Ledger entry
+        other: Ledger entries
+      api_key:
+        one: API key
+        other: API keys
+      webhook:
+        one: Webhook
+        other: Webhooks
+      share_link:
+        one: Share link
+        other: Share links
+      connector_account:
+        one: Connected account
+        other: Connected accounts
+      external_item:
+        one: External item
+        other: External items
+      invitation:
+        one: Invitation
+        other: Invitations
+      team:
+        one: Team
+        other: Teams
+    attributes:
+      task:
+        title: Title
+        description: Description
+        due_on: Due date
+        points: Points
+        assignee_ids: Assignees
+        label_ids: Labels
+      draft_task:
+        title: Title
+        note: Note
+        points: Points
+        scheduled_for: Send at
+        visibility: Visibility
+      list:
+        name: Name
+        description: Description
+        visibility: Visibility
+        member_ids: Members
+      company:
+        name: Name
+        slug: Slug
+        plan: Plan
+        weekly_points_budget: Weekly points budget
+        week_starts_on: Week starts on
+        time_zone: Time zone
