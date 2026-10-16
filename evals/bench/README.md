@@ -16,9 +16,9 @@ bundle exec evals/bench/run --rescore evals/bench/results/<label>.json   # after
 
 It needs the LLM key in `~/.thingie/.env` (or `LLM_API_KEY`); `LLM_PROVIDER` and `LLM_MODEL` override the
 pinned ones in `config.toml`. Each case is built as a fresh git repo under `tmp/<case>/`: the fixture app
-tagged `pr-base`, the case's `early/` overlay (when it has one) as `pr-early`, and its `head/` overlay as
-`pr-head`. The run file goes to `results/<label>.json` (`--out` to put it elsewhere) and one line to
-`history.jsonl` (`--no-record` to skip that). `--no-early` skips the early-push reviews.
+tagged `pr-base`, the case's `first-push/` overlay (when it has one) as `pr-first-push`, and its `final-push/`
+overlay as `pr-final-push`. The run file goes to `results/<label>.json` (`--out` to put it elsewhere) and one line to
+`history.jsonl` (`--no-record` to skip that). `--no-first-push` reviews only each case's final push.
 
 `--rescore` matches a run file's findings against the labels as they are now, with the run's own matcher
 config, and rewrites the file in place (or to `--out`). No review runs and nothing is recorded.
@@ -31,8 +31,8 @@ then the mean over repeats, and the report shows the spread beside each headline
 - `app/` the fixture: a Rails-shaped todo app with ~340 files. It never boots. Keep it correct; the cases
   carry the defects.
 - `cases/<name>/` one seeded PR each: `case.yml` (title, body, labels, `delete:` for files the PR removes),
-  `head/` (the files at the final push, overlaid on the app), optional `early/` (an earlier push, before the
-  author fixed what a reviewer caught). Case names are letters, digits, `-` and `_`.
+  `final-push/` (the files at the PR's last push, overlaid on the app), optional `first-push/` (the same PR
+  at its first push, before the author fixed what a reviewer caught). Case names are letters, digits, `-` and `_`.
 - `config.toml` the fixture's Thingie config, pinned to special_sauce's production settings. `variants/`
   TOML laid over it, section by section, so a variant names only what it changes.
 - `baseline.json` the run file for main, which every report compares against. Make it with
@@ -43,9 +43,9 @@ then the mean over repeats, and the report shows the spread beside each headline
 ## Labels
 
 Each label is one defect, `real`, `nit` or `wrong`, with the file it is in and a note the matcher can use.
-`push` says where the defect exists: `early` (only at the early push; the author fixed it by head), `both`
-(the default), or `head` (introduced in the last push). A review of head is scored against `both` and
-`head`; the early push against `early` and `both`. The review model matches each posted finding to the
+`push` says where the defect exists: `first` (only at the first push; the author fixed it by the final one),
+`both` (the default), or `final` (introduced in the final push). A review of the final push is scored against
+`both` and `final`; the first push against `first` and `both`. The review model matches each posted finding to the
 label for the same defect; a finding with no match is `unlabelled`. Label it against the code, add it to the
 case, and `--rescore` the runs that have it.
 
@@ -53,7 +53,7 @@ case, and `--rescore` the runs that have it.
 
 | Dimension | Metrics |
 |---|---|
-| Quality | real recall (planted bugs found at head), caught at the early push, reals held back into the summary |
+| Quality | real recall (planted bugs found at the final push), caught at the first push, reals held back into the summary |
 | Noise | threads, nits, wrong, unlabelled, nit rate, wrong rate, threads per 100 changed lines, duplicates |
 | Calibration | Highs that are real, Mediums that are nits, confidence-3 findings posted |
 | Latency | seconds, unchecked findings, critic timeouts |
@@ -67,4 +67,4 @@ down or wrong up outside the spread is a no, whatever it does to nits.
 `.github/workflows/bench.yml` runs on every push except docs-only ones, writes the report to the job
 summary and keeps the run file as an artifact. It is informational and never blocks a merge. It needs the
 `LLM_API_KEY` secret and the `LLM_MODEL` and `LLM_PROVIDER` variables the review workflow already uses. A
-full run is five cases, head and early, about an hour and a few dollars at the pinned model.
+full run is five cases, first and final push, about an hour and a few dollars at the pinned model.

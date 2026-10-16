@@ -1,7 +1,7 @@
 name: Bench
 
 # Scores every push on the seeded pull requests. Informational: it never blocks a merge. Each run is five
-# cases, head and early push, on a paid model, so docs-only pushes skip it.
+# cases, first and final push, on a paid model, so docs-only pushes skip it.
 on:
   push:
     paths-ignore:

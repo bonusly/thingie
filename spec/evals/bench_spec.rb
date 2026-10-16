@@ -51,19 +51,19 @@ RSpec.describe Bench do
       FileUtils.mkdir_p(app)
       File.write(File.join(app, 'keep.rb'), "class Keep\nend\n")
       File.write(File.join(app, 'gone.rb'), "class Gone\nend\n")
-      FileUtils.mkdir_p(File.join(case_dir, 'head'))
-      FileUtils.mkdir_p(File.join(case_dir, 'early'))
-      File.write(File.join(case_dir, 'head', 'keep.rb'), "class Keep\n  def call = true\nend\n")
-      File.write(File.join(case_dir, 'early', 'keep.rb'), "class Keep\n  def call = nil\nend\n")
+      FileUtils.mkdir_p(File.join(case_dir, 'final-push'))
+      FileUtils.mkdir_p(File.join(case_dir, 'first-push'))
+      File.write(File.join(case_dir, 'final-push', 'keep.rb'), "class Keep\n  def call = true\nend\n")
+      File.write(File.join(case_dir, 'first-push', 'keep.rb'), "class Keep\n  def call = nil\nend\n")
       File.write(File.join(root, 'config.toml'), "model = \"m\"\n")
       File.write(File.join(case_dir, 'case.yml'), <<~YAML)
         title: Escrow
         body: Reserve points.
         delete: [gone.rb]
         labels:
-          - { title: fixed early, file: keep.rb, label: real, push: early, note: n }
+          - { title: fixed by the final push, file: keep.rb, label: real, push: first, note: n }
           - { title: still there, file: keep.rb, label: real, push: both, note: n }
-          - { title: new at head, file: keep.rb, label: real, push: head, note: n }
+          - { title: new in the final push, file: keep.rb, label: real, push: final, note: n }
           - { title: a nit, file: keep.rb, label: nit, note: n }
       YAML
     end
@@ -72,19 +72,24 @@ RSpec.describe Bench do
 
     it 'scores each push against the defects present at it, a label with no push counting at both' do
       kase = described_class.load('escrow')
-      expect(kase.labels_at('head').map { |l| l['title'] }).to eq(['still there', 'new at head', 'a nit'])
-      expect(kase.labels_at('early').map { |l| l['title'] }).to eq(['fixed early', 'still there', 'a nit'])
+      expect(kase.labels_at('final-push').map do |l|
+        l['title']
+      end).to eq(['still there', 'new in the final push', 'a nit'])
+      expect(kase.labels_at('first-push').map do |l|
+        l['title']
+      end).to eq(['fixed by the final push', 'still there', 'a nit'])
     end
 
-    it 'builds base, early and head commits from the app and the overlays, honouring delete', :aggregate_failures do
+    it 'builds base, first-push and final-push commits from the app and the overlays, honouring delete',
+       :aggregate_failures do
       repo = described_class.load('escrow').build(File.join(root, 'config.toml'))
       show = ->(*args) { IO.popen(['git', '-C', repo, *args], &:read) }
       tree = ->(tag) { show.call('ls-tree', '-r', '--name-only', tag).split("\n").grep_v(/\A\.thingie/) }
       expect(tree.call('pr-base')).to contain_exactly('gone.rb', 'keep.rb')
-      expect(tree.call('pr-early')).to contain_exactly('gone.rb', 'keep.rb')
-      expect(tree.call('pr-head')).to contain_exactly('keep.rb')
-      expect(show.call('show', 'pr-early:keep.rb')).to include('def call = nil')
-      expect(show.call('show', 'pr-head:keep.rb')).to include('def call = true')
+      expect(tree.call('pr-first-push')).to contain_exactly('gone.rb', 'keep.rb')
+      expect(tree.call('pr-final-push')).to contain_exactly('keep.rb')
+      expect(show.call('show', 'pr-first-push:keep.rb')).to include('def call = nil')
+      expect(show.call('show', 'pr-final-push:keep.rb')).to include('def call = true')
       expect(File.read(File.join(repo, '.thingie', 'config.toml'))).to eq("model = \"m\"\n")
     end
 
@@ -92,9 +97,9 @@ RSpec.describe Bench do
       expect { described_class.load('../app') }.to raise_error(ArgumentError, /case name/)
     end
 
-    it 'rejects a label at the early push when the case has no early overlay' do
-      FileUtils.rm_rf(File.join(case_dir, 'early'))
-      expect { described_class.load('escrow') }.to raise_error(ArgumentError, /no early/)
+    it 'rejects a label at the first push when the case has no first-push overlay' do
+      FileUtils.rm_rf(File.join(case_dir, 'first-push'))
+      expect { described_class.load('escrow') }.to raise_error(ArgumentError, /no first-push/)
     end
 
     it 'rejects a delete path that could leave the repo' do
@@ -153,7 +158,7 @@ RSpec.describe Bench do
       it 'counts the planted bugs found, once each, and the ones folded into the summary', :aggregate_failures do
         expect(metrics.dig('quality', 'real_recall')).to eq('found' => 1, 'total' => 2)
         expect(metrics.dig('quality', 'reals_held_back')).to eq(1)
-        expect(metrics.dig('quality', 'early_recall')).to be_nil
+        expect(metrics.dig('quality', 'first_push_recall')).to be_nil
       end
 
       it 'reads the noise off the posted threads' do
@@ -198,7 +203,7 @@ RSpec.describe Bench do
                                           'wrong_rate' => 33, 'threads_per_100_lines' => 2.0)
         expect(total['latency']).to include('seconds' => 90)
         expect(total.dig('cost', 'cost_usd')).to eq(2.46)
-        expect(total.dig('quality', 'early_recall')).to be_falsey
+        expect(total.dig('quality', 'first_push_recall')).to be_falsey
       end
 
       it 'keeps a cost nobody measured as unknown, not zero' do
@@ -237,20 +242,20 @@ RSpec.describe Bench do
       { 'case' => kase, 'ref' => ref, 'repeat' => repeat, 'metrics' => metrics }
     end
 
-    it 'puts each early recall on its head row and averages the repeats', :aggregate_failures do
-      reviews = [review('a', 'head', 0, 1), review('a', 'early', 0, 0), review('b', 'head', 0, 0),
-                 review('a', 'head', 1, 1), review('a', 'early', 1, 1), review('b', 'head', 1, 1)]
+    it 'puts each first-push recall on its final-push row and averages the repeats', :aggregate_failures do
+      reviews = [review('a', 'final-push', 0, 1), review('a', 'first-push', 0, 0), review('b', 'final-push', 0, 0),
+                 review('a', 'final-push', 1, 1), review('a', 'first-push', 1, 1), review('b', 'final-push', 1, 1)]
       run = described_class.assemble(reviews, label: 'x')
-      expect(run['cases'][0].dig('metrics', 'quality', 'early_recall')).to eq('found' => 0, 'total' => 2)
-      expect(run['cases'][3].dig('metrics', 'quality', 'early_recall')).to eq('found' => 1, 'total' => 2)
-      expect(run['cases'][2].dig('metrics', 'quality', 'early_recall')).to be_nil
+      expect(run['cases'][0].dig('metrics', 'quality', 'first_push_recall')).to eq('found' => 0, 'total' => 2)
+      expect(run['cases'][3].dig('metrics', 'quality', 'first_push_recall')).to eq('found' => 1, 'total' => 2)
+      expect(run['cases'][2].dig('metrics', 'quality', 'first_push_recall')).to be_nil
       expect(run['totals'].dig('quality', 'real_recall')).to eq('found' => 1.5, 'total' => 4)
       expect(run['totals'].dig('latency', 'seconds')).to eq(20)
       expect(run['spread'].size).to eq(2)
     end
 
     it 'has no spread for a single run' do
-      run = described_class.assemble([review('a', 'head', 0, 1)], label: 'x')
+      run = described_class.assemble([review('a', 'final-push', 0, 1)], label: 'x')
       expect(run['spread']).to be_nil
       expect(run['totals'].dig('latency', 'seconds')).to eq(10)
     end
@@ -259,7 +264,7 @@ RSpec.describe Bench do
   describe Bench::Report do
     let(:totals) do
       {
-        'quality' => { 'real_recall' => { 'found' => 4, 'total' => 5 }, 'early_recall' => nil,
+        'quality' => { 'real_recall' => { 'found' => 4, 'total' => 5 }, 'first_push_recall' => nil,
                        'reals_held_back' => 0 },
         'noise' => { 'posted' => 10, 'nit' => 3, 'wrong' => 1, 'unlabelled' => 0, 'nit_rate' => 30,
                      'wrong_rate' => 10, 'threads_per_100_lines' => 1.5, 'duplicates' => 0 },
@@ -271,7 +276,7 @@ RSpec.describe Bench do
     end
     let(:run) do
       { 'label' => 'abc-baseline', 'totals' => totals,
-        'cases' => [{ 'case' => 'drafts', 'ref' => 'head', 'metrics' => totals }] }
+        'cases' => [{ 'case' => 'drafts', 'ref' => 'final-push', 'metrics' => totals }] }
     end
     let(:baseline) do
       worse = Marshal.load(Marshal.dump(totals))
@@ -304,8 +309,8 @@ RSpec.describe Bench do
       md = described_class.render(run)
       expect(md).to include('### Quality', '### Noise', '### Calibration', '### Latency', '### Cost', '### Cases')
       expect(md).to include('| Highs that are real | 2/2 |')
-      expect(md).to include('| Caught at the early push | - |')
-      expect(md).to include('| drafts | head | 4/5 | 3 | 1 | 10 | 300 | 2.5 |')
+      expect(md).to include('| Caught at the first push | - |')
+      expect(md).to include('| drafts | final-push | 4/5 | 3 | 1 | 10 | 300 | 2.5 |')
     end
 
     it 'says so when a run has no head reviews' do
