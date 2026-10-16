@@ -45,7 +45,7 @@ module Bench
   # One seeded PR: the fixture app plus an overlay of files at head (and, optionally, at an earlier push),
   # its title and body, and the labels every finding is scored against.
   class Case
-    PUSHES = %w[early both head].freeze
+    PUSHES = %w[first both final].freeze
     LABELS = %w[real nit wrong].freeze
 
     attr_reader :name, :dir, :data
@@ -75,17 +75,18 @@ module Bench
     def title = data.fetch('title')
     def body = data.fetch('body', '')
     def labels = data.fetch('labels')
-    def early? = File.directory?(File.join(dir, 'early'))
+    def first_push? = File.directory?(File.join(dir, 'first-push'))
 
-    # The labels a review of `ref` is scored against: at head, the defects still there (`both` and `head`);
-    # at the early push, the ones there then (`early` and `both`). A label with no `push` is `both`.
+    # The labels a review of `ref` is scored against: at the final push, the defects still there (`both` and
+    # `final`); at the first push, the ones there then (`first` and `both`). A label with no `push` is `both`.
     def labels_at(ref)
-      present = ref == 'early' ? %w[early both] : %w[both head]
+      present = ref == 'first-push' ? %w[first both] : %w[both final]
       labels.select { |label| present.include?(label.fetch('push', 'both').to_s) }
     end
 
-    # A fresh git repo: the fixture app tagged `pr-base`, then the overlays as `pr-early` (when present) and
-    # `pr-head`. Prefixed because a tag named `head` collides with HEAD on a case-insensitive filesystem.
+    # A fresh git repo: the fixture app tagged `pr-base`, then the overlays as `pr-first-push` (when present)
+    # and `pr-final-push`. Prefixed because a tag named `head` collides with HEAD on a case-insensitive
+    # filesystem.
     #
     # @return [String] the repo path
     def build(config_path = CONFIG)
@@ -96,12 +97,12 @@ module Bench
       install_config(repo, config_path)
       git(repo, 'init', '-q', '-b', 'main')
       commit(repo, 'pr-base')
-      if early?
-        overlay(repo, 'early', data.fetch('early_delete', []))
-        commit(repo, 'pr-early')
+      if first_push?
+        overlay(repo, 'first-push', data.fetch('first_push_delete', []))
+        commit(repo, 'pr-first-push')
       end
-      overlay(repo, 'head', data.fetch('delete', []))
-      commit(repo, 'pr-head')
+      overlay(repo, 'final-push', data.fetch('delete', []))
+      commit(repo, 'pr-final-push')
       repo
     end
 
@@ -116,8 +117,8 @@ module Bench
 
         push = label.fetch('push', 'both').to_s
         raise ArgumentError, "#{name}: #{label['title']} has push #{push.inspect}" unless PUSHES.include?(push)
-        raise ArgumentError, "#{name}: #{label['title']} is at the early push but the case has no early/" if
-          push == 'early' && !early?
+        raise ArgumentError, "#{name}: #{label['title']} is at the first push but the case has no first-push/" if
+          push == 'first' && !first_push?
       end
     end
 
@@ -299,7 +300,7 @@ module Bench
       {
         'quality' => {
           'real_recall' => { 'found' => matched(posted, 'real').size, 'total' => reals.size },
-          'early_recall' => nil,
+          'first_push_recall' => nil,
           'reals_held_back' => matched(held_back, 'real').size
         },
         'noise' => noise(posted, changed_lines),
@@ -349,9 +350,9 @@ module Bench
         'quality' => {
           'real_recall' => { 'found' => sum.call('quality', 'real_recall', 'found'),
                              'total' => sum.call('quality', 'real_recall', 'total') },
-          'early_recall' => metrics_list.any? { |m| m.dig('quality', 'early_recall') } &&
-            { 'found' => sum.call('quality', 'early_recall', 'found'),
-              'total' => sum.call('quality', 'early_recall', 'total') },
+          'first_push_recall' => metrics_list.any? { |m| m.dig('quality', 'first_push_recall') } &&
+            { 'found' => sum.call('quality', 'first_push_recall', 'found'),
+              'total' => sum.call('quality', 'first_push_recall', 'total') },
           'reals_held_back' => sum.call('quality', 'reals_held_back')
         },
         'noise' => {
@@ -417,27 +418,27 @@ module Bench
     module_function
 
     # @param reviews [Array<Hash>] each with 'case', 'ref', 'repeat' and 'metrics'
-    # @return [Hash] 'label', 'totals' (the mean over repeats of the head totals), 'spread' (each repeat's
+    # @return [Hash] 'label', 'totals' (the mean over repeats of the final-push totals), 'spread' (each repeat's
     #   totals, when there was more than one) and 'cases'
     def assemble(reviews, label:)
-      fold_early(reviews)
+      fold_first_push(reviews)
       repeats = reviews.group_by { |r| r['repeat'].to_i }.values.map { |r| head_totals(r) }
       { 'label' => label, 'totals' => Metrics.mean(repeats),
         'spread' => (repeats if repeats.size > 1), 'cases' => reviews }
     end
 
     def head_totals(reviews)
-      Metrics.total(reviews.select { |r| r['ref'] == 'head' }.map { |r| r['metrics'] })
+      Metrics.total(reviews.select { |r| r['ref'] == 'final-push' }.map { |r| r['metrics'] })
     end
 
-    # The early review's recall goes on the head row of the same case and repeat, so a case stays one line
-    # in the totals.
-    def fold_early(reviews)
-      reviews.select { |r| r['ref'] == 'early' }.each do |early|
-        head = reviews.find do |r|
-          r['ref'] == 'head' && r['case'] == early['case'] && r['repeat'].to_i == early['repeat'].to_i
+    # The first push's recall goes on the final-push row of the same case and repeat, so the totals (which
+    # are over final-push reviews) carry it too. The cases table still shows both rows.
+    def fold_first_push(reviews)
+      reviews.select { |r| r['ref'] == 'first-push' }.each do |first|
+        final = reviews.find do |r|
+          r['ref'] == 'final-push' && r['case'] == first['case'] && r['repeat'].to_i == first['repeat'].to_i
         end
-        head['metrics']['quality']['early_recall'] = early['metrics']['quality']['real_recall'] if head
+        final['metrics']['quality']['first_push_recall'] = first['metrics']['quality']['real_recall'] if final
       end
       reviews
     end
@@ -459,7 +460,7 @@ module Bench
     DIMENSIONS = {
       'Quality' => [
         ['Real recall', ->(t) { fraction(t.dig('quality', 'real_recall')) }],
-        ['Caught at the early push', ->(t) { fraction(t.dig('quality', 'early_recall')) }],
+        ['Caught at the first push', ->(t) { fraction(t.dig('quality', 'first_push_recall')) }],
         ['Reals held back', ->(t) { t.dig('quality', 'reals_held_back') }]
       ],
       'Noise' => [

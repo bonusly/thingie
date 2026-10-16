@@ -15,7 +15,7 @@ module Bench
   # Runs the cases and writes one run file; or rescores or renders an existing one.
   class CLI # rubocop:disable Metrics/ClassLength
     def initialize(argv)
-      @options = { variant: 'baseline', repeat: 1, record: true, early: true }
+      @options = { variant: 'baseline', repeat: 1, record: true, first_push: true }
       parser.parse!(argv)
       @names = argv
     end
@@ -48,7 +48,7 @@ module Bench
                                'it in place (or to --out); no review runs') do |v|
           @options[:rescore] = v
         end
-        o.on('--no-early', 'skip the early-push reviews') { @options[:early] = false }
+        o.on('--no-first-push', 'review only the final push of each case') { @options[:first_push] = false }
         o.on('--no-record', 'do not append to history.jsonl') { @options[:record] = false }
       end
     end
@@ -123,11 +123,11 @@ module Bench
                     'thingie' => Thingie::VERSION, 'model' => reviews.first&.dig('model'))
     end
 
-    # One built repo per case; the head review, and the early-push review when the case has one.
+    # One built repo per case; the final push, and the first push when the case has one.
     def reviews_for(kase)
       repo = kase.build
-      yield review(kase, repo, 'head')
-      yield review(kase, repo, 'early') if @options[:early] && kase.early?
+      yield review(kase, repo, 'final-push')
+      yield review(kase, repo, 'first-push') if @options[:first_push] && kase.first_push?
     end
 
     def review(kase, repo, ref)
@@ -172,7 +172,7 @@ module Bench
     def record(run_file)
       line = run_file.slice('label', 'at', 'sha', 'variant', 'thingie', 'model').merge(
         'real_recall' => Report.fraction(run_file.dig('totals', 'quality', 'real_recall')),
-        'early_recall' => Report.fraction(run_file.dig('totals', 'quality', 'early_recall')),
+        'first_push_recall' => Report.fraction(run_file.dig('totals', 'quality', 'first_push_recall')),
         'nit_rate' => run_file.dig('totals', 'noise', 'nit_rate'),
         'wrong_rate' => run_file.dig('totals', 'noise', 'wrong_rate'),
         'threads' => run_file.dig('totals', 'noise', 'posted'),
