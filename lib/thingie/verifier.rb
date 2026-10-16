@@ -26,10 +26,11 @@ module Thingie
     # @param debug_output [Thingie::DebugOutput, nil] optional debug output sink
     # @param usage [Thingie::Stats::Usage, nil] optional accumulator fed each critic response
     # @param pr_context [Thingie::PrContext, nil] the pull request's title, description and file list for the critic
+    # @param test_pair [Thingie::TestPair, nil] pairs each finding's file with its spec or the code it tests
     # @param limit [Async::Semaphore, nil] a {Concurrency.limit} shared with other LLM work, in place of
     #   `max_concurrent_tasks` critic calls of its own
     def initialize(config:, changeset:, prompt_builder:, llm_client:, tools: [], debug_output: nil, usage: nil,
-                   pr_context: nil, limit: nil)
+                   pr_context: nil, test_pair: nil, limit: nil)
       @config = config
       @changeset = changeset
       @prompt_builder = prompt_builder
@@ -38,6 +39,7 @@ module Thingie
       @debug_output = debug_output
       @usage = usage
       @pr_context = pr_context || PrContext.new(changeset)
+      @test_pair = test_pair || TestPair.new(changeset)
       @limit = limit
       @warnings = []
     end
@@ -119,7 +121,8 @@ module Thingie
         file_lines: @changeset.full_content_for(issue.file),
         symbol_lookup: @tools.any?(Lsp::SymbolTool),
         pr_context: @pr_context.to_s,
-        tool_budget: (budget.limit if budget.active? && @tools.any?)
+        tool_budget: (budget.limit if budget.active? && @tools.any?),
+        companion: @test_pair.section_for(issue.file)
       )
       response, content, tool_names = ask_critic(prompt, issue)
       issue.record_tool_calls(critic: tool_names)
