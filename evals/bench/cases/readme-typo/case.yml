@@ -1,0 +1,8 @@
+# The smallest possible case: one wording change in the README, with nothing to find. A run on it proves
+# the runner, the matcher and the report end to end, and any thread it produces is noise by definition.
+title: Spell it to-do in the README
+body: |
+  The README says "todo" in a few places and "to-do" in others. This makes it "to-do" throughout.
+
+  No code changes.
+labels: []
