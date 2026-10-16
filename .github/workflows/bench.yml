@@ -1,0 +1,46 @@
+name: Bench
+
+# Scores every push on the seeded pull requests. Informational: it never blocks a merge. Each run is five
+# cases, first and final push, on a paid model, so docs-only pushes skip it.
+on:
+  push:
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+  workflow_dispatch:
+
+concurrency:
+  group: bench-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bench:
+    name: Bench
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 60
+    env:
+      LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+      LLM_MODEL: ${{ vars.LLM_MODEL }}
+      LLM_PROVIDER: ${{ vars.LLM_PROVIDER }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+          bundler-cache: true
+      - name: Run the bench
+        run: bundle exec evals/bench/run --no-record --out tmp/bench/run.json
+      - name: Report against the baseline
+        if: always()
+        run: |
+          if [ -f tmp/bench/run.json ]; then
+            bundle exec evals/bench/run --report tmp/bench/run.json >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Keep the run file
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-run-${{ github.sha }}
+          path: tmp/bench/run.json
+          if-no-files-found: ignore

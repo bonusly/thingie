@@ -77,3 +77,7 @@ Gemfile.lock
 
 # Used by RuboCop. Remote config files pulled in from inherit_from directive.
 # .rubocop-https?--*
+
+# Bench scratch: built fixture repos and local run files
+/evals/bench/tmp/
+/evals/bench/results/

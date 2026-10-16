@@ -1,0 +1,187 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# Bench: seeded pull requests against a fixture todo app, scored on quality, noise, calibration, latency and
+# cost. See evals/bench/README.md.
+
+require 'bundler/setup'
+require 'optparse'
+require_relative '../../lib/thingie'
+require_relative 'lib/bench'
+
+Encoding.default_external = Encoding::UTF_8
+
+module Bench
+  # Runs the cases and writes one run file; or rescores or renders an existing one.
+  class CLI # rubocop:disable Metrics/ClassLength
+    def initialize(argv)
+      @options = { variant: 'baseline', repeat: 1, record: true, first_push: true }
+      parser.parse!(argv)
+      @names = argv
+    end
+
+    def run
+      return report if @options[:report]
+      return rescore if @options[:rescore]
+
+      cases = @names.empty? ? Case.all : @names.map { |name| Case.load(name) }
+      abort 'No cases under evals/bench/cases; nothing to run.' if cases.empty?
+      write(run_cases(cases))
+    end
+
+    private
+
+    def parser
+      @parser ||= OptionParser.new do |o|
+        o.banner = 'Usage: evals/bench/run [options] [CASE...]'
+        o.on('--variant NAME', 'variants/NAME.toml over config.toml (default: baseline)') { |v| @options[:variant] = v }
+        o.on('--repeat N', Integer, 'run each case N times; totals are the mean, with the spread') do |v|
+          @options[:repeat] = v
+        end
+        o.on('--label TEXT', 'name for this run (default: <sha>-<variant>)') { |v| @options[:label] = v }
+        o.on('--out FILE', 'where to write the run file (default: results/<label>.json)') { |v| @options[:out] = v }
+        o.on('--against FILE', 'a run file to compare with (default: baseline.json when it exists)') do |v|
+          @options[:against] = v
+        end
+        o.on('--report FILE', 'render a run file instead of running') { |v| @options[:report] = v }
+        o.on('--rescore FILE', 'match a run file\'s findings against the labels as they are now and rewrite ' \
+                               'it in place (or to --out); no review runs') do |v|
+          @options[:rescore] = v
+        end
+        o.on('--no-first-push', 'review only the final push of each case') { @options[:first_push] = false }
+        o.on('--no-record', 'do not append to history.jsonl') { @options[:record] = false }
+      end
+    end
+
+    def report
+      run_file = JSON.parse(File.read(@options[:report]))
+      puts Report.render(run_file, baseline: baseline)
+    end
+
+    # The same findings, matched again with the run's own config: labels grow as unlabelled findings get
+    # labelled, and the matcher is cheap next to the review it scores.
+    def rescore
+      run_file = JSON.parse(File.read(@options[:rescore]))
+      config = Thingie::Configuration.new(root: ROOT, overrides: overrides.merge('models_file' => ''))
+      reviews = run_file['cases'].map do |entry|
+        labels = Case.load(entry['case']).labels_at(entry['ref'])
+        rescored(entry, labels, Scorer.new(config, labels))
+      end
+      @options[:label] ||= run_file['label']
+      @options[:out] ||= @options[:rescore]
+      @options[:record] = false
+      write(RunFile.assemble(reviews, label: label).merge(run_file.slice('at', 'sha', 'thingie', 'model', 'variant')))
+    end
+
+    def rescored(entry, labels, scorer)
+      posted = scored(entry['posted'], scorer)
+      held_back = scored(entry['held_back'], scorer)
+      old = entry['metrics']
+      metrics = Metrics.compute(labels: labels, posted: posted, held_back: held_back, usage: old['cost'],
+                                seconds: old.dig('latency', 'seconds'),
+                                changed_lines: old.dig('noise', 'changed_lines'), warnings: entry['warnings'])
+      entry.merge('metrics' => metrics, 'posted' => posted, 'held_back' => held_back)
+    end
+
+    def write(run_file)
+      out = save(run_file)
+      record(run_file) if @options[:record]
+      puts Report.render(run_file, baseline: baseline)
+      puts "\nrun file: #{out}"
+    end
+
+    def save(run_file)
+      out = @options[:out] || File.join(ROOT, 'results', "#{run_file['label']}.json")
+      FileUtils.mkdir_p(File.dirname(out))
+      File.write(out, JSON.pretty_generate(run_file))
+      out
+    end
+
+    def baseline
+      path = @options[:against] || File.join(ROOT, 'baseline.json')
+      JSON.parse(File.read(path)) if File.exist?(path)
+    end
+
+    # A run is an hour of model calls, so the run file is rewritten after every review: a crash keeps what
+    # finished, and the partial file reads like any other.
+    def run_cases(cases)
+      reviews = []
+      @options[:repeat].times do |repeat|
+        cases.each do |kase|
+          reviews_for(kase) do |review|
+            reviews << review.merge('repeat' => repeat)
+            save(run_file(reviews))
+          end
+        end
+      end
+      run_file(reviews)
+    end
+
+    def run_file(reviews)
+      RunFile.assemble(reviews.map(&:dup), label: label)
+             .merge('at' => Time.now.utc.iso8601, 'sha' => Bench.sha, 'variant' => @options[:variant],
+                    'thingie' => Thingie::VERSION, 'model' => reviews.first&.dig('model'))
+    end
+
+    # One built repo per case; the final push, and the first push when the case has one.
+    def reviews_for(kase)
+      repo = kase.build
+      yield review(kase, repo, 'final-push')
+      yield review(kase, repo, 'first-push') if @options[:first_push] && kase.first_push?
+    end
+
+    def review(kase, repo, ref)
+      pull_request = { title: kase.title, body: kase.body }
+      pipeline = Dir.chdir(repo) do
+        Pipeline.new(repo: repo, ref: ref, overrides: overrides, pull_request: pull_request)
+      end
+      started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      first = Dir.chdir(repo) { pipeline.review }
+      critic = Dir.chdir(repo) { pipeline.critic(first['findings']) }
+      seconds = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
+      labels = kase.labels_at(ref)
+      scorer = Scorer.new(pipeline.config, labels)
+      posted = scored(critic['posted'], scorer)
+      held_back = scored(critic['held_back'], scorer)
+      metrics = Metrics.compute(labels: labels, posted: posted, held_back: held_back, usage: pipeline.usage.to_h,
+                                seconds: seconds, changed_lines: pipeline.changed_lines,
+                                warnings: first['warnings'] + critic['warnings'])
+      { 'case' => kase.name, 'ref' => ref, 'model' => pipeline.config['model'], 'metrics' => metrics,
+        'first_pass' => first['findings'].size, 'posted' => posted, 'held_back' => held_back,
+        'warnings' => first['warnings'] + critic['warnings'] }
+    end
+
+    def scored(findings, scorer)
+      matches = scorer.match(findings)
+      findings.zip(matches).map do |f, l|
+        f.slice('title', 'file', 'severity', 'confidence', 'unchecked', 'details').merge('label' => l)
+      end
+    end
+
+    def overrides
+      @overrides ||= Bench.overrides(@options[:variant])
+    end
+
+    def label
+      value = @options[:label] || "#{Bench.sha}-#{@options[:variant]}"
+      abort "label #{value.inspect} must be letters, digits, . - or _" unless value.match?(/\A[\w.-]+\z/)
+      value
+    end
+
+    # One line per run, so the dimensions can be read over time.
+    def record(run_file)
+      line = run_file.slice('label', 'at', 'sha', 'variant', 'thingie', 'model').merge(
+        'real_recall' => Report.fraction(run_file.dig('totals', 'quality', 'real_recall')),
+        'first_push_recall' => Report.fraction(run_file.dig('totals', 'quality', 'first_push_recall')),
+        'nit_rate' => run_file.dig('totals', 'noise', 'nit_rate'),
+        'wrong_rate' => run_file.dig('totals', 'noise', 'wrong_rate'),
+        'threads' => run_file.dig('totals', 'noise', 'posted'),
+        'seconds' => run_file.dig('totals', 'latency', 'seconds'),
+        'cost_usd' => run_file.dig('totals', 'cost', 'cost_usd')
+      )
+      File.open(File.join(ROOT, 'history.jsonl'), 'a') { |f| f.puts(JSON.generate(line)) }
+    end
+  end
+end
+
+Bench::CLI.new(ARGV).run if $PROGRAM_NAME == __FILE__
