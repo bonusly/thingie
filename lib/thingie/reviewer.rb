@@ -16,12 +16,14 @@ module Thingie
     # @param llm_client [Thingie::LlmClient] wraps the LLM used for review calls
     # @param tools [Array, nil] `ruby_llm` tools (e.g. LSP symbol lookup) made available to the LLM
     # @param debug [Boolean] enable verbose debug output during the pipeline
-    def initialize(config:, changeset:, prompt_builder:, llm_client:, tools: [], debug: false)
+    # @param file_ratings [Hash{String => String}] path => System One rating; empty when the change was not scored
+    def initialize(config:, changeset:, prompt_builder:, llm_client:, tools: [], debug: false, file_ratings: {})
       @config = config
       @changeset = changeset
       @prompt_builder = prompt_builder
       @llm_client = llm_client
       @tools = tools || []
+      @file_ratings = file_ratings
       # Plain array: Async runs fibers cooperatively on a single thread, so
       # appends between scheduler yields do not race. No lock needed.
       @warnings = []
@@ -46,6 +48,8 @@ module Thingie
     # snippets and sent to the critic as soon as that file's review returns, while other files are still
     # being reviewed. Then obfuscation is scanned for in the changed files (after the critic pass so
     # thresholds cannot suppress it), findings are sorted by severity, and issue ids are assigned.
+    # Findings on files System One rated trivial or routine are held back unless Critical and confidence 1
+    # (see {PostProcessor#split_confidence}).
     def review
       @debug_output.banner
       @debug_output.review_section_start
@@ -98,7 +102,7 @@ module Thingie
     def gather_checked_issues
       files = @changeset.files
       limit = Concurrency.limit(@config['max_concurrent_tasks'] || 10)
-      @post_processor = PostProcessor.new(@config['post_process'])
+      @post_processor = PostProcessor.new(@config['post_process'], file_ratings: @file_ratings)
       @enricher = CodeEnricher.new(@changeset)
       @verifier = Verifier.new(
         config: @config, changeset: @changeset, prompt_builder: @prompt_builder,

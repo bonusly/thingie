@@ -353,14 +353,14 @@ module Thingie
         issue.unchecked? && !@max_confidence.nil? && !confidence.nil? && confidence > @max_confidence
       end
 
-      # Findings below the confidence line, folded into one section of the summary: a line each, with the
+      # Findings held back after the critic pass, folded into one section of the summary: a line each, with the
       # finding's text folded under its line, so the section stays short even with many.
       def quiet_findings_section(issues)
         return if issues.empty?
 
         entries = issues.map { |issue| quiet_entry(issue) }
         noun = issues.one? ? 'finding' : 'findings'
-        heading = "#{issues.size} lower-confidence #{noun}, not posted as review comments"
+        heading = "#{issues.size} #{noun} not posted as review comments"
         "<details><summary>#{heading}</summary>\n\n#{entries.join("\n\n")}\n\n</details>"
       end
 
