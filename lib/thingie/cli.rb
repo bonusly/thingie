@@ -92,6 +92,8 @@ module Thingie
       rules = Thingie::EscalationRules.new(config['escalations'])
       risk_questions = Thingie::RiskQuestions.new(config.dig('change_risk', 'ratings'))
       changeset = build_changeset(config)
+      risk_warnings = []
+      risk = change_risk_for(config, changeset, rules, risk_questions, risk_warnings)
       clients = build_lsp_clients(config, changeset)
       tools = clients.map { |client| Thingie::Lsp::SymbolTool.new(client: client, root: changeset.workdir) }
       tools << Thingie::FileTool.new(root: changeset.workdir)
@@ -101,11 +103,12 @@ module Thingie
       mcp_toolset = Thingie::Mcp::Toolset.build(config)
       mcp_toolset.warnings.each { |w| warn "[thingie] #{w}" }
       tools.concat(mcp_toolset.tools)
-      reviewer = build_reviewer(config, changeset, tools)
+      reviewer = build_reviewer(config, changeset, tools, file_ratings: file_ratings(risk))
       started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
       report = reviewer.review
       duration_ms = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - started) * 1000).round
-      attach_change_risk(report, config, changeset, rules, risk_questions)
+      report.change_risk = change_risk_summary(risk, rules, config) if risk
+      report.processing_warnings.concat(risk_warnings)
       render_report(report, config)
       Thingie::Stats::Emitter.new(config).emit_review_completed(report: report, duration_ms: duration_ms,
                                                                 usage: reviewer.usage)
@@ -296,15 +299,17 @@ module Thingie
       # @param config [Thingie::Configuration] the loaded configuration
       # @param changeset [Thingie::Changeset] the changeset to review
       # @param tools [Array] RubyLLM tools to make available to the LLM
+      # @param file_ratings [Hash{String => String}] path => System One rating; empty when the change was not scored
       # @return [Thingie::Reviewer] the configured reviewer
-      def build_reviewer(config, changeset, tools = [])
+      def build_reviewer(config, changeset, tools = [], file_ratings: {})
         Thingie::Reviewer.new(
           config: config,
           changeset: changeset,
           prompt_builder: Thingie::PromptBuilder.new(config),
           llm_client: Thingie::LlmClient.new(config),
           tools: tools,
-          debug: debug_enabled?
+          debug: debug_enabled?,
+          file_ratings: file_ratings
         )
       end
 
@@ -403,34 +408,36 @@ module Thingie
         )
       end
 
-      # Scores the changeset with System One when it's enabled and records the scores, and the
-      # labels the `[[escalations]]` rules call for, on the report. A scoring failure is a warning,
-      # never a failed review, and leaves the PR's existing labels unchanged.
+      # Scores the changeset with System One when it's enabled, before the review so the reviewer can hold
+      # back nits on low-risk files. A scoring failure is a warning, never a failed review, and leaves the
+      # PR's existing labels unchanged.
       #
-      # @param report [Thingie::Report] the report to attach the change risk to
       # @param config [Thingie::Configuration] the loaded configuration
-      # @param changeset [Thingie::Changeset] the changeset that was reviewed
+      # @param changeset [Thingie::Changeset] the changeset to score
       # @param rules [Thingie::EscalationRules] the validated escalation rules
       # @param risk_questions [Thingie::RiskQuestions] the validated questions and ratings
-      # @return [void]
-      def attach_change_risk(report, config, changeset, rules, risk_questions)
+      # @param warnings [Array<String>] receives the warning when scoring is skipped
+      # @return [Thingie::ChangeRiskScorer::Result, nil] the scores, or nil when System One is disabled or failed
+      def change_risk_for(config, changeset, rules, risk_questions, warnings)
         unless config['system_one_enabled']
           unless rules.empty?
             warn '[thingie] escalations are configured but System One is disabled; existing labels left unchanged'
           end
-          return
+          return nil
         end
 
-        score_change_risk(report, config, changeset, rules, risk_questions)
-      end
-
-      def score_change_risk(report, config, changeset, rules, risk_questions)
-        scorer = change_risk_scorer(config, changeset, risk_questions)
-        report.change_risk = change_risk_summary(scorer.call, rules, config)
+        change_risk_scorer(config, changeset, risk_questions).call
       rescue StandardError => e
         message = "Change risk scoring skipped: #{e.message} (existing labels left unchanged)"
         warn "[thingie] #{message}"
-        report.processing_warnings << message
+        warnings << message
+        nil
+      end
+
+      # @param risk [Thingie::ChangeRiskScorer::Result, nil] the scores, if any
+      # @return [Hash{String => String}] path => rating for the reviewer; empty when nothing was scored
+      def file_ratings(risk)
+        risk ? risk.files.transform_values(&:rating) : {}
       end
 
       # @param config [Thingie::Configuration] source of the System One and concurrency settings

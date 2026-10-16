@@ -312,6 +312,13 @@ RSpec.describe Thingie::CLI do
                                        'rules' => rules)
     end
 
+    it 'scores before the review and hands the ratings to the reviewer', :aggregate_failures do
+      run_review
+
+      expect(Thingie::Reviewer).to have_received(:new).with(hash_including(file_ratings: { 'a.rb' => 'risky' }))
+      expect(report.change_risk['rating']).to eq('risky')
+    end
+
     it 'records an empty change risk when no file was scored, so stale labels are cleared' do
       allow(scorer).to receive(:call).and_return(empty_result)
 
@@ -360,6 +367,7 @@ RSpec.describe Thingie::CLI do
       expect { run_review }.to output(/Change risk scoring skipped: boom.*existing labels left unchanged/).to_stderr
       expect(report.change_risk).to be_nil
       expect(report.processing_warnings).to include(/boom/)
+      expect(Thingie::Reviewer).to have_received(:new).with(hash_including(file_ratings: {}))
     end
 
     it 'keeps the review when scoring raises an error that is not a System One error', :aggregate_failures do
@@ -388,6 +396,7 @@ RSpec.describe Thingie::CLI do
           .to_stderr
         expect(scorer).not_to have_received(:call)
         expect(report.change_risk).to be_nil
+        expect(Thingie::Reviewer).to have_received(:new).with(hash_including(file_ratings: {}))
       end
     end
   end

@@ -6,9 +6,11 @@ module Thingie
   # question. Each request carries only that file's capped, comment-stripped
   # diff plus the PR's file list, not whole files, so it stays inside the model's context window.
   #
-  # The scores are a one-way signal: they can raise a flag but must never lower scrutiny or
-  # gate approval. The PR author controls the diff, so the model can be nudged. Obfuscation
-  # findings come from the pattern-based {ObfuscationDetector}, which the model can't be argued out of.
+  # The scores can raise a flag, and on a file rated trivial or routine they lower the bar on non-security
+  # findings (see {PostProcessor#split_confidence}); they never gate approval. The PR author controls the
+  # diff, so the model can be nudged: a Critical at confidence 1 and any `security` finding survive regardless,
+  # and obfuscation findings come from the pattern-based {ObfuscationDetector}, which the model can't be
+  # argued out of.
   class ChangeRiskScorer
     # Measured against Jev's 32K-token window: the questions plus 200 paths cost about 4.8K tokens and
     # dense JSON runs about 1.7 chars per token. 24K chars stays under the limit even at 1 char per token.

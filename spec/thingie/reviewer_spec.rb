@@ -579,6 +579,20 @@ RSpec.describe Thingie::Reviewer do
     end
   end
 
+  context 'when System One rated the file trivial' do
+    subject(:reviewer) do
+      described_class.new(config: config, changeset: fake_changeset, prompt_builder: Thingie::PromptBuilder.new(config),
+                          llm_client: fake_llm_client, file_ratings: { 'app.rb' => 'trivial' })
+    end
+
+    it 'holds back an upheld finding that is not Critical', :aggregate_failures do
+      report = reviewer.review
+
+      expect(report.issues).to be_empty
+      expect(report.held_back_issues.map(&:title)).to eq(['Missing return'])
+    end
+  end
+
   context 'when the first reply has no JSON and the second does' do
     let(:fake_llm_client) do
       issues = [{ 'title' => 'Missing return', 'details' => 'No return value', 'severity' => 2,
