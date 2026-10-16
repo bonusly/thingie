@@ -12,12 +12,12 @@ module Thingie
                            "this file's own change, not the risk of the code it tests or describes: a test, spec, " \
                            'factory, fixture, or documentation file is Trivial unless it changes shared test setup.'
 
-    # Each risk is a yes/no (`noul`) question with explicit true/false criteria, so the model
+    # Each risk is a yes/no (probability) question with explicit true/false criteria, so the model
     # knows what to look for. The model sees only a file's diff and metadata, so every
     # criterion must be judgeable from a diff.
     RISKS = {
       security: {
-        type: 'noul',
+        type: :probability,
         instructions: 'Does this change introduce a security vulnerability or weaken a security control?',
         criteria: {
           'true' => 'Adds exposure or removes or weakens a protection: authentication, authorization or access ' \
@@ -29,7 +29,7 @@ module Thingie
         }
       },
       user_impact: {
-        type: 'noul',
+        type: :probability,
         instructions: 'Will end users or API clients notice this change? Judge only this file: a test, spec, ' \
                       'factory, fixture, or documentation file is never noticed by users, even when it covers ' \
                       'user-facing code.',
@@ -41,7 +41,7 @@ module Thingie
         }
       },
       performance: {
-        type: 'noul',
+        type: :probability,
         instructions: 'Is this change likely to degrade performance or resource usage?',
         criteria: {
           'true' => 'Adds N+1 or unbounded queries, drops an index or a cache, adds unbounded loops or recursion, ' \
@@ -52,7 +52,7 @@ module Thingie
         }
       },
       new_dependencies: {
-        type: 'noul',
+        type: :probability,
         instructions: 'Does this change add, remove, or change the version of a third-party dependency?',
         criteria: {
           'true' => 'Adds, removes, or changes the version of a gem, package, library, base image, or external ' \
@@ -61,7 +61,7 @@ module Thingie
         }
       },
       maintainability: {
-        type: 'noul',
+        type: :probability,
         instructions: 'Does this change make the code harder to understand, test, or maintain?',
         criteria: {
           'true' => 'Adds hard-to-follow logic, deep nesting, duplication, magic values, tight coupling, or ' \
@@ -84,8 +84,8 @@ module Thingie
     def initialize(ratings)
       validate(ratings)
       @floors = LEVELS.to_h { |level| [level, ratings[level]['floor']] }
-      criteria = LEVELS.map { |level| "#{level.capitalize}: #{ratings[level]['description'].strip}" }
-      @questions = RISKS.merge(overall: { type: 'score', instructions: OVERALL_INSTRUCTIONS, criteria: criteria })
+      levels = LEVELS.map { |level| "#{level.capitalize}: #{ratings[level]['description'].strip}" }
+      @questions = RISKS.merge(overall: { type: :score, instructions: OVERALL_INSTRUCTIONS, levels: levels })
                         .freeze
     end
 
