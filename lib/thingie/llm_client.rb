@@ -67,8 +67,8 @@ module Thingie
       c = chat
       c = c.with_tools(*tools) unless tools.empty?
       routing = provider_routing(tools)
-      c = LlmCompat.with_request_params(c, provider: routing) unless routing.empty?
-      c = LlmCompat.on_tool_call(c, ->(call) { tool_log << tool_call_label(call) }) if tool_log
+      c = c.with_provider_options(provider: routing) unless routing.empty?
+      c = c.before_tool_call { |call| tool_log << tool_call_label(call) } if tool_log
       c = c.with_schema(schema) unless tools.any? && @config['schema_with_tools'] == false
       chats << c if chats
       c.ask(prompt)
@@ -139,7 +139,7 @@ module Thingie
       return unless File.exist?(expanded)
 
       RubyLLM.config.model_registry_file = expanded
-      LlmCompat.load_models_from_json(expanded)
+      RubyLLM.models.load_from_json(expanded)
     end
 
     def build_context

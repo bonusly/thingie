@@ -1,8 +1,7 @@
 # frozen_string_literal: true
 
-require 'logger'
+require 'ruby_llm'
 require_relative 'server_config'
-require_relative '../llm_client'
 
 module Thingie
   module Mcp
@@ -11,52 +10,19 @@ module Thingie
     # Construction is fail-open: a server that can't resolve secrets, start, or
     # list tools is skipped with a warning (collected in {#warnings}) and the
     # review proceeds without it — same philosophy as the Verifier.
-    #
-    # `ruby_llm/mcp` is required lazily, so non-MCP users never pay the
-    # `httpx`/`json-schema`/`json_schemer` load cost on startup.
     class Toolset
-      class << self
-        # Idempotent guard so gem logging is rerouted at most once per process.
-        @logging_configured = false
+      # Builds clients for every configured server. Never raises for a bad
+      # server: failures become warnings and that server is skipped.
+      #
+      # @param config [Thingie::Configuration] the resolved run configuration
+      # @return [Thingie::Mcp::Toolset] a toolset (possibly empty) with warnings
+      def self.build(config)
+        result = ServerConfig.load(config)
+        toolset = new(result.warnings)
+        return toolset if result.servers.empty?
 
-        # Builds clients for every configured server. Never raises for a bad
-        # server: failures become warnings and that server is skipped.
-        #
-        # @param config [Thingie::Configuration] the resolved run configuration
-        # @return [Thingie::Mcp::Toolset] a toolset (possibly empty) with warnings
-        def build(config)
-          result = ServerConfig.load(config)
-          toolset = new(result.warnings)
-          return toolset if result.servers.empty?
-
-          require 'ruby_llm/mcp'
-          configure_logging(config)
-          toolset.build_clients(result.servers)
-          toolset
-        end
-
-        # Reroutes gem logging away from its $stdout/INFO default so it can't
-        # pollute the CLI report. When Thingie's `log_file` is set, logs go there
-        # at the configured level; otherwise to `File::NULL` at WARN. Idempotent.
-        #
-        # @param config [Thingie::Configuration] the resolved run configuration
-        # @return [void]
-        def configure_logging(config)
-          return if @logging_configured
-
-          log_file = config['log_file']
-          if log_file && !log_file.to_s.empty?
-            level = Thingie::LlmClient::LOG_LEVELS[config['log_level']] || Logger::INFO
-          else
-            log_file = File::NULL
-            level = Logger::WARN
-          end
-          RubyLLM::MCP.configure do |mcp|
-            mcp.log_file = log_file
-            mcp.log_level = level
-          end
-          @logging_configured = true
-        end
+        toolset.build_clients(result.servers)
+        toolset
       end
 
       # Builds a toolset seeded with warnings already recorded by {ServerConfig}.
@@ -85,51 +51,51 @@ module Thingie
         @tools.any?
       end
 
-      # Stops every live client. Never raises — a stuck server must not abort
+      # Closes every client. Never raises — a stuck server must not abort
       # the review shutdown path.
       #
       # @return [void]
       def shutdown
         @clients.each do |client|
-          client.stop if client.alive?
+          client.close
         rescue StandardError
           nil
         end
       end
 
-      # Starts each server and collects its (filtered) tools. A server whose
-      # construction, start, or tool listing raises is skipped with a warning.
+      # Connects to each server and collects its (filtered) tools. A server whose
+      # construction or tool listing raises is skipped with a warning.
       #
       # @param servers [Array<Hash>] normalized option hashes from {ServerConfig}
       # @return [void]
       def build_clients(servers)
         servers.each do |server|
-          client = build_client(server)
+          client, tools = build_client(server)
           next unless client
 
           @clients << client
-          @tools.concat(filter_tools(server, client.tools))
+          @tools.concat(filter_tools(server, tools))
         end
       end
 
       private
 
-      # Constructs and starts one client. Returns nil (and records a warning)
-      # on any failure, stopping a partially-started client first.
+      # Builds one client and lists its tools. The connection is lazy, so listing tools
+      # inside the rescue is what makes a dead server fail open. Returns nil (and records
+      # a warning) on any failure, closing the client first.
       #
       # @param server [Hash] a normalized option hash
-      # @return [RubyLLM::MCP::Client, nil] the started client, or nil on failure
+      # @return [Array(RubyLLM::MCP, Array<RubyLLM::MCP::Tool>), nil] the client and its tools, or nil on failure
       def build_client(server)
-        client = nil
-        kwargs = { name: server[:name], transport_type: server[:transport_type],
-                   start: false, config: server[:config] }
-        kwargs[:request_timeout] = server[:request_timeout] if server[:request_timeout]
-        client = RubyLLM::MCP.client(**kwargs)
-        client.start
-        client
+        mcp = RubyLLM.mcp(**server[:settings])
+        [mcp, mcp.tools]
       rescue StandardError => e
         @warnings << "MCP server '#{server[:name]}' unavailable: #{e.class}: #{e.message}"
-        client&.stop if client&.alive?
+        begin
+          mcp&.close
+        rescue StandardError
+          nil
+        end
         nil
       end
 
