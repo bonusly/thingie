@@ -75,10 +75,37 @@ system_one_enabled = false
 system_one_model = "jev-latest"
 system_one_api_base = "https://openrouter.ai/api"
 
+# Ratings for each file's System One `overall` score (0.0-1.0). Each level's
+# `description` is sent to the model as that level of the `overall` question,
+# and its `floor` is the lowest score rated at that level. A score is the
+# probability-weighted position across the four levels, which sit at 0, 0.33,
+# 0.67 and 1; a score halfway between two levels is a split decision.
+# Set these only in .thingie/config.toml; there are no environment overrides.
+# The four levels are fixed. Floors must rise from trivial = 0 to critical <= 1.
+# Recommendation: tune the floors and descriptions together, and if you change
+# one level, review and restate all four in your config. The levels are judged
+# against each other, so rewording one shifts how the model uses the rest.
+[change_risk.ratings.trivial]
+floor = 0.0
+description = "formatting, comments, docs, renames, generated or test-only changes, or config text with no behavior change; safe to ship unread"
+
+[change_risk.ratings.routine]
+floor = 0.17
+description = "a small, local behavior change that a standard review covers"
+
+[change_risk.ratings.risky]
+floor = 0.5
+description = "touches stored data, concurrency, or code many callers depend on; needs a careful review"
+
+[change_risk.ratings.critical]
+floor = 0.81
+description = "changes authentication or authorization, moves money, changes account balances or ledger entries, or could cause an outage, data loss, or a security incident if wrong; needs the strongest review available"
+
 # Escalation paths for the System One change-risk score. With `system_one_enabled`,
 # `thingie review` scores the changeset and records the scores and escalations in
 # the report; `thingie github-comment` then adds, for each rule whose `threshold`
 # the riskiest file's `overall` score (0.0-1.0) reaches, its `label` to the PR.
+# `overall` has four levels: 0.5 means rated risky or worse, 0.81 rated critical.
 # An optional `title` and `description` appear in the review and the GitHub summary.
 # `github-comment` uses the rules recorded in the report, so changing them takes a new review.
 # Rules may stack: a score that reaches several thresholds adds every label.
@@ -90,7 +117,7 @@ system_one_api_base = "https://openrouter.ai/api"
 #   description = "System One thinks a person should read this change closely."
 #
 #   [[escalations]]
-#   threshold = 0.8
+#   threshold = 0.81
 #   label = "risk: high"
 escalations = []
 

@@ -310,8 +310,21 @@ Key settings:
 | System One API base URL | `https://openrouter.ai/api` | `system_one_api_base` | `SYSTEM_ONE_API_BASE` | — |
 | System One API key | — | `system_one_api_key` | `SYSTEM_ONE_API_KEY` | — |
 | Escalation rules | none | `escalations` (`[[escalations]]` with `threshold` 0.0-1.0, `label`, and optional `title` and `description`) | — | — |
+| Change-risk rating levels | see below | `[change_risk.ratings.<level>]` with `floor` and `description` for `trivial`, `routine`, `risky`, `critical` | — | — |
 
-With `system_one_enabled`, `thingie review` scores the changeset and the report shows each question's highest score and the escalations. `thingie github-comment` then adds the `label` of every `[[escalations]]` rule that the riskiest file's `overall` score reaches, and removes the labels of rules the score no longer reaches, so every label named in a rule is managed by Thingie; don't reuse one for something applied by hand. Labels only raise a flag; they don't affect the review or approval. A scoring or labelling failure is a warning and never fails the run. The token needs permission to label PRs (`pull-requests: write`).
+With `system_one_enabled` (off by default), `thingie review` scores every changed file. Each file gets an `overall` score (0.0-1.0) and a rating of `trivial` (below 0.17), `routine`, `risky` (from 0.5) or `critical` (from 0.81), and the report lists every scored file with its rating, its per-question scores, and the escalations. A `threshold` of `0.5` therefore means rated risky or worse and `0.81` means rated critical. `thingie github-comment` then adds the `label` of every `[[escalations]]` rule that the riskiest file's `overall` score reaches, and removes the labels of rules the score no longer reaches, so every label named in a rule is managed by Thingie; don't reuse one for something applied by hand. Labels only raise a flag; they don't affect the review or approval. A scoring or labelling failure is a warning and never fails the run. The token needs permission to label PRs (`pull-requests: write`).
+
+The PR summary comment shows the change risk as a collapsed block, whether or not the review had findings. The block's title gives the changeset's rating and highest `overall` score (for example `Change risk: risky (overall 0.62)`), and inside is a table of every scored file with its rating and per-question scores. **Thingie details** names the `Decision model` beside the review model, and the auto-approval status line reads `Thingie v… · <review model> · decision model: <model>`. All of this appears only when System One scored the change.
+
+`thingie risk` scores and rates a changeset without reviewing it, which is cheap and handy for sampling ratings on a branch. It takes the same `--what`, `--against`, `--filters` and `--merge-base` options as `thingie files`, plus `--format cli|md`. It also requires `system_one_enabled` and exits 1 if scoring fails.
+
+Each rating level is a `[change_risk.ratings.<level>]` table, set only in `.thingie/config.toml` (no environment variable or CLI flag). `floor` is the lowest `overall` score rated at that level. `description` is sent to the model as that level of the `overall` question, so it shapes the scores as well as the labels. The four levels are fixed, and floors must rise from `trivial = 0` to `critical`. A table you set is merged over the defaults in `lib/thingie/config/default.toml`, so you can override a single key. Even so, **tune floors and descriptions together, and if you change one level, review and restate all four**: the model judges the levels against each other, so rewording one changes how it uses the rest. Invalid rating config fails `review` and `risk` before any scoring.
+
+```toml
+[change_risk.ratings.critical]
+floor = 0.81
+description = "changes authentication or authorization, moves money, changes account balances or ledger entries, or could cause an outage, data loss, or a security incident if wrong; needs the strongest review available"
+```
 
 Supported providers match whatever RubyLLM supports, including `openai`, `anthropic`, `gemini`, `ollama`, `deepseek`, `openrouter`, `mistral`, `perplexity`, `xai`, `azure`, `bedrock`, `vertexai`, and `gpustack`.
 

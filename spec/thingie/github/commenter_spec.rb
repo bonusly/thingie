@@ -474,6 +474,19 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
     expect(client).not_to have_received(:add_comment).with('o/r', 1, a_string_including('THE FULL REPORT'))
   end
 
+  it 'folds the change risk into the short summary when an in-diff issue is found' do
+    report = report_for([build_issue('app.rb', 11)])
+    report.change_risk = { 'model' => 'jev-latest', 'max' => { 'overall' => 0.6 }, 'rating' => 'risky',
+                           'files' => { 'app.rb' => { 'scores' => { 'overall' => 0.6 }, 'rating' => 'risky' } },
+                           'escalations' => [] }
+
+    commenter.post_review(summary: 'THE FULL REPORT', report: report)
+
+    expect(client).to have_received(:add_comment)
+      .with('o/r', 1, a_string_including('<details><summary>Change risk: risky (overall 0.60)</summary>',
+                                         '| `app.rb` | risky | 0.60 |'))
+  end
+
   context 'when the run posts new findings' do
     it 'names each file by its file name, adding the folder only when two share a name' do
       issues = ['lib/thingie/reviewer.rb', 'app/streaks/users_controller.rb', 'app/user_popover/users_controller.rb']

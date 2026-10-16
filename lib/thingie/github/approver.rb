@@ -491,13 +491,25 @@ module Thingie
       def details_section(report, pr)
         rows = ["- Thingie version: #{Thingie::VERSION}"]
         rows << "- Review model: #{report.model}" unless report.model.to_s.strip.empty?
+        scored_by = decision_model(report)
+        rows << "- Decision model: #{scored_by}" if scored_by
         parts = [rows.join("\n"), passed_rules_section(pr), external_checks_section].compact
         "<details><summary>Thingie details</summary>\n\n#{parts.join("\n\n")}\n\n</details>"
       end
 
       def version_line(report)
+        parts = ["Thingie v#{Thingie::VERSION}"]
         model = report.model.to_s.strip
-        model.empty? ? "_Thingie v#{Thingie::VERSION}_" : "_Thingie v#{Thingie::VERSION} · #{model}_"
+        parts << model unless model.empty?
+        scored_by = decision_model(report)
+        parts << "decision model: #{scored_by}" if scored_by
+        "_#{parts.join(' · ')}_"
+      end
+
+      # The System One model that scored the change, or nil when it wasn't scored.
+      def decision_model(report)
+        model = report.change_risk&.dig('model').to_s.strip
+        model unless model.empty?
       end
 
       # Prior Thingie approvals granted for a commit other than the current head.

@@ -14,63 +14,11 @@ module Thingie
   # `system_one_api_key` and `system_one_model`.
   #
   # @example
-  #   SystemOneClassifier.new(config).classify(state: { path: 'a.rb', diff: diff })
+  #   SystemOneClassifier.new(config).classify(state: { path: 'a.rb', diff: diff }, questions: risk_questions.questions)
   #   # => { security: 0.04, ..., overall: 0.2 }
   class SystemOneClassifier
     PATH = '/v1/systemone'
     ERROR_BODY_LIMIT = 200
-
-    # Each risk is a yes/no (`noul`) question with explicit true/false criteria, so the model
-    # knows what to look for. `overall` is an ordered `score` question.
-    RISK_QUESTIONS = {
-      security: {
-        type: 'noul',
-        instructions: 'Does this change introduce a security vulnerability or weaken a security control?',
-        criteria: {
-          'true' => 'Adds exposure or removes a protection in authentication, authorization, input validation, ' \
-                    'SQL, shell, eval or deserialization, secrets, or cryptography.',
-          'false' => 'Refactors, docs, tests, or logic with no effect on a trust boundary.'
-        }
-      },
-      user_impact: {
-        type: 'noul',
-        instructions: 'Will end users or API clients notice this change?',
-        criteria: {
-          'true' => 'Changes behavior, output, UI, API responses, stored data, or runs a data migration.',
-          'false' => 'Internal-only change with no visible effect, such as a refactor, tests, or tooling.'
-        }
-      },
-      performance: {
-        type: 'noul',
-        instructions: 'Is this change likely to degrade performance or resource usage?',
-        criteria: {
-          'true' => 'Adds N+1 or unbounded queries, missing indexes, unbounded loops, blocking calls on a hot ' \
-                    'path, or much more memory use.',
-          'false' => 'No change to query patterns, algorithmic complexity, or resource use.'
-        }
-      },
-      new_dependencies: {
-        type: 'noul',
-        instructions: 'Does this change add, remove, or upgrade a third-party dependency?',
-        criteria: {
-          'true' => 'Adds, removes, or upgrades a gem, package, library, or external service.',
-          'false' => 'Uses only dependencies that are already present.'
-        }
-      },
-      maintainability: {
-        type: 'noul',
-        instructions: 'Does this change make the code harder to understand, test, or maintain?',
-        criteria: {
-          'true' => 'Adds hard-to-follow, duplicated, or tightly coupled code, or removes tests.',
-          'false' => 'Is clear, consistent with the surrounding code, and covered by tests.'
-        }
-      },
-      overall: {
-        type: 'score',
-        instructions: 'How risky is it to ship this change without a careful human review?',
-        criteria: ['Can ship as-is', 'Needs careful review', 'Blocks release']
-      }
-    }.freeze
 
     # Build a classifier from the System One settings in the configuration.
     #
@@ -92,12 +40,12 @@ module Thingie
     # Ask every question about the state in a single request.
     #
     # @param state [Hash, String] what the questions are about
-    # @param questions [Hash{Symbol => Hash}] question name => System One question; defaults to {RISK_QUESTIONS}
+    # @param questions [Hash{Symbol => Hash}] question name => System One question, e.g. {RiskQuestions#questions}
     # @return [Hash{Symbol => Float}] question name => probability (0.0-1.0) of yes for a `noul`
     #   question, or for a `score` question the probability-weighted position scaled to 0.0-1.0
     #   (0.0 is the first level, 1.0 the last), so every value reads as a risk between 0 and 1
     # @raise [Thingie::SystemOneError] if the request fails, times out, or returns an error or unexpected response
-    def classify(state:, questions: RISK_QUESTIONS)
+    def classify(state:, questions:)
       answers = request(state: state, questions: questions)
       questions.to_h { |name, question| [name.to_sym, value_of(answers.fetch(name.to_s), question)] }
     rescue KeyError, TypeError, ArgumentError, JSON::ParserError => e

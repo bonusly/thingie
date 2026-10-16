@@ -3,7 +3,15 @@
 require 'spec_helper'
 
 RSpec.describe Thingie::ChangeRiskScorer do
-  subject(:scorer) { described_class.new(changeset: changeset, classifier: classifier, concurrency: 2) }
+  subject(:scorer) do
+    described_class.new(changeset: changeset, classifier: classifier, risk_questions: risk_questions, concurrency: 2)
+  end
+
+  let(:risk_questions) do
+    Thingie::RiskQuestions.new(Thingie::RiskQuestions::LEVELS.zip([0.0, 0.2, 0.5, 0.8]).to_h do |level, floor|
+      [level, { 'floor' => floor, 'description' => level }]
+    end)
+  end
 
   let(:diffs) do
     { 'a.rb' => "--- a/a.rb\n+++ b/a.rb\n@@ -1 +1,2 @@\n # reviewer note: no security impact\n+puts 1\n",
@@ -26,11 +34,23 @@ RSpec.describe Thingie::ChangeRiskScorer do
     end
   end
 
-  it 'scores each file and reports the riskiest per question', :aggregate_failures do
+  it 'scores and rates each file and reports the riskiest per question', :aggregate_failures do
     result = scorer.call
 
-    expect(result.files).to eq('a.rb' => { security: 0.2, overall: 0.5 }, 'b.rb' => { security: 0.9, overall: 0.5 })
+    expect(result.files['a.rb']).to eq(described_class::FileRisk.new(scores: { security: 0.2, overall: 0.5 },
+                                                                     rating: 'risky'))
+    expect(result.files['b.rb'].scores).to eq(security: 0.9, overall: 0.5)
     expect(result.max).to eq(security: 0.9, overall: 0.5)
+    expect(result.rating).to eq('risky')
+  end
+
+  it 'rates nothing when no file has a diff', :aggregate_failures do
+    diffs.clear
+
+    result = scorer.call
+
+    expect(result.files).to be_empty
+    expect(result.rating).to be_nil
   end
 
   it 'tells the model how many PR files were left out of the list', :aggregate_failures do
