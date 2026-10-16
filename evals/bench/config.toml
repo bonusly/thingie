@@ -1,0 +1,35 @@
+# The fixture app's Thingie config: special_sauce's production settings as of 0.8.7, minus what only
+# applies there. Provider and model come from LLM_PROVIDER and LLM_MODEL when set.
+provider = "openrouter"
+model = "z-ai/glm-5.3"
+models_file = ".thingie/models.json"
+schema_with_tools = false
+
+request_timeout = 240
+max_concurrent_tasks = 10
+tool_budget = 5
+
+log_level = "warn"
+
+exclude_files = [
+  'bin/*',
+  'config/locales/**/*',
+  'db/**/*',
+  'log/*',
+  'tmp/*',
+  'public/**/*',
+  '.thingie/**/*'
+]
+
+[post_process]
+max_confidence = 2
+max_severity = 3
+
+[verify]
+enabled = true
+model = "z-ai/glm-5.3-flash"
+bar = "user_impact"
+timeout = 120
+
+[approve]
+enabled = false
