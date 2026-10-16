@@ -89,7 +89,8 @@ module Thingie
           off_diff, posted = post_inline_comments(loud, commit_id)
           post_off_diff_comment(off_diff)
           summary = run_summary(loud, posted, still_open(open_threads, commit_id), commit_id)
-          post_summary_comment([summary, quiet_findings_section(quiet + held_back)].compact.join("\n\n"))
+          post_summary_comment([summary, change_risk_section(report), quiet_findings_section(quiet + held_back)]
+                                 .compact.join("\n\n"))
         end
         # Hide the earlier ones only now, so a failed run never leaves the thread without a summary.
         previous.each { |comment| minimize_comment(comment) }
@@ -173,6 +174,11 @@ module Thingie
         parts << new_findings_list(new_issues, links) if posted.positive?
         parts << open_findings_list(open_findings) if open_findings.any?
         parts.join("\n\n")
+      end
+
+      # The full report, which already carries this, is only posted when there are no findings.
+      def change_risk_section(report)
+        ChangeRiskSection.new(report.change_risk).to_md if report.change_risk
       end
 
       # The open threads minus the ones the code shows are fixed, each paired with a note when the thread's replies

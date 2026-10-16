@@ -88,7 +88,9 @@ module Thingie
     def review(*)
       # Thor passes positional args we don't use; accept and ignore them.
       config = Thingie::Configuration.new(overrides: { model: options[:model], provider: options[:provider] }.compact)
-      rules = Thingie::EscalationRules.new(config['escalations']) # fail fast, before the LLM review
+      # fail fast on bad escalation or rating config, before the LLM review
+      rules = Thingie::EscalationRules.new(config['escalations'])
+      risk_questions = Thingie::RiskQuestions.new(config.dig('change_risk', 'ratings'))
       changeset = build_changeset(config)
       clients = build_lsp_clients(config, changeset)
       tools = clients.map { |client| Thingie::Lsp::SymbolTool.new(client: client, root: changeset.workdir) }
@@ -103,7 +105,7 @@ module Thingie
       started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
       report = reviewer.review
       duration_ms = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - started) * 1000).round
-      attach_change_risk(report, config, changeset, rules)
+      attach_change_risk(report, config, changeset, rules, risk_questions)
       render_report(report, config)
       Thingie::Stats::Emitter.new(config).emit_review_completed(report: report, duration_ms: duration_ms,
                                                                 usage: reviewer.usage)
@@ -131,6 +133,29 @@ module Thingie
       changeset.files.each { |file| print_file(file, changeset) }
     rescue StandardError => e
       warn "Could not list files: #{e.class}: #{e.message}"
+      exit 1
+    end
+
+    desc 'risk', 'Score each changed file with System One and rate it, without reviewing it'
+    option :what, type: :string, aliases: '-w', desc: 'Git ref to score'
+    option :against, type: :string, aliases: '-v', desc: 'Git ref to compare against'
+    option :filters, type: :string, aliases: '-f', desc: 'Filter scored files by glob pattern(s)'
+    option :merge_base, type: :boolean, default: true, desc: 'Use merge base for comparison'
+    option :format, type: :string, default: 'cli', desc: 'Output format (cli, md)'
+    # Scores the changeset with System One and prints each file's rating and scores.
+    #
+    # @return [void]
+    def risk
+      config = Thingie::Configuration.new
+      rules = Thingie::EscalationRules.new(config['escalations'])
+      risk_questions = Thingie::RiskQuestions.new(config.dig('change_risk', 'ratings'))
+      changeset = build_changeset(config)
+      result = change_risk_scorer(config, changeset, risk_questions).call
+      section = Thingie::ChangeRiskSection.new(change_risk_summary(result, rules, config))
+      puts options[:format] == 'md' ? section.to_md : section.to_cli
+    rescue StandardError => e
+      warn "Risk scoring failed: #{e.class}: #{e.message}"
+      warn e.backtrace&.first(5)&.join("\n") if debug_enabled?
       exit 1
     end
 
@@ -386,8 +411,9 @@ module Thingie
       # @param config [Thingie::Configuration] the loaded configuration
       # @param changeset [Thingie::Changeset] the changeset that was reviewed
       # @param rules [Thingie::EscalationRules] the validated escalation rules
+      # @param risk_questions [Thingie::RiskQuestions] the validated questions and ratings
       # @return [void]
-      def attach_change_risk(report, config, changeset, rules)
+      def attach_change_risk(report, config, changeset, rules, risk_questions)
         unless config['system_one_enabled']
           unless rules.empty?
             warn '[thingie] escalations are configured but System One is disabled; existing labels left unchanged'
@@ -395,25 +421,40 @@ module Thingie
           return
         end
 
-        score_change_risk(report, config, changeset, rules)
+        score_change_risk(report, config, changeset, rules, risk_questions)
       end
 
-      def score_change_risk(report, config, changeset, rules)
-        scorer = Thingie::ChangeRiskScorer.new(changeset: changeset, concurrency: config['max_concurrent_tasks'],
-                                               classifier: Thingie::SystemOneClassifier.new(config))
-        report.change_risk = change_risk_summary(scorer.call, rules)
+      def score_change_risk(report, config, changeset, rules, risk_questions)
+        scorer = change_risk_scorer(config, changeset, risk_questions)
+        report.change_risk = change_risk_summary(scorer.call, rules, config)
       rescue StandardError => e
         message = "Change risk scoring skipped: #{e.message} (existing labels left unchanged)"
         warn "[thingie] #{message}"
         report.processing_warnings << message
       end
 
+      # @param config [Thingie::Configuration] source of the System One and concurrency settings
+      # @param changeset [Thingie::Changeset] the changes to score
+      # @param risk_questions [Thingie::RiskQuestions] the questions and ratings
+      # @return [Thingie::ChangeRiskScorer] a scorer for the changeset
+      # @raise [Thingie::ConfigurationError] if System One is disabled or misconfigured
+      def change_risk_scorer(config, changeset, risk_questions)
+        Thingie::ChangeRiskScorer.new(changeset: changeset, concurrency: config['max_concurrent_tasks'],
+                                      classifier: Thingie::SystemOneClassifier.new(config),
+                                      risk_questions: risk_questions)
+      end
+
       # @param result [Thingie::ChangeRiskScorer::Result] the scored changeset
       # @param rules [Thingie::EscalationRules] the escalation rules
+      # @param config [Thingie::Configuration] source of the System One model that scored it
       # @return [Hash] the string-keyed summary stored on the report
-      def change_risk_summary(result, rules)
-        { 'max' => result.max.transform_keys(&:to_s),
-          'files' => result.files.transform_values { |scores| scores.transform_keys(&:to_s) },
+      def change_risk_summary(result, rules, config)
+        { 'model' => config['system_one_model'].to_s.strip,
+          'max' => result.max.transform_keys(&:to_s),
+          'rating' => result.rating,
+          'files' => result.files.transform_values do |risk|
+            { 'scores' => risk.scores.transform_keys(&:to_s), 'rating' => risk.rating }
+          end,
           'escalations' => rules.matching(result.max[:overall]),
           'rules' => rules.to_a }
       end

@@ -10,36 +10,57 @@ module Thingie
       @risk = risk
     end
 
-    # The scores and escalations as plain text lines.
+    # The rating, each file's rating and scores, and escalations as plain text lines.
     #
     # @return [String] CLI-formatted section
     def to_cli
-      rows = escalations.map { |escalation| "\n  - #{cli_escalation(escalation)}" }.join
-      "Change risk: #{@risk['max'].empty? ? 'no files scored' : scores(' ').join(', ')}\n" \
-        "Escalations:#{rows.empty? ? ' none' : rows}\n"
+      files = rows.map { |path, risk| "  - #{path}: #{cli_file(risk)}\n" }.join
+      escalation_rows = escalations.map { |escalation| "\n  - #{cli_escalation(escalation)}" }.join
+      "Change risk: #{headline}\n#{files}" \
+        "Escalations:#{escalation_rows.empty? ? ' none' : escalation_rows}\n"
     end
 
-    # The scores and escalations as a collapsed block, with the overall score and any escalation
-    # in the summary line so they are visible without opening it.
+    # Each file's rating and scores as a table in a collapsed block, with the changeset's rating
+    # and any escalation in the summary line so they are visible without opening it.
     #
     # @return [String] Markdown-formatted section
     def to_md
       bullets = escalations.map { |escalation| "- #{md_escalation(escalation)}" }.join("\n")
-      "<details><summary>Change risk: #{headline}</summary>\n\n#{md_scores}\n\n" \
+      "<details><summary>Change risk: #{headline}</summary>\n\n#{md_table}\n\n" \
         "Escalations:#{bullets.empty? ? ' none' : "\n\n#{bullets}"}\n\n</details>"
     end
 
     private
 
-    def md_scores
-      return 'No files were scored.' if @risk['max'].empty?
-
-      rows = scores(': ').map { |score| "- #{score}" }.join("\n")
-      "Highest score per question across the changed files:\n\n#{rows}"
+    # Files by `overall` score, riskiest first; files without one last, then by path.
+    def rows
+      @rows ||= @risk['files'].sort_by { |path, risk| [-(risk['scores']['overall'] || -1), path] }
     end
 
-    def scores(separator)
-      @risk['max'].map { |question, score| "#{question.tr('_', ' ')}#{separator}#{format('%.2f', score)}" }
+    def cli_file(risk)
+      scores = risk['scores']
+      overall = "overall #{score(scores['overall'])}" if scores['overall']
+      others = scores.except('overall').map { |question, value| "#{question.tr('_', ' ')} #{score(value)}" }
+      detail = [overall, others.join(', ')].compact.reject(&:empty?).join('; ')
+      "#{"#{risk['rating']} " if risk['rating']}(#{detail})"
+    end
+
+    def md_table
+      return 'No files were scored.' if rows.empty?
+
+      keys = rows.first.last['scores'].keys
+      questions = (['overall'] & keys) + (keys - ['overall'])
+      header = ['File', 'Rating', *questions.map { |question| question.tr('_', ' ').capitalize }]
+      lines = [header, header.map { '---' }]
+      rows.each do |path, risk|
+        values = questions.map { |question| risk['scores'][question]&.then { |value| score(value) } }
+        lines << ["`#{path}`", risk['rating'], *values]
+      end
+      lines.map { |cells| "| #{cells.join(' | ')} |" }.join("\n")
+    end
+
+    def score(value)
+      format('%.2f', value)
     end
 
     def escalations
@@ -60,7 +81,9 @@ module Thingie
     def headline
       overall = @risk['max']['overall']
       parts = []
-      parts << "overall #{format('%.2f', overall)}" if overall
+      if overall
+        parts << (@risk['rating'] ? "#{@risk['rating']} (overall #{score(overall)})" : "overall #{score(overall)}")
+      end
       parts << "escalated: #{escalation_names.join(', ')}" unless escalations.empty?
       parts.empty? ? 'no files scored' : parts.join(', ')
     end
