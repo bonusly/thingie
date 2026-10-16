@@ -25,7 +25,7 @@ body: |
     returned cursors until `truncated` was false, then ran `rake connectors:sync` and checked
     `last_synced_at` moved.
 delete: []
-early_delete: []
+first_push_delete: []
 labels:
   - title: Sync advances last_synced_at even when the page cap cut the walk short
     file: app/lib/connectors/jobs/sync_account_job.rb
@@ -40,12 +40,12 @@ labels:
   - title: One cursor is reused across providers, so Slack's cursor is sent to GitHub
     file: app/lib/search/queries/connected_search.rb
     label: real
-    push: early
+    push: first
     note: "early ConnectedSearch takes a single cursor and passes it to every tool in Registry.for(providers); next_cursor is whichever provider's came last, so the second page of a multi-provider search sends Slack's opaque cursor to GitHub's page-number query (to_i => 0 => page 1 again) and vice versa. Head keys cursors by provider (cursors[tool.provider], next_cursors hash). Fixed at head."
   - title: Watermark comes from Date.today and is recomputed per query, shifting across midnight
     file: app/lib/connectors/jobs/sync_account_job.rb
     label: real
-    push: early
+    push: first
     note: "early perform calls updated_after for every query/scope, which returns (Date.today - 14).in_time_zone; a run that spans midnight (Slack accounts walk one query per channel) uses a later watermark for the later channels and drops a day of records, and Date.today ignores the app time zone. Head computes since once from LookBack before the walk with now: started_at. Fixed at head."
   - title: Page-limit check runs before the connection check
     file: app/lib/search/tools/base.rb

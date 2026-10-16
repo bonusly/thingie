@@ -33,12 +33,12 @@ body: |
   Features specs. Ran the drafts page against this locally with the flag on for my company and walked
   draft -> ready -> send, release, and a recording swap.
 delete: []
-early_delete: []
+first_push_delete: []
 labels:
   - title: Transition bodies bypass the writable-key guard
     file: app/controllers/api/v1/draft_tasks_controller.rb
     label: real
-    push: early
+    push: first
     note: >-
       At the early push `guard_draft_keys!` runs only for create and update, and `final_edits` is
       `params.fetch(:draft_task, {}).permit!.to_h`; MarkReady/Release/SendDraft then `assign_attributes`
@@ -48,7 +48,7 @@ labels:
   - title: Release overwrites a concurrent send
     file: app/lib/draft_tasks/commands/release.rb
     label: real
-    push: early
+    push: first
     note: >-
       At the early push Release does not take WithLockedDraft and ends with
       `draft.update(state: "drafting", ready_at: nil, points_reserved_at: nil)` with no state filter; a
@@ -58,7 +58,7 @@ labels:
   - title: Attachment lookup is not scoped to the company
     file: app/lib/draft_tasks/commands/replace_attachment.rb
     label: real
-    push: early
+    push: first
     note: >-
       At the early push `find_attachment` is `Attachment.where(id: attachment_id).first`, so any
       unclaimed audio/video upload from any company can be attached to the draft by id and then moves
@@ -84,7 +84,7 @@ labels:
   - title: Policy and controller check the flag against different subjects
     file: app/policies/draft_task_policy.rb
     label: real
-    push: head
+    push: final
     note: >-
       `mark_ready?` adds `Features.enabled?(:draft_tasks, user)` while RequiresFeature checks
       `Features.enabled?(:draft_tasks, current_company)`. Features matches a Company by slug and a User

@@ -34,7 +34,7 @@ body: |
   - Request specs for attach/detach/mark_ready, list deletion and the public share page (private author
     hidden, converted task author shown).
 delete: []
-early_delete: []
+first_push_delete: []
 labels:
   - title: Deliver swallows a failed enqueue of the conversion job and reports success
     file: app/lib/lists/commands/deliver.rb
@@ -44,17 +44,17 @@ labels:
   - title: Attach writes the draft outside the per-draft lock and overwrites state
     file: app/lib/draft_tasks/commands/attach.rb
     label: real
-    push: early
+    push: first
     note: "early Attach does not use WithLockedDraft; it checks draft.sent? on its in-memory copy then draft.update!(list:, state: \"ready\", ready_at:) so a SendDraft that lands in between (send_now or SendScheduledDraftsJob) is overwritten: the sent draft is flipped back to ready on the new list and converted again on delivery; head wraps it in WithLockedDraft and uses mark_ready!"
   - title: Public share page leaks the author of a private draft
     file: app/lib/sharing/blueprints/public_draft_blueprint.rb
     label: real
-    push: early
+    push: first
     note: "early PublicDraftBlueprint's author field renders view.draft.author.name (and author_id) for every draft, so a private draft has author_name nil but author.name set; the share page is unauthenticated; head renders author only from author_name"
   - title: List deletion sweeps comments and drafts before marking the list deleted
     file: app/lib/lists/commands/destroy.rb
     label: real
-    push: early
+    push: first
     note: "early Destroy runs comments.delete_all and ReleaseDrafts.for_card before list.update!(deleted_at:); a ConvertDraftTasksJob already running for a delivered list passes its deleted? check and SendDraft's under-lock list.deleted? check, so a draft the sweep has not reached yet is converted into a task (points spent) on a list that is then marked deleted and invisible; head marks deleted_at first"
   - title: Note comment failure is swallowed after the draft is already sent
     file: app/lib/lists/commands/convert_draft_task_comment.rb
@@ -64,7 +64,7 @@ labels:
   - title: Delivery notification goes to draft authors who are not list members
     file: app/lib/lists/commands/deliver.rb
     label: real
-    push: head
+    push: final
     note: "List#members at head is member_ids plus attached_author_ids, and Deliver#notify_members iterates list.members, so anyone who attached a draft to a company-visible list gets a list_delivered notification for a list they are not a member of (and a draft_sent one right after); early push's members did not include draft authors"
   - title: Duplicate failure notification when the job retries after a transient error
     file: app/lib/lists/jobs/convert_draft_tasks_job.rb

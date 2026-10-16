@@ -37,8 +37,8 @@ each for this PR; a stale hold lingers for at most a day and only affects the de
 
 ## Files
 
-48 files at head (38 modified, 10 added); an early push with 46 files (8 of them differ from head).
-The diff of each push against the fixture app: `git -C evals/bench/tmp/draft-tasks-model diff pr-base pr-head` after a run, or build it with `bundle exec ruby -e 'require "./evals/bench/lib/bench"; Bench::Case.load("draft-tasks-model").build'`.
+48 files at the final push (38 modified, 10 added); a first push with 46 files, 8 of them different from the final push.
+The diff of each push against the fixture app: `git -C evals/bench/tmp/draft-tasks-model diff pr-base pr-final-push` after a run, or build it with `bundle exec ruby -e 'require "./evals/bench/lib/bench"; Bench::Case.load("draft-tasks-model").build'`.
 
 - modified `app/controllers/api/v1/draft_tasks_controller.rb`
 - modified `app/javascript/pages/DraftTasksPage.tsx`
@@ -94,13 +94,13 @@ The diff of each push against the fixture app: `git -C evals/bench/tmp/draft-tas
 
 | Defect | File | Push | | Mechanism |
 |---|---|---|---|---|
-| Concurrent mark_ready calls can over-reserve the budget | `app/lib/draft_tasks/commands/mark_ready.rb` | early |  | Early MarkReady#reserve reads GivingBalance (a plain DraftTask.ready.where(author_id:) sum) and calls mark_ready! under only the per-draft lock, so two mark_ready requests for two drafts of one author both see the pre-hold balance and both pass, holding more than the weekly budget. Head wraps the check and transition in Points::Services::WithLockedGiver. |
-| release_reservation! can undo a concurrent send | `app/models/draft_task.rb` | early |  | Early DraftTask#release_reservation! checks ready? in memory then does an unfiltered set(state: "drafting", ready_at: nil). ReleaseStaleReservations iterates drafts outside the draft lock, so an instance loaded as ready that SendScheduledDraftsJob sends meanwhile is written back to drafting after its task and ledger entry exist, and can be sent again. Head claims it with where(_id:, state: "ready").find_one_and_update and raises WrongState on nil. |
+| Concurrent mark_ready calls can over-reserve the budget | `app/lib/draft_tasks/commands/mark_ready.rb` | first |  | Early MarkReady#reserve reads GivingBalance (a plain DraftTask.ready.where(author_id:) sum) and calls mark_ready! under only the per-draft lock, so two mark_ready requests for two drafts of one author both see the pre-hold balance and both pass, holding more than the weekly budget. Head wraps the check and transition in Points::Services::WithLockedGiver. |
+| release_reservation! can undo a concurrent send | `app/models/draft_task.rb` | first |  | Early DraftTask#release_reservation! checks ready? in memory then does an unfiltered set(state: "drafting", ready_at: nil). ReleaseStaleReservations iterates drafts outside the draft lock, so an instance loaded as ready that SendScheduledDraftsJob sends meanwhile is written back to drafting after its task and ledger entry exist, and can be sent again. Head claims it with where(_id:, state: "ready").find_one_and_update and raises WrongState on nil. |
 | Update can overwrite a draft that was sent in the meantime | `app/lib/draft_tasks/commands/update.rb` | both |  | Update#call checks editable? on the in-memory draft, then runs DraftTask.where(_id: draft.id).find_one_and_update({"$set" => changes}) with no state filter and ignores the returned document, so an edit landing after a concurrent mark_ready + send overwrites title/points on a sent draft. It should filter on state: "drafting" and fail when nil comes back. |
 | Private sent drafts leak the author's name on the share page | `app/lib/lists/services/draft_public_view.rb` | both |  | DraftPublicView#call branches on draft.sent?; only pending_view consults draft.private?. sent_view always renders draft.author.display_name, and PublicList now includes drafts sent in the last 7 days, so GET /s/:token shows the author of a private draft as soon as it has a sent_task_id. |
-| Ledger entry on send uses the request's points, not the reservation | `app/lib/draft_tasks/commands/send_draft.rb` | head |  | SendDraft#settle_amount returns points.to_i when send_now carries a points param and passes it to SettleReservation, while the task is built from locked.task_attributes (the held amount) and the balance was checked against locked.points. points: 1 (or 500) moves a different amount through the ledger than was held or put on the task, with no balance check. |
+| Ledger entry on send uses the request's points, not the reservation | `app/lib/draft_tasks/commands/send_draft.rb` | final |  | SendDraft#settle_amount returns points.to_i when send_now carries a points param and passes it to SettleReservation, while the task is built from locked.task_attributes (the held amount) and the balance was checked against locked.points. points: 1 (or 500) moves a different amount through the ledger than was held or put on the task, with no balance check. |
 
-`push` says where it exists: `early` means the author fixed it before head (scored only at the early push), `both` means it is still there at head, `head` means the last push introduced it.
+`push` says where the defect exists: `first` means the author fixed it before the final push (scored only at the first push), `both` means it is still there at the final push, `final` means the final push introduced it.
 
 ## Nit bait
 

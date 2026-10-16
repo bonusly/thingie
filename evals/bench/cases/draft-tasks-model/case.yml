@@ -35,12 +35,12 @@ body: |
     for 20 with the draft id, balance moves from reserved to spent. Removed a membership, ran the job,
     draft went back to drafting.
 delete: []
-early_delete: []
+first_push_delete: []
 labels:
   - title: Concurrent mark_ready calls can over-reserve the budget
     file: app/lib/draft_tasks/commands/mark_ready.rb
     label: real
-    push: early
+    push: first
     note: >
       Early MarkReady#reserve reads GivingBalance (a plain DraftTask.ready.where(author_id:) sum) and
       calls mark_ready! under only the per-draft lock, so two mark_ready requests for two drafts of one
@@ -49,7 +49,7 @@ labels:
   - title: release_reservation! can undo a concurrent send
     file: app/models/draft_task.rb
     label: real
-    push: early
+    push: first
     note: >
       Early DraftTask#release_reservation! checks ready? in memory then does an unfiltered
       set(state: "drafting", ready_at: nil). ReleaseStaleReservations iterates drafts outside the draft lock,
@@ -76,7 +76,7 @@ labels:
   - title: Ledger entry on send uses the request's points, not the reservation
     file: app/lib/draft_tasks/commands/send_draft.rb
     label: real
-    push: head
+    push: final
     note: >
       SendDraft#settle_amount returns points.to_i when send_now carries a points param and passes it to
       SettleReservation, while the task is built from locked.task_attributes (the held amount) and the

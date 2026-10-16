@@ -45,8 +45,8 @@ Testing:
 
 ## Files
 
-24 files at head (13 modified, 11 added); an early push with 24 files (3 of them differ from head).
-The diff of each push against the fixture app: `git -C evals/bench/tmp/route-discovery diff pr-base pr-head` after a run, or build it with `bundle exec ruby -e 'require "./evals/bench/lib/bench"; Bench::Case.load("route-discovery").build'`.
+24 files at the final push (13 modified, 11 added); a first push with 24 files, 3 of them different from the final push.
+The diff of each push against the fixture app: `git -C evals/bench/tmp/route-discovery diff pr-base pr-final-push` after a run, or build it with `bundle exec ruby -e 'require "./evals/bench/lib/bench"; Bench::Case.load("route-discovery").build'`.
 
 - modified `app/controllers/api/v1/search_controller.rb`
 - modified `app/javascript/app-router.tsx`
@@ -79,10 +79,10 @@ The diff of each push against the fixture app: `git -C evals/bench/tmp/route-dis
 | Defect | File | Push | | Mechanism |
 |---|---|---|---|---|
 | A page whose component cannot be read lets the layout at the same path overwrite its entry | `app/lib/search/commands/upsert_route_index.rb` | both |  | UpsertRouteIndex#call partitions on readable? BEFORE one_per_route_path, so the /admin index page (component nil because its lazy().then form fails RouteParser::LAZY) is dropped, the ungated admin.layout entry is written under /admin, and `- kept_paths` suppresses the unreadable mark; search then offers /admin to every member. Dedupe first, then partition, and mark the path unreadable. |
-| A transient read failure of the router empties the whole index | `app/lib/search/queries/discover_routes.rb` | early |  | early read_source rescues SystemCallError (including Errno::EACCES) to nil and call returns [], which UpsertRouteIndex#prune treats as "every route removed" and delete_all's the index; head raises Search::FetchFailed for any error other than ENOENT so the job retries instead. |
+| A transient read failure of the router empties the whole index | `app/lib/search/queries/discover_routes.rb` | first |  | early read_source rescues SystemCallError (including Errno::EACCES) to nil and call returns [], which UpsertRouteIndex#prune treats as "every route removed" and delete_all's the index; head raises Search::FetchFailed for any error other than ENOENT so the job retries instead. |
 | Route groups the parser cannot read are silently dropped, so their pages are pruned as stale | `app/lib/search/services/route_parser.rb` | both |  | RouteParser#entry returns [] for an object with no `path` without descending, and entries finds no `{` after `children: connectorRoutes` (an identifier, not an array literal), so the three /connectors routes never reach the upsert and prune deletes them on the first reindex; same for a capitalised `Component` key. Unreadable shapes must be marked or fail the reindex, never pruned. |
 
-`push` says where it exists: `early` means the author fixed it before head (scored only at the early push), `both` means it is still there at head, `head` means the last push introduced it.
+`push` says where the defect exists: `first` means the author fixed it before the final push (scored only at the first push), `both` means it is still there at the final push, `final` means the final push introduced it.
 
 ## Nit bait
 

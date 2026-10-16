@@ -43,7 +43,7 @@ body: |
   - Hit `/api/v1/search/routes` as a member, an admin and a staff user;
     the admin and ledger pages only show up where expected.
 delete: []
-early_delete: []
+first_push_delete: []
 labels:
   - title: A page whose component cannot be read lets the layout at the same path overwrite its entry
     file: app/lib/search/commands/upsert_route_index.rb
@@ -54,7 +54,7 @@ labels:
   - title: A transient read failure of the router empties the whole index
     file: app/lib/search/queries/discover_routes.rb
     label: real
-    push: early
+    push: first
     note: >-
       early read_source rescues SystemCallError (including Errno::EACCES) to nil and call returns [], which UpsertRouteIndex#prune treats as "every route removed" and delete_all's the index; head raises Search::FetchFailed for any error other than ENOENT so the job retries instead.
   - title: Route groups the parser cannot read are silently dropped, so their pages are pruned as stale

@@ -27,8 +27,8 @@ Along the way:
 
 ## Files
 
-40 files at head (26 modified, 14 added); an early push with 40 files (7 of them differ from head).
-The diff of each push against the fixture app: `git -C evals/bench/tmp/paged-connectors diff pr-base pr-head` after a run, or build it with `bundle exec ruby -e 'require "./evals/bench/lib/bench"; Bench::Case.load("paged-connectors").build'`.
+40 files at the final push (26 modified, 14 added); a first push with 40 files, 7 of them different from the final push.
+The diff of each push against the fixture app: `git -C evals/bench/tmp/paged-connectors diff pr-base pr-final-push` after a run, or build it with `bundle exec ruby -e 'require "./evals/bench/lib/bench"; Bench::Case.load("paged-connectors").build'`.
 
 - modified `README.md`
 - modified `app/controllers/api/v1/search_controller.rb`
@@ -78,10 +78,10 @@ The diff of each push against the fixture app: `git -C evals/bench/tmp/paged-con
 |---|---|---|---|---|
 | Sync advances last_synced_at even when the page cap cut the walk short | `app/lib/connectors/jobs/sync_account_job.rb` | both |  | perform discards result.next_cursor and calls account.touch_synced!(synced_at: started_at) (early: touch_synced!) regardless of whether pages_fetched hit PageLimit.max_pages; the next run's LookBack starts at last_synced_at - 5 minutes, so items older than the last fetched page but newer than the previous watermark are never imported. Any account with more than 5 pages (250 GitHub issues, 500 Slack messages) in a window silently loses the rest. Real: data loss on the sync path every run. |
 | since_days is capped at 365 days, not at the 14-day window the product promises | `app/lib/connectors/services/look_back.rb` | both |  | LookBack#call returns now - since_days.clamp(1, MAX_SINCE_DAYS).days without taking [.., floor].max, and Search::Tools::Base passes a caller-supplied since_days straight through, so GET /api/v1/search/connected?since_days=365 (or a model call) reads a year of history while config/locales/en/search.yml and the tool descriptions promise 14 days. Real: contract violation reachable from the public endpoint. |
-| One cursor is reused across providers, so Slack's cursor is sent to GitHub | `app/lib/search/queries/connected_search.rb` | early |  | early ConnectedSearch takes a single cursor and passes it to every tool in Registry.for(providers); next_cursor is whichever provider's came last, so the second page of a multi-provider search sends Slack's opaque cursor to GitHub's page-number query (to_i => 0 => page 1 again) and vice versa. Head keys cursors by provider (cursors[tool.provider], next_cursors hash). Fixed at head. |
-| Watermark comes from Date.today and is recomputed per query, shifting across midnight | `app/lib/connectors/jobs/sync_account_job.rb` | early |  | early perform calls updated_after for every query/scope, which returns (Date.today - 14).in_time_zone; a run that spans midnight (Slack accounts walk one query per channel) uses a later watermark for the later channels and drops a day of records, and Date.today ignores the app time zone. Head computes since once from LookBack before the walk with now: started_at. Fixed at head. |
+| One cursor is reused across providers, so Slack's cursor is sent to GitHub | `app/lib/search/queries/connected_search.rb` | first |  | early ConnectedSearch takes a single cursor and passes it to every tool in Registry.for(providers); next_cursor is whichever provider's came last, so the second page of a multi-provider search sends Slack's opaque cursor to GitHub's page-number query (to_i => 0 => page 1 again) and vice versa. Head keys cursors by provider (cursors[tool.provider], next_cursors hash). Fixed at head. |
+| Watermark comes from Date.today and is recomputed per query, shifting across midnight | `app/lib/connectors/jobs/sync_account_job.rb` | first |  | early perform calls updated_after for every query/scope, which returns (Date.today - 14).in_time_zone; a run that spans midnight (Slack accounts walk one query per channel) uses a later watermark for the later channels and drops a day of records, and Date.today ignores the app time zone. Head computes since once from LookBack before the walk with now: started_at. Fixed at head. |
 
-`push` says where it exists: `early` means the author fixed it before head (scored only at the early push), `both` means it is still there at head, `head` means the last push introduced it.
+`push` says where the defect exists: `first` means the author fixed it before the final push (scored only at the first push), `both` means it is still there at the final push, `final` means the final push introduced it.
 
 ## Nit bait
 
