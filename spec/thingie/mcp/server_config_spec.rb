@@ -36,7 +36,7 @@ RSpec.describe Thingie::Mcp::ServerConfig do
           args = ["-y", "@modelcontextprotocol/server-filesystem", "."]
         TOML
         server = described_class.load(config).servers.first
-        expect(server[:transport_type]).to eq(:stdio)
+        expect(server[:settings][:command]).to eq(['npx', '-y', '@modelcontextprotocol/server-filesystem', '.'])
       end
 
       it 'infers streamable from url' do
@@ -45,19 +45,20 @@ RSpec.describe Thingie::Mcp::ServerConfig do
           url = "https://example.com/mcp"
         TOML
         server = described_class.load(config).servers.first
-        expect(server[:transport_type]).to eq(:streamable)
+        expect(server[:settings][:url]).to eq('https://example.com/mcp')
       end
     end
 
     context 'with explicit transport' do
-      it 'maps sse transport' do
+      it 'warns and skips sse, which the client no longer supports' do
         write_project_config(<<~TOML)
           [mcp.docs]
           transport = "sse"
           url = "https://example.com/mcp"
         TOML
-        server = described_class.load(config).servers.first
-        expect(server[:transport_type]).to eq(:sse)
+        result = described_class.load(config)
+        expect(result.servers).to eq([])
+        expect(result.warnings).to include("MCP server 'docs' skipped: unknown transport 'sse'")
       end
 
       it 'warns and skips an unknown transport' do
@@ -113,9 +114,9 @@ RSpec.describe Thingie::Mcp::ServerConfig do
         servers = described_class.load(config).servers
         github = servers.find { |s| s[:name] == 'github' }
         docs = servers.find { |s| s[:name] == 'docs' }
-        expect(github[:config][:args].last).to eq('--token=secret-token')
-        expect(github[:config][:env]['GITHUB_PERSONAL_ACCESS_TOKEN']).to eq('secret-token')
-        expect(docs[:config][:headers]['Authorization']).to eq('Bearer secret-token')
+        expect(github[:settings][:command].last).to eq('--token=secret-token')
+        expect(github[:settings][:env][:GITHUB_PERSONAL_ACCESS_TOKEN]).to eq('secret-token')
+        expect(docs[:settings][:headers]['Authorization']).to eq('Bearer secret-token')
       end
 
       it 'skips the server and warns when a var is unset' do
@@ -132,35 +133,44 @@ RSpec.describe Thingie::Mcp::ServerConfig do
       end
     end
 
-    it 'strips thingie-level keys from the gem config hash' do
+    it 'translates thingie keys into RubyLLM.mcp settings', :aggregate_failures do
       write_project_config(<<~TOML)
         [mcp.fs]
         command = "npx"
         args = ["-y", "server-fs"]
         enabled = true
         request_timeout = 5000
+        with_prefix = true
         include_tools = ["read_file"]
         exclude_tools = ["delete_file"]
       TOML
       server = described_class.load(config).servers.first
-      expect(server[:request_timeout]).to eq(5000)
       expect(server[:include_tools]).to eq(['read_file'])
       expect(server[:exclude_tools]).to eq(['delete_file'])
-      expect(server[:config]).not_to have_key(:enabled)
-      expect(server[:config]).not_to have_key(:request_timeout)
-      expect(server[:config]).not_to have_key(:include_tools)
-      expect(server[:config]).not_to have_key(:exclude_tools)
+      expect(server[:settings]).to eq(
+        name: 'fs', input_requests: false, command: ['npx', '-y', 'server-fs'], timeout: 5.0, prefix: 'fs'
+      )
     end
 
-    it 'keeps string keys inside nested env and headers hashes' do
+    it 'symbolizes env names for the client' do
       write_project_config(<<~TOML)
         [mcp.s]
         command = "npx"
         env = { API_KEY = "literal" }
       TOML
-      env = described_class.load(config).servers.first[:config][:env]
-      expect(env).to have_key('API_KEY')
-      expect(env).not_to have_key(:API_KEY)
+      env = described_class.load(config).servers.first[:settings][:env]
+      expect(env).to eq(API_KEY: 'literal')
+    end
+
+    it 'passes an oauth table to the client as keywords' do
+      write_project_config(<<~TOML)
+        [mcp.wiki]
+        url = "https://example.com/mcp"
+        oauth = { client_id = "wiki-client", scopes = ["read"] }
+      TOML
+      settings = described_class.load(config).servers.first[:settings]
+
+      expect(RubyLLM.mcp(**settings).class.oauth_settings).to include(client_id: 'wiki-client', scopes: ['read'])
     end
 
     context 'with a standalone mcp.yml file' do
@@ -174,8 +184,7 @@ RSpec.describe Thingie::Mcp::ServerConfig do
         YAML
         server = described_class.load(config).servers.first
         expect(server[:name]).to eq('fs')
-        expect(server[:transport_type]).to eq(:stdio)
-        expect(server[:config][:command]).to eq('npx')
+        expect(server[:settings][:command]).to eq(['npx', '-y', 'server-fs'])
       end
 
       it 'parses servers from mcp.json' do
@@ -184,7 +193,7 @@ RSpec.describe Thingie::Mcp::ServerConfig do
         JSON
         server = described_class.load(config).servers.first
         expect(server[:name]).to eq('fs')
-        expect(server[:transport_type]).to eq(:stdio)
+        expect(server[:settings][:command]).to eq(['npx'])
       end
     end
 
@@ -200,7 +209,7 @@ RSpec.describe Thingie::Mcp::ServerConfig do
               command: from-yaml
         YAML
         server = described_class.load(config).servers.first
-        expect(server[:config][:command]).to eq('from-toml')
+        expect(server[:settings][:command]).to eq(['from-toml'])
       end
     end
 

@@ -1,14 +1,13 @@
 # frozen_string_literal: true
 
-require 'json'
-require 'net/http'
-require 'openssl'
-require 'uri'
+require 'ruby_llm'
+require_relative 'errors'
 
 module Thingie
   # Puts typed questions about some state to a System One decision model (e.g. TypeSafe's
-  # Jev) and returns its numeric answers. System One models aren't chat models, so this
-  # calls the provider's `/v1/systemone` endpoint directly instead of RubyLLM.
+  # Jev) and returns its numeric answers. System One models aren't chat models, so this uses
+  # ruby_llm's judgment API against the TypeSafe-compatible `/v1/systemone` endpoint that
+  # `system_one_api_base` names.
   #
   # Disabled unless `system_one_enabled` is true; the provider is set by `system_one_api_base`,
   # `system_one_api_key` and `system_one_model`.
@@ -17,9 +16,6 @@ module Thingie
   #   SystemOneClassifier.new(config).classify(state: { path: 'a.rb', diff: diff }, questions: risk_questions.questions)
   #   # => { security: 0.04, ..., overall: 0.2 }
   class SystemOneClassifier
-    PATH = '/v1/systemone'
-    ERROR_BODY_LIMIT = 200
-
     # Build a classifier from the System One settings in the configuration.
     #
     # @param config [Thingie::Configuration] source of the `system_one_*` settings
@@ -30,29 +26,44 @@ module Thingie
         raise ConfigurationError, 'System One is disabled. Set system_one_enabled to true (or SYSTEM_ONE_ENABLED=true).'
       end
 
-      @api_key = required_setting(config, 'system_one_api_key', 'SYSTEM_ONE_API_KEY')
+      api_key = required_setting(config, 'system_one_api_key', 'SYSTEM_ONE_API_KEY')
       @model = required_setting(config, 'system_one_model', 'SYSTEM_ONE_MODEL')
       api_base = required_setting(config, 'system_one_api_base', 'SYSTEM_ONE_API_BASE')
-      @timeout = config['request_timeout']
-      @uri = URI("#{api_base.chomp('/')}#{PATH}")
+      @llm_context = build_context(config, api_base, api_key)
     end
+
+    # Per-instance RubyLLM context; configuration never mutates global state, so
+    # it coexists with the review's {LlmClient#llm_context}.
+    attr_reader :llm_context
 
     # Ask every question about the state in a single request.
     #
     # @param state [Hash, String] what the questions are about
     # @param questions [Hash{Symbol => Hash}] question name => System One question, e.g. {RiskQuestions#questions}
-    # @return [Hash{Symbol => Float}] question name => probability (0.0-1.0) of yes for a `noul`
+    # @return [Hash{Symbol => Float}] question name => probability (0.0-1.0) of yes for a `probability`
     #   question, or for a `score` question the probability-weighted position scaled to 0.0-1.0
     #   (0.0 is the first level, 1.0 the last), so every value reads as a risk between 0 and 1
     # @raise [Thingie::SystemOneError] if the request fails, times out, or returns an error or unexpected response
     def classify(state:, questions:)
-      answers = request(state: state, questions: questions)
-      questions.to_h { |name, question| [name.to_sym, value_of(answers.fetch(name.to_s), question)] }
-    rescue KeyError, TypeError, ArgumentError, JSON::ParserError => e
+      judgment = @llm_context.judge(state, questions: questions, provider: :typesafe, model: @model,
+                                           assume_model_exists: true)
+      questions.to_h { |name, question| [name.to_sym, value_of(judgment.fetch(name), question)] }
+    rescue RubyLLM::Error, Faraday::Error => e
+      raise SystemOneError, "System One request failed: #{e.class}: #{e.message}"
+    rescue KeyError, ArgumentError, TypeError => e
       raise SystemOneError, "Unexpected System One response: #{e.message}"
     end
 
     private
+
+    def build_context(config, api_base, api_key)
+      RubyLLM.context do |llm_config|
+        llm_config.typesafe_api_base = api_base.chomp('/')
+        llm_config.typesafe_api_key = api_key
+        llm_config.request_timeout = config['request_timeout'] if config['request_timeout']
+        llm_config.max_retries = config['retries'] if config['retries']
+      end
+    end
 
     def required_setting(config, key, env_name)
       value = config[key].to_s.strip
@@ -62,11 +73,10 @@ module Thingie
     end
 
     def value_of(answer, question)
-      raise TypeError, "answer is #{answer.class}, not an object" unless answer.is_a?(Hash)
-      return in_range(Float(answer.fetch('noul')), 1) unless answer.fetch('type') == 'score'
+      return in_range(Float(answer.probability), 1) unless question[:type] == :score
 
-      top = question[:criteria].size - 1
-      in_range(Float(answer.fetch('score')), top) / [top, 1].max
+      top = question[:levels].size - 1
+      in_range(Float(answer.score), top) / [top, 1].max
     end
 
     # @raise [ArgumentError] if the value is not finite or outside 0..max
@@ -74,44 +84,6 @@ module Thingie
       raise ArgumentError, "score #{value} is outside 0..#{max}" unless value.finite? && value.between?(0, max)
 
       value
-    end
-
-    def request(state:, questions:)
-      response = post(model: @model, state: state, questions: questions)
-      unless response.is_a?(Net::HTTPSuccess)
-        raise SystemOneError, "System One request failed (#{response.code}): #{response.body.to_s[0, ERROR_BODY_LIMIT]}"
-      end
-
-      answers = JSON.parse(response.body).fetch('answers')
-      raise TypeError, "answers is #{answers.class}, not an object" unless answers.is_a?(Hash)
-
-      answers
-    end
-
-    # Posts once more on a timeout, 429 or 5xx.
-    def post(payload)
-      response = begin
-        attempt(payload)
-      rescue Net::OpenTimeout, Net::ReadTimeout, Net::WriteTimeout
-        nil
-      end
-      response = attempt(payload) if response.nil? || retryable?(response)
-      response
-    rescue Net::OpenTimeout, Net::ReadTimeout, Net::WriteTimeout, SocketError, SystemCallError, OpenSSL::SSL::SSLError,
-           IOError, Net::ProtocolError, Net::HTTPBadResponse => e
-      raise SystemOneError, "System One request failed: #{e.class}: #{e.message}"
-    end
-
-    def retryable?(response)
-      response.is_a?(Net::HTTPTooManyRequests) || response.is_a?(Net::HTTPServerError)
-    end
-
-    def attempt(payload)
-      http = Net::HTTP.new(@uri.host, @uri.port)
-      http.use_ssl = @uri.scheme == 'https'
-      http.open_timeout = http.read_timeout = http.write_timeout = @timeout
-      headers = { 'Authorization' => "Bearer #{@api_key}", 'Content-Type' => 'application/json' }
-      http.post(@uri.path, JSON.generate(payload), headers)
     end
   end
 end

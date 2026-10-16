@@ -8,172 +8,94 @@ RSpec.describe Thingie::SystemOneClassifier do
       'system_one_api_base' => 'https://example.test/api/', 'request_timeout' => 7 }
   end
   let(:classifier) { described_class.new(settings) }
-  let(:http) do
-    instance_double(Net::HTTP, :use_ssl= => true, :open_timeout= => 7, :read_timeout= => 7, :write_timeout= => 7)
+  let(:questions) { { sqli: { type: :probability, instructions: 'Is there SQL injection?' } } }
+  let(:three_levels) { { type: :score, instructions: 'Risk?', levels: %w[low mid high] } }
+
+  # A judgment answering each name with a probability (Float) or a score ({ score: Float }).
+  def judgment(**values)
+    answers = values.transform_values do |value|
+      if value.is_a?(Hash)
+        instance_double(RubyLLM::Score, score: value[:score])
+      else
+        instance_double(RubyLLM::Probability, probability: value)
+      end
+    end
+    instance_double(RubyLLM::Judgment).tap do |judgment|
+      allow(judgment).to receive(:fetch) { |name| answers.fetch(name.to_sym) }
+    end
   end
-  let(:questions) { { sqli: { type: 'noul', instructions: 'Is there SQL injection?' } } }
 
-  before { allow(Net::HTTP).to receive(:new).and_return(http) }
-
-  def stub_response(klass, body)
-    response = klass.new('1.1', '200', 'msg')
-    allow(response).to receive(:body).and_return(body.to_json)
-    allow(http).to receive(:post).and_return(response)
+  def stub_judgment(**answers)
+    allow(classifier.llm_context).to receive(:judge).and_return(judgment(**answers))
   end
 
-  it 'returns the probability of yes for a noul and the position for a score', :aggregate_failures do
-    stub_response(Net::HTTPOK, answers: { 'sqli' => { 'type' => 'noul', 'noul' => 0.97 },
-                                          'overall' => { 'type' => 'score', 'score' => 1.9, 'confidence' => 0.8 } })
+  it 'returns the probability of yes and the scaled position of a score', :aggregate_failures do
+    stub_judgment(sqli: 0.97, overall: { score: 1.9 })
 
-    result = classifier.classify(state: { path: 'a.rb' },
-                                 questions: questions.merge(overall: { type: 'score', instructions: 'Risk?',
-                                                                       criteria: %w[low mid high] }))
+    result = classifier.classify(state: { path: 'a.rb' }, questions: questions.merge(overall: three_levels))
 
     expect(result).to eq(sqli: 0.97, overall: 0.95)
   end
 
-  it 'divides an integer score as a float' do
-    stub_response(Net::HTTPOK, answers: { 'overall' => { 'type' => 'score', 'score' => 1 } })
+  it 'reads a single-level score as its position' do
+    stub_judgment(overall: { score: 0 })
 
-    result = classifier.classify(state: { path: 'a.rb' },
-                                 questions: { overall: { type: 'score', instructions: 'Risk?',
-                                                         criteria: %w[low mid high] } })
+    result = classifier.classify(state: {}, questions: { overall: three_levels.merge(levels: %w[only]) })
 
-    expect(result).to eq(overall: 0.5)
+    expect(result).to eq(overall: 0.0)
   end
 
-  it 'sends the model, state and questions to the System One endpoint', :aggregate_failures do
-    stub_response(Net::HTTPOK, answers: { 'sqli' => { 'type' => 'noul', 'noul' => 0.1 } })
+  it 'asks the TypeSafe provider for the configured model' do
+    stub_judgment(sqli: 0.1)
 
-    classifier.classify(state: { path: 'a.rb' }, questions: questions)
+    classifier.classify(state: { 'path' => 'a.rb' }, questions: questions)
 
-    expect(http).to have_received(:post) do |post_path, body, headers|
-      payload = JSON.parse(body)
-      expect(post_path).to eq('/api/v1/systemone')
-      expect(payload).to include('model' => 'jev-latest', 'state' => { 'path' => 'a.rb' })
-      expect(payload['questions']).to eq('sqli' => { 'type' => 'noul', 'instructions' => 'Is there SQL injection?' })
-      expect(headers['Authorization']).to eq('Bearer sk-test')
-    end
+    expect(classifier.llm_context).to have_received(:judge)
+      .with({ 'path' => 'a.rb' }, questions: questions, provider: :typesafe, model: 'jev-latest',
+                                  assume_model_exists: true)
   end
 
-  it 'applies the configured request timeout', :aggregate_failures do
-    stub_response(Net::HTTPOK, answers: { 'sqli' => { 'type' => 'noul', 'noul' => 0.1 } })
+  it 'configures its own context without touching the global one', :aggregate_failures do
+    config = classifier.llm_context.config
 
-    classifier.classify(state: {}, questions: questions)
-
-    expect(http).to have_received(:open_timeout=).with(7)
-    expect(http).to have_received(:read_timeout=).with(7)
-  end
-
-  it 'raises SystemOneError when the request times out' do
-    allow(http).to receive(:post).and_raise(Net::ReadTimeout)
-
-    expect { classifier.classify(state: {}, questions: questions) }
-      .to raise_error(Thingie::SystemOneError, /ReadTimeout/)
+    expect(config.typesafe_api_base).to eq('https://example.test/api')
+    expect(config.typesafe_api_key).to eq('sk-test')
+    expect(config.request_timeout).to eq(7)
+    expect(RubyLLM.config.typesafe_api_key).not_to eq('sk-test')
   end
 
   it 'raises SystemOneError when the API rejects the request' do
-    stub_response(Net::HTTPUnauthorized, error: 'nope')
+    allow(classifier.llm_context).to receive(:judge).and_raise(RubyLLM::UnauthorizedError.new('nope'))
+
+    expect { classifier.classify(state: {}, questions: questions) }
+      .to raise_error(Thingie::SystemOneError, /failed.*nope/)
+  end
+
+  it 'raises SystemOneError when the connection fails' do
+    allow(classifier.llm_context).to receive(:judge).and_raise(Faraday::ConnectionFailed.new('refused'))
 
     expect { classifier.classify(state: {}, questions: questions) }
       .to raise_error(Thingie::SystemOneError, /failed/)
   end
 
-  it 'raises SystemOneError when an answer is missing from the response' do
-    stub_response(Net::HTTPOK, answers: {})
+  it 'raises SystemOneError when an answer is missing' do
+    stub_judgment
 
     expect { classifier.classify(state: {}, questions: questions) }
       .to raise_error(Thingie::SystemOneError, /Unexpected/)
   end
 
-  [Errno::ECONNRESET, EOFError, OpenSSL::SSL::SSLError, Net::HTTPBadResponse].each do |error|
-    it "raises SystemOneError when the connection fails with #{error}" do
-      allow(http).to receive(:post).and_raise(error)
-
-      expect { classifier.classify(state: {}, questions: questions) }
-        .to raise_error(Thingie::SystemOneError, /#{error}/)
-    end
-  end
-
   [
-    ['an answer that is not an object', { 'sqli' => 'yes' }],
-    ['a null noul', { 'sqli' => { 'type' => 'noul', 'noul' => nil } }],
-    ['a non-numeric noul', { 'sqli' => { 'type' => 'noul', 'noul' => 'high' } }],
-    ['answers that are not an object', ['sqli']]
-  ].each do |description, answers|
-    it "raises SystemOneError for #{description}" do
-      stub_response(Net::HTTPOK, answers: answers)
-
-      expect { classifier.classify(state: {}, questions: questions) }
-        .to raise_error(Thingie::SystemOneError, /Unexpected/)
-    end
-  end
-
-  it 'raises SystemOneError for a null score instead of reporting zero risk' do
-    stub_response(Net::HTTPOK, answers: { 'overall' => { 'type' => 'score', 'score' => nil } })
-
-    expect do
-      classifier.classify(state: {}, questions: { overall: { type: 'score', criteria: %w[low high] } })
-    end.to raise_error(Thingie::SystemOneError, /Unexpected/)
-  end
-
-  it 'truncates a long error body in the message' do
-    stub_response(Net::HTTPBadRequest, 'x' * 500)
-
-    expect { classifier.classify(state: {}, questions: questions) }
-      .to raise_error(Thingie::SystemOneError) { |error| expect(error.message.length).to be < 300 }
-  end
-
-  [
-    ['a noul above 1', '{"type":"noul","noul":1.5}', { type: 'noul' }],
-    ['a negative noul', '{"type":"noul","noul":-0.1}', { type: 'noul' }],
-    ['a score above the last level', '{"type":"score","score":2.5}', { type: 'score', criteria: %w[low mid high] }],
-    ['an infinite score', '{"type":"score","score":1e999}', { type: 'score', criteria: %w[low mid high] }]
+    ['a probability above 1', 1.5, { type: :probability }],
+    ['a negative probability', -0.1, { type: :probability }],
+    ['a score above the last level', { score: 2.5 }, { type: :score, levels: %w[low mid high] }],
+    ['an infinite score', { score: Float::INFINITY }, { type: :score, levels: %w[low mid high] }]
   ].each do |description, answer, question|
     it "raises SystemOneError for an out-of-range answer: #{description}" do
-      response = Net::HTTPOK.new('1.1', '200', 'msg')
-      allow(response).to receive(:body).and_return(%({"answers":{"q":#{answer}}}))
-      allow(http).to receive(:post).and_return(response)
+      stub_judgment(q: answer)
 
       expect { classifier.classify(state: {}, questions: { q: question }) }
         .to raise_error(Thingie::SystemOneError, /Unexpected/)
-    end
-  end
-
-  describe 'retrying' do
-    let(:ok) do
-      Net::HTTPOK.new('1.1', '200', 'msg').tap do |response|
-        allow(response).to receive(:body).and_return({ answers: { sqli: { type: 'noul', noul: 0.3 } } }.to_json)
-      end
-    end
-
-    [Net::HTTPTooManyRequests, Net::HTTPServiceUnavailable].each do |klass|
-      it "retries once after #{klass}" do
-        allow(http).to receive(:post).and_return(klass.new('1.1', '503', 'busy'), ok)
-
-        expect(classifier.classify(state: {}, questions: questions)).to eq(sqli: 0.3)
-      end
-    end
-
-    it 'retries once after a timeout' do
-      calls = 0
-      allow(http).to receive(:post) { (calls += 1) == 1 ? raise(Net::ReadTimeout) : ok }
-
-      expect(classifier.classify(state: {}, questions: questions)).to eq(sqli: 0.3)
-    end
-
-    it 'gives up after the second failure' do
-      allow(http).to receive(:post).and_raise(Net::ReadTimeout)
-
-      expect { classifier.classify(state: {}, questions: questions) }.to raise_error(Thingie::SystemOneError)
-      expect(http).to have_received(:post).twice
-    end
-
-    it 'does not retry a client error' do
-      stub_response(Net::HTTPUnauthorized, error: 'no')
-
-      expect { classifier.classify(state: {}, questions: questions) }.to raise_error(Thingie::SystemOneError)
-      expect(http).to have_received(:post).once
     end
   end
 
