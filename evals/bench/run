@@ -23,6 +23,7 @@ module Bench
     def run
       return report if @options[:report]
       return rescore if @options[:rescore]
+      return merge if @options[:merge]
 
       cases = @names.empty? ? Case.all : @names.map { |name| Case.load(name) }
       abort 'No cases under evals/bench/cases; nothing to run.' if cases.empty?
@@ -44,6 +45,9 @@ module Bench
           @options[:against] = v
         end
         o.on('--report FILE', 'render a run file instead of running') { |v| @options[:report] = v }
+        o.on('--merge', 'treat the arguments as run files (one case each) and write them as one run') do
+          @options[:merge] = true
+        end
         o.on('--rescore FILE', 'match a run file\'s findings against the labels as they are now and rewrite ' \
                                'it in place (or to --out); no review runs') do |v|
           @options[:rescore] = v
@@ -56,6 +60,16 @@ module Bench
     def report
       run_file = JSON.parse(File.read(@options[:report]))
       puts Report.render(run_file, baseline: baseline)
+    end
+
+    # CI reviews each case in its own job; this puts their run files back together.
+    def merge
+      abort '--merge needs run files' if @names.empty?
+
+      run_files = @names.map { |path| JSON.parse(File.read(path)) }
+      @options[:label] ||= run_files.first['label']
+      @options[:record] = false
+      write(RunFile.merge(run_files, label: label))
     end
 
     # The same findings, matched again with the run's own config: labels grow as unlabelled findings get

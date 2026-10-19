@@ -1,7 +1,8 @@
 name: Bench
 
-# Scores every push on the seeded pull requests. Informational: it never blocks a merge. Each run is five
-# cases, first and final push, on a paid model, so docs-only pushes skip it.
+# Scores every push on the seeded pull requests, one job per case in parallel, then one report: the job
+# summary, a run file artifact, and a comment on the pull request. Informational: it never blocks a merge.
+# Each case is a first and a final push reviewed on a paid model, so docs-only pushes skip it.
 on:
   push:
     paths-ignore:
@@ -13,12 +14,31 @@ concurrency:
   group: bench-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
-  bench:
-    name: Bench
+  cases:
+    name: List cases
+    runs-on: ubuntu-latest
+    outputs:
+      cases: ${{ steps.list.outputs.cases }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: list
+        run: echo "cases=$(ls evals/bench/cases | jq -R . | jq -sc .)" >> "$GITHUB_OUTPUT"
+
+  case:
+    name: ${{ matrix.case }}
+    needs: cases
     runs-on: ubuntu-latest
     continue-on-error: true
-    timeout-minutes: 60
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        case: ${{ fromJson(needs.cases.outputs.cases) }}
     env:
       LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
       LLM_MODEL: ${{ vars.LLM_MODEL }}
@@ -29,14 +49,37 @@ jobs:
         with:
           ruby-version: "3.4"
           bundler-cache: true
-      - name: Run the bench
-        run: bundle exec evals/bench/run --no-record --out tmp/bench/run.json
-      - name: Report against the baseline
+      - name: Review both pushes
+        run: bundle exec evals/bench/run "${{ matrix.case }}" --no-record --label "${GITHUB_SHA::7}" --out "tmp/bench/${{ matrix.case }}.json"
+      - name: Keep the case's run file
         if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-case-${{ matrix.case }}
+          path: tmp/bench/${{ matrix.case }}.json
+          if-no-files-found: ignore
+
+  report:
+    name: Report
+    needs: case
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+          bundler-cache: true
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: bench-case-*
+          path: tmp/bench/cases
+          merge-multiple: true
+      - name: Merge the cases and report against the baseline
         run: |
-          if [ -f tmp/bench/run.json ]; then
-            bundle exec evals/bench/run --report tmp/bench/run.json >> "$GITHUB_STEP_SUMMARY"
-          fi
+          ls tmp/bench/cases/*.json >/dev/null 2>&1 || { echo "No case finished." | tee -a "$GITHUB_STEP_SUMMARY"; exit 0; }
+          bundle exec evals/bench/run --merge tmp/bench/cases/*.json --no-record --label "${GITHUB_SHA::7}" --out tmp/bench/run.json | tee tmp/bench/report.md
+          cat tmp/bench/report.md >> "$GITHUB_STEP_SUMMARY"
       - name: Keep the run file
         if: always()
         uses: actions/upload-artifact@v4
@@ -44,3 +87,23 @@ jobs:
           name: bench-run-${{ github.sha }}
           path: tmp/bench/run.json
           if-no-files-found: ignore
+      - name: Comment on the pull request
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [ -f tmp/bench/report.md ] || exit 0
+          number=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "${GITHUB_REF_NAME}" --state open --json number --jq '.[0].number')
+          [ -n "$number" ] || { echo "No open pull request for ${GITHUB_REF_NAME}; summary only."; exit 0; }
+          {
+            echo '<!-- bench-report -->'
+            sed -n '1,/^### Quality/p' tmp/bench/report.md | sed '$d'
+            echo
+            echo "Full report and run file: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          } > tmp/bench/comment.md
+          existing=$(gh api "repos/$GITHUB_REPOSITORY/issues/$number/comments" --paginate --jq '.[] | select(.body | startswith("<!-- bench-report -->")) | .id' | head -1)
+          if [ -n "$existing" ]; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$existing" -F body=@tmp/bench/comment.md >/dev/null
+          else
+            gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$number/comments" -F body=@tmp/bench/comment.md >/dev/null
+          fi
