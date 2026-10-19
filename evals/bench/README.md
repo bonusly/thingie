@@ -64,7 +64,9 @@ down or wrong up outside the spread is a no, whatever it does to nits.
 
 ## CI
 
-`.github/workflows/bench.yml` runs on every push except docs-only ones, writes the report to the job
-summary and keeps the run file as an artifact. It is informational and never blocks a merge. It needs the
-`LLM_API_KEY` secret and the `LLM_MODEL` and `LLM_PROVIDER` variables the review workflow already uses. A
-full run is five cases, first and final push, about an hour and a few dollars at the pinned model.
+`.github/workflows/bench.yml` runs on every push except docs-only ones: one job per case in parallel (both
+pushes), then a report job that merges their run files (`--merge`), writes the table to the job summary,
+keeps the merged `run.json` as an artifact, and posts the headline on the pull request as one comment it
+updates on each push. It is informational and never blocks a merge. It needs the `LLM_API_KEY` secret and
+the `LLM_MODEL` and `LLM_PROVIDER` variables the review workflow already uses. Wall time is the slowest
+case, about 15 minutes; the model spend is a few dollars per push.

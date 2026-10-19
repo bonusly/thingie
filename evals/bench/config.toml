@@ -6,7 +6,7 @@ models_file = ".thingie/models.json"
 schema_with_tools = false
 
 request_timeout = 240
-max_concurrent_tasks = 10
+max_concurrent_tasks = 35
 tool_budget = 5
 
 log_level = "warn"

@@ -259,6 +259,19 @@ RSpec.describe Bench do
       expect(run['spread']).to be_nil
       expect(run['totals'].dig('latency', 'seconds')).to eq(10)
     end
+
+    it 'merges one-case run files into one run, keeping the first file\'s provenance', :aggregate_failures do
+      one = described_class.assemble([review('a', 'final-push', 0, 1)], label: 'a').merge('sha' => 'abc',
+                                                                                          'model' => 'm')
+      two = described_class.assemble([review('b', 'final-push', 0, 0)], label: 'b').merge('sha' => 'abc',
+                                                                                          'model' => 'm')
+      merged = described_class.merge([one, two], label: 'all')
+      expect(merged['label']).to eq('all')
+      expect(merged['cases'].map { |c| c['case'] }).to eq(%w[a b])
+      expect(merged['totals'].dig('quality', 'real_recall')).to eq('found' => 1, 'total' => 4)
+      expect(merged['totals'].dig('latency', 'seconds')).to eq(20)
+      expect(merged.slice('sha', 'model')).to eq('sha' => 'abc', 'model' => 'm')
+    end
   end
 
   describe Bench::Report do

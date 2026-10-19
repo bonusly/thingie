@@ -417,6 +417,17 @@ module Bench
   module RunFile
     module_function
 
+    # Several run files (one case each, as CI produces them) as one: their reviews together, the first file's
+    # provenance, totals recomputed.
+    #
+    # @param run_files [Array<Hash>] parsed run files
+    # @param label [String] the merged run's label
+    # @return [Hash] a run file
+    def merge(run_files, label:)
+      reviews = run_files.flat_map { |run| run['cases'] }
+      assemble(reviews, label: label).merge(run_files.first.slice('at', 'sha', 'variant', 'thingie', 'model'))
+    end
+
     # @param reviews [Array<Hash>] each with 'case', 'ref', 'repeat' and 'metrics'
     # @return [Hash] 'label', 'totals' (the mean over repeats of the final-push totals), 'spread' (each repeat's
     #   totals, when there was more than one) and 'cases'
