@@ -84,7 +84,9 @@ module Bench
       @options[:label] ||= run_file['label']
       @options[:out] ||= @options[:rescore]
       @options[:record] = false
-      write(RunFile.assemble(reviews, label: label).merge(run_file.slice('at', 'sha', 'thingie', 'model', 'variant')))
+      write(RunFile.assemble(reviews,
+                             label: label).merge(run_file.slice('at', 'sha', 'thingie', 'model', 'critic_model',
+                                                                'variant')))
     end
 
     def rescored(entry, labels, scorer)
@@ -134,7 +136,8 @@ module Bench
     def run_file(reviews)
       RunFile.assemble(reviews.map(&:dup), label: label)
              .merge('at' => Time.now.utc.iso8601, 'sha' => Bench.sha, 'variant' => @options[:variant],
-                    'thingie' => Thingie::VERSION, 'model' => reviews.first&.dig('model'))
+                    'thingie' => Thingie::VERSION, 'model' => reviews.first&.dig('model'),
+                    'critic_model' => reviews.first&.dig('critic_model'))
     end
 
     # One built repo per case; the final push, and the first push when the case has one.
@@ -160,7 +163,8 @@ module Bench
       metrics = Metrics.compute(labels: labels, posted: posted, held_back: held_back, usage: pipeline.usage.to_h,
                                 seconds: seconds, changed_lines: pipeline.changed_lines,
                                 warnings: first['warnings'] + critic['warnings'])
-      { 'case' => kase.name, 'ref' => ref, 'model' => pipeline.config['model'], 'metrics' => metrics,
+      { 'case' => kase.name, 'ref' => ref, 'model' => pipeline.config['model'],
+        'critic_model' => pipeline.config.dig('verify', 'model'), 'metrics' => metrics,
         'first_pass' => first['findings'].size, 'posted' => posted, 'held_back' => held_back,
         'warnings' => first['warnings'] + critic['warnings'] }
     end

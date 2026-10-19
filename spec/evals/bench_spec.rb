@@ -302,7 +302,7 @@ RSpec.describe Bench do
 
     it 'renders the headline with the change against the baseline', :aggregate_failures do
       md = described_class.render(run, baseline: baseline)
-      expect(md).to start_with('## Bench: abc-baseline vs main')
+      expect(md).to start_with("## Eval results\n\n`abc-baseline` against `main`")
       expect(md).to include('| Headline | main | abc-baseline | Change |')
       expect(md).to include('| Real recall | 5/5 | 4/5 | -0.2 worse |')
       expect(md).to include('| Nit rate | 50% (40..50) | 30% | -20 better |')
@@ -318,6 +318,11 @@ RSpec.describe Bench do
       expect(md).to include('| Dollars | - | 2.5 | - |')
     end
 
+    it 'names the models and version under the title' do
+      md = described_class.render(run.merge('model' => 'm', 'critic_model' => 'c', 'thingie' => '0.1'))
+      expect(md).to include("\n\n`abc-baseline` on m (critic c), Thingie 0.1\n")
+    end
+
     it 'renders every dimension and the cases', :aggregate_failures do
       md = described_class.render(run)
       expect(md).to include('### Quality', '### Noise', '### Calibration', '### Latency', '### Cost', '### Cases')
@@ -328,7 +333,7 @@ RSpec.describe Bench do
 
     it 'says so when a run has no head reviews' do
       empty = { 'label' => 'x', 'totals' => nil, 'cases' => [] }
-      expect(described_class.render(empty)).to end_with('No head reviews in this run.')
+      expect(described_class.render(empty)).to end_with('No final-push reviews in this run.')
     end
   end
 end

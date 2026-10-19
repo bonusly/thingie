@@ -1,17 +1,20 @@
 name: Bench
 
-# Scores every push on the seeded pull requests, one job per case in parallel, then one report: the job
-# summary, a run file artifact, and a comment on the pull request. Informational: it never blocks a merge.
-# Each case is a first and a final push reviewed on a paid model, so docs-only pushes skip it.
+# Scores a pull request on the seeded cases when the `evals` label is added to it (add it again to re-run),
+# or on demand. One job per case in parallel, then one report: the job summary, a run file artifact, and
+# an "Eval results" comment on the pull request. Informational: it never blocks a merge. Each case is a
+# first and a final push reviewed on a paid model, so this is not on every push.
 on:
-  push:
-    paths-ignore:
-      - "**.md"
-      - "docs/**"
+  pull_request:
+    types: [labeled]
   workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Pull request to comment on (optional)"
+        required: false
 
 concurrency:
-  group: bench-${{ github.ref }}
+  group: bench-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -21,6 +24,7 @@ permissions:
 jobs:
   cases:
     name: List cases
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'evals'
     runs-on: ubuntu-latest
     outputs:
       cases: ${{ steps.list.outputs.cases }}
@@ -61,9 +65,11 @@ jobs:
 
   report:
     name: Report
-    needs: case
-    if: always()
+    needs: [cases, case]
+    if: always() && needs.cases.result == 'success'
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v7
       - uses: ruby/setup-ruby@v1
@@ -89,19 +95,23 @@ jobs:
           if-no-files-found: ignore
       - name: Comment on the pull request
         if: always()
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           [ -f tmp/bench/report.md ] || exit 0
-          number=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "${GITHUB_REF_NAME}" --state open --json number --jq '.[0].number')
-          [ -n "$number" ] || { echo "No open pull request for ${GITHUB_REF_NAME}; summary only."; exit 0; }
+          number="${{ github.event.pull_request.number || github.event.inputs.pr_number }}"
+          [ -n "$number" ] || { echo "No pull request to comment on; summary only."; exit 0; }
+          started=$(gh run view "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --json createdAt --jq .createdAt)
+          minutes=$(( ( $(date +%s) - $(date -d "$started" +%s) ) / 60 ))
           {
-            echo '<!-- bench-report -->'
             sed -n '1,/^### Quality/p' tmp/bench/report.md | sed '$d'
+            echo '<details><summary>Details</summary>'
             echo
-            echo "Full report and run file: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo "- Run time: ${minutes} min wall clock, cases in parallel"
+            echo "- Full report and run file: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo "- Re-run: remove and add the \`evals\` label"
+            echo
+            echo '</details>'
           } > tmp/bench/comment.md
-          existing=$(gh api "repos/$GITHUB_REPOSITORY/issues/$number/comments" --paginate --jq '.[] | select(.body | startswith("<!-- bench-report -->")) | .id' | head -1)
+          existing=$(gh api "repos/$GITHUB_REPOSITORY/issues/$number/comments" --paginate --jq '.[] | select(.body | startswith("## Eval results")) | .id' | head -1)
           if [ -n "$existing" ]; then
             gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$existing" -F body=@tmp/bench/comment.md >/dev/null
           else

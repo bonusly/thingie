@@ -425,7 +425,8 @@ module Bench
     # @return [Hash] a run file
     def merge(run_files, label:)
       reviews = run_files.flat_map { |run| run['cases'] }
-      assemble(reviews, label: label).merge(run_files.first.slice('at', 'sha', 'variant', 'thingie', 'model'))
+      assemble(reviews, label: label)
+        .merge(run_files.first.slice('at', 'sha', 'variant', 'thingie', 'model', 'critic_model'))
     end
 
     # @param reviews [Array<Hash>] each with 'case', 'ref', 'repeat' and 'metrics'
@@ -503,8 +504,8 @@ module Bench
     # @param baseline [Hash, nil] another run file to compare against
     # @return [String] Markdown
     def render(run, baseline: nil)
-      title = "## Bench: #{run['label']}#{" vs #{baseline['label']}" if baseline}"
-      return "#{title}\n\nNo head reviews in this run." unless run['totals']
+      title = "## Eval results\n\n#{provenance(run, baseline)}"
+      return "#{title}\n\nNo final-push reviews in this run." unless run['totals']
 
       baseline = nil if baseline && !baseline['totals']
       out = [title, '', headline(run, baseline), '']
@@ -513,6 +514,18 @@ module Bench
       end
       out << '### Cases' << '' << cases(run)
       out.join("\n")
+    end
+
+    # "`abc1234` against `main` on z-ai/glm-5.3 (critic z-ai/glm-5.3-flash), Thingie 0.11.0"
+    def provenance(run, baseline)
+      models = run['model'].to_s
+      models += " (critic #{run['critic_model']})" if run['critic_model']
+      line = ["`#{run['label']}`"]
+      line << "against `#{baseline['label']}`" if baseline
+      text = line.join(' ')
+      text += " on #{models}" unless models.empty?
+      text += ", Thingie #{run['thingie']}" if run['thingie']
+      text
     end
 
     def headline(run, baseline)
