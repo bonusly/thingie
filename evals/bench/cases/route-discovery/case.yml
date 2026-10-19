@@ -1,4 +1,5 @@
 title: Keep search from sending users to pages their role or flags hide
+tier: fast
 body: |
   Route search returns every indexed page, so a member can land on
   /admin/companies and get a 403, and anyone can find /points/ledger before
