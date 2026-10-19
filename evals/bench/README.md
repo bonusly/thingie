@@ -36,10 +36,12 @@ then the mean over repeats, and the report shows the spread beside each headline
   at its first push, before the author fixed what a reviewer caught). Case names are letters, digits, `-` and `_`.
 - `config.toml` the fixture's Thingie config, pinned to special_sauce's production settings. `variants/`
   TOML laid over it, section by section, so a variant names only what it changes.
-- `baseline.json` the run file for main, which every report compares against. Make it with
-  `evals/bench/run --label main --out evals/bench/baseline.json` on main; until it exists, reports show the
-  run alone. Refresh it when main changes something that should move the numbers.
-- `history.jsonl` one line per recorded run, so the dimensions can be read over time.
+- `baseline.json` the full run file for main (every case, both pushes), which reports compare against. In
+  CI only `eval-full` runs compare with it, and they read it from main, not from the pull request's branch;
+  `eval-fast` runs are reported on their own (`--no-baseline`). Refresh it from a full run on main when main
+  changes something that should move the numbers: `evals/bench/run --label main --out evals/bench/baseline.json`.
+- `history.jsonl` one line per baseline, so the dimensions can be read over time. Add a line when the
+  baseline is refreshed.
 
 ## Labels
 

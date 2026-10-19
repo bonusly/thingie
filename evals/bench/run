@@ -50,6 +50,7 @@ module Bench
         o.on('--against FILE', 'a run file to compare with (default: baseline.json when it exists)') do |v|
           @options[:against] = v
         end
+        o.on('--no-baseline', 'report the run on its own') { @options[:no_baseline] = true }
         o.on('--report FILE', 'render a run file instead of running') { |v| @options[:report] = v }
         o.on('--merge', 'treat the arguments as run files (one case each) and write them as one run') do
           @options[:merge] = true
@@ -122,6 +123,8 @@ module Bench
     end
 
     def baseline
+      return nil if @options[:no_baseline]
+
       path = @options[:against] || File.join(ROOT, 'baseline.json')
       JSON.parse(File.read(path)) if File.exist?(path)
     end
