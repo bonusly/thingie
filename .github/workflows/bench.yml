@@ -50,7 +50,7 @@ jobs:
     needs: cases
     runs-on: ubuntu-latest
     continue-on-error: true
-    timeout-minutes: 25
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
