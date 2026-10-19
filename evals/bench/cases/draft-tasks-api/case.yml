@@ -160,3 +160,10 @@ labels:
       `assign_attributes` is in-memory for validation only; the single persistence is the `draft.set(...)`
       call that writes the changed fields, `revision` and `last_edited_by_id` in one `$set`. There is no
       save-then-set double write.
+# An accident of case authoring that Thingie raised on bonusly/thingie#139, kept as a label because it is realistic noise.
+  - title: Media-limit matcher applied to the error object instead of its message
+    file: spec/lib/draft_tasks/commands/replace_attachment_spec.rb
+    label: nit
+    kind: test gap
+    push: both
+    note: "the oversized-audio example calls include(a_string_matching(/Byte size/)) on result.error, an error object, where the sibling examples use result.error.message; the example would fail for the wrong reason, the code under test is right"

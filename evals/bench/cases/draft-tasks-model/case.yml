@@ -145,3 +145,21 @@ labels:
       Creating a draft holds nothing, so no remaining-balance check belongs there; the cap is enforced by
       DraftTask's validate :points_within_budget (points <= membership.points_budget), which Create hits via
       draft.save, and the remaining-balance check happens in MarkReady when the hold is taken.
+# Accidents of case authoring that Thingie raised on bonusly/thingie#139, kept as labels because they are realistic noise.
+  - title: Non-local return inside the lock blocks skips lock cleanup
+    file: app/lib/draft_tasks/commands/mark_ready.rb
+    label: wrong
+    push: both
+    note: "the return statements inside the WithLockedDraft.call and WithLockedGiver.call blocks unwind past the services, but both services release their lock in an ensure (with_locked_draft.rb, with_locked_giver.rb), which runs on return; nothing is skipped"
+  - title: assignees plural keys never match English rules
+    file: config/locales/en/tasks.yml
+    label: nit
+    kind: latent edge case
+    push: both
+    note: "the assignees entry uses plural keys English never selects, so one form is dead; the rendered copy is correct for every count a caller sends"
+  - title: Inconsistent indentation in routes.rb
+    file: config/routes.rb
+    label: nit
+    kind: style
+    push: both
+    note: "a nested resources block is indented one level off; routes resolve the same"

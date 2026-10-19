@@ -92,6 +92,7 @@ The diff of each push against the fixture app: `git -C evals/bench/tmp/paged-con
 | Exact multiple of per_page triggers one extra empty search call | `app/lib/connectors/github/client.rb` | both | performance | pull_requests computes next_page with page_number * per_page <= total_count, so when total_count is exactly 50 or 100 the walk requests one more page that returns zero items before stopping. One wasted request in a rare case; should be <. |
 | Thread replies are capped at 500 and never paged | `app/lib/connectors/slack/queries/list_messages.rb` | both | latent edge case | replies_for fetches conversations.replies once with limit REPLY_LIMIT (500) and no oldest, then filters by since client-side; a thread with more than 500 replies silently loses the rest and the window is only applied to what came back. Needs a 500-reply thread inside a 14-day window to matter. |
 | Retries-exhausted path is untested | `spec/lib/connectors/jobs/sync_account_job_spec.rb` | both | test gap | The spec covers record-and-re-raise for unexpected errors but not the sidekiq_retries_exhausted block that records 'sync gave up'. Exercising it needs Sidekiq::Testing with raise_on_failure / the retry middleware; nice to have, not blocking. |
+| Unclear sentence in the connected search docs | `README.md` | both | documentation | one sentence in the connected search section reads awkwardly; the behaviour it describes is right |
 
 ## Wrong bait
 

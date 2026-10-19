@@ -92,3 +92,10 @@ labels:
     label: wrong
     push: both
     note: "cursors come from request params, but every tool resolves its account via ConnectorAccount.for_company(company).for_provider(provider).connected.where(user_id: user.id) and the cursor is only ever sent to that account's own API with that account's token; a cursor from another tenant is just a page token the provider interprets for the caller's own data. No cross-tenant read is possible."
+# An accident of case authoring that Thingie raised on bonusly/thingie#139, kept as a label because it is realistic noise.
+  - title: Unclear sentence in the connected search docs
+    file: README.md
+    label: nit
+    kind: documentation
+    push: both
+    note: "one sentence in the connected search section reads awkwardly; the behaviour it describes is right"
