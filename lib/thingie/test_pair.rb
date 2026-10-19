@@ -78,9 +78,8 @@ module Thingie
       changed = changed?(subject) ? ', also changed in this PR' : ''
       <<~TEXT.chomp
         The code these tests exercise: #{subject}#{changed}.
-        Report only problems with the tests: a test that passes while this code is wrong, or a
-        behaviour this PR changes that no test covers. A defect in the code itself belongs to that
-        file's review; do not report it here.
+        Report only a test that passes while this code is wrong. A missing test is not a finding, and a
+        defect in the code itself belongs to that file's review; do not report it here.
         #{capped(@changeset.full_content_for(subject))}
       TEXT
     end
