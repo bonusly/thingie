@@ -1,9 +1,9 @@
 name: Bench
 
-# Scores a pull request on the seeded cases when the `evals` label is added to it (add it again to re-run),
-# or on demand. One job per case in parallel, then one report: the job summary, a run file artifact, and
-# an "Eval results" comment on the pull request. Informational: it never blocks a merge. Each case is a
-# first and a final push reviewed on a paid model, so this is not on every push.
+# Scores a pull request on the seeded cases when a label is added to it: `eval-fast` runs the small cases
+# for a quick read, `eval-full` runs them all. Add the label again to re-run. One job per case in parallel,
+# then one report: the job summary, a run file artifact, and an "Eval results" comment on the pull request.
+# Informational: it never blocks a merge. Each case is a first and a final push reviewed on a paid model.
 on:
   pull_request:
     types: [labeled]
@@ -12,6 +12,9 @@ on:
       pr_number:
         description: "Pull request to comment on (optional)"
         required: false
+      tier:
+        description: "fast or full"
+        default: full
 
 concurrency:
   group: bench-${{ github.event.pull_request.number || github.ref }}
@@ -24,14 +27,23 @@ permissions:
 jobs:
   cases:
     name: List cases
-    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'evals'
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'eval-fast' || github.event.label.name == 'eval-full'
     runs-on: ubuntu-latest
     outputs:
       cases: ${{ steps.list.outputs.cases }}
+      tier: ${{ steps.list.outputs.tier }}
     steps:
       - uses: actions/checkout@v7
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+          bundler-cache: true
       - id: list
-        run: echo "cases=$(ls evals/bench/cases | jq -R . | jq -sc .)" >> "$GITHUB_OUTPUT"
+        run: |
+          tier="${{ github.event.inputs.tier || (github.event.label.name == 'eval-fast' && 'fast') || 'full' }}"
+          flag=""; [ "$tier" = fast ] && flag="--fast"
+          echo "tier=$tier" >> "$GITHUB_OUTPUT"
+          echo "cases=$(bundle exec evals/bench/run --list $flag | jq -R . | jq -sc .)" >> "$GITHUB_OUTPUT"
 
   case:
     name: ${{ matrix.case }}
@@ -70,6 +82,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
+      TIER: ${{ needs.cases.outputs.tier }}
     steps:
       - uses: actions/checkout@v7
       - uses: ruby/setup-ruby@v1
@@ -84,7 +97,7 @@ jobs:
       - name: Merge the cases and report against the baseline
         run: |
           ls tmp/bench/cases/*.json >/dev/null 2>&1 || { echo "No case finished." | tee -a "$GITHUB_STEP_SUMMARY"; exit 0; }
-          bundle exec evals/bench/run --merge tmp/bench/cases/*.json --no-record --label "${GITHUB_SHA::7}" --out tmp/bench/run.json | tee tmp/bench/report.md
+          bundle exec evals/bench/run --merge tmp/bench/cases/*.json --no-record --label "${GITHUB_SHA::7}-${TIER}" --out tmp/bench/run.json | tee tmp/bench/report.md
           cat tmp/bench/report.md >> "$GITHUB_STEP_SUMMARY"
       - name: Keep the run file
         if: always()
@@ -103,11 +116,18 @@ jobs:
           minutes=$(( ( $(date +%s) - $(date -d "$started" +%s) ) / 60 ))
           {
             sed -n '1,/^### Quality/p' tmp/bench/report.md | sed '$d'
-            echo '<details><summary>Details</summary>'
+            echo '<details><summary>Full report</summary>'
             echo
+            sed -n '/^### Quality/,$p' tmp/bench/report.md
+            echo
+            echo '</details>'
+            echo
+            echo '<details><summary>Run</summary>'
+            echo
+            echo "- Tier: ${TIER} ($(ls tmp/bench/cases/*.json | wc -l | tr -d ' ') cases, first and final push each)"
             echo "- Run time: ${minutes} min wall clock, cases in parallel"
-            echo "- Full report and run file: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-            echo "- Re-run: remove and add the \`evals\` label"
+            echo "- Logs and run file: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo "- Re-run: remove and add the \`eval-fast\` or \`eval-full\` label"
             echo
             echo '</details>'
           } > tmp/bench/comment.md

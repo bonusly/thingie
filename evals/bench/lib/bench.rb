@@ -50,6 +50,11 @@ module Bench
 
     attr_reader :name, :dir, :data
 
+    # The small cases, for a quick read: those whose case.yml says `tier: fast`.
+    def self.fast
+      all.select { |kase| kase.tier == 'fast' }
+    end
+
     def self.all
       cases = File.join(ROOT, 'cases')
       return [] unless File.directory?(cases)
@@ -73,6 +78,7 @@ module Bench
     end
 
     def title = data.fetch('title')
+    def tier = data.fetch('tier', 'full')
     def body = data.fetch('body', '')
     def labels = data.fetch('labels')
     def first_push? = File.directory?(File.join(dir, 'first-push'))

@@ -25,7 +25,13 @@ module Bench
       return rescore if @options[:rescore]
       return merge if @options[:merge]
 
-      cases = @names.empty? ? Case.all : @names.map { |name| Case.load(name) }
+      cases = if @names.empty?
+                @options[:fast] ? Case.fast : Case.all
+              else
+                @names.map { |name| Case.load(name) }
+              end
+      return puts(cases.map(&:name)) if @options[:list]
+
       abort 'No cases under evals/bench/cases; nothing to run.' if cases.empty?
       write(run_cases(cases))
     end
@@ -54,6 +60,8 @@ module Bench
         end
         o.on('--no-first-push', 'review only the final push of each case') { @options[:first_push] = false }
         o.on('--no-record', 'do not append to history.jsonl') { @options[:record] = false }
+        o.on('--fast', 'only the cases marked tier: fast (a quick read)') { @options[:fast] = true }
+        o.on('--list', 'print the case names that would run, and stop') { @options[:list] = true }
       end
     end
 
