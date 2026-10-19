@@ -1,0 +1,2111 @@
+{
+  "label": "main",
+  "totals": {
+    "quality": {
+      "real_recall": {
+        "found": 7,
+        "total": 13
+      },
+      "first_push_recall": {
+        "found": 8,
+        "total": 21
+      },
+      "reals_held_back": 0
+    },
+    "noise": {
+      "posted": 64,
+      "nit": 10,
+      "wrong": 0,
+      "unlabelled": 46,
+      "nit_rate": 16,
+      "wrong_rate": 0,
+      "changed_lines": 3890,
+      "threads_per_100_lines": 1.6,
+      "duplicates": 1
+    },
+    "calibration": {
+      "highs_real": {
+        "real": 6,
+        "total": 19
+      },
+      "mediums_nit": {
+        "nit": 7,
+        "total": 40
+      },
+      "conf3_posted": 0
+    },
+    "latency": {
+      "seconds": 1778,
+      "unchecked": 3,
+      "critic_timeouts": 3
+    },
+    "cost": {
+      "cost_usd": 9.76,
+      "input_tokens": 1603560,
+      "output_tokens": 1297086
+    }
+  },
+  "spread": null,
+  "cases": [
+    {
+      "case": "attach-drafts-to-lists",
+      "ref": "final-push",
+      "model": "z-ai/glm-5.3",
+      "metrics": {
+        "quality": {
+          "real_recall": {
+            "found": 1,
+            "total": 3
+          },
+          "first_push_recall": {
+            "found": 2,
+            "total": 5
+          },
+          "reals_held_back": 0
+        },
+        "noise": {
+          "posted": 11,
+          "nit": 2,
+          "wrong": 0,
+          "unlabelled": 8,
+          "nit_rate": 18,
+          "wrong_rate": 0,
+          "changed_lines": 686,
+          "threads_per_100_lines": 1.6,
+          "duplicates": 0
+        },
+        "calibration": {
+          "highs_real": {
+            "real": 0,
+            "total": 2
+          },
+          "mediums_nit": {
+            "nit": 2,
+            "total": 9
+          },
+          "conf3_posted": 0
+        },
+        "latency": {
+          "seconds": 321,
+          "unchecked": 0,
+          "critic_timeouts": 0
+        },
+        "cost": {
+          "cost_usd": 2.12,
+          "input_tokens": 329994,
+          "output_tokens": 290658
+        }
+      },
+      "first_pass": 35,
+      "posted": [
+        {
+          "title": "Comment#draft fetches draft without tenant scoping",
+          "file": "app/models/comment.rb",
+          "severity": 2,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**summary:** **What's wrong:** `Comment#draft` queries `DraftTask` by id only. `TenantScoped` adds no default scope, so this can load a draft belonging to a different company, and `CommentBlueprint` then serializes its `title`, `state`, and `points`.\n\n**When it happens:** `Comments::Commands::Create` permits `draft_task_id` from request params, so a client can store a foreign draft id; the comment's API response then leaks that draft's data.\n\n**Fix:** Scope the lookup to the comment's tenant:\n```ruby\nDraftTask.where(id: draft_task_id, company_id: company_id).first if draft_task_id\n```\n\n**what_wrong:** Comment#draft queries DraftTask by id only. TenantScoped adds no default scope, so this can load a draft belonging to a different company, and CommentBlueprint then serializes its title, state, and points.\n\n**when_happens:** Comments::Commands::Create permits draft_task_id from request params, so a client can store a foreign draft id; the comment's API response then leaks that draft's data.\n\n**fix:** Scope the lookup to the comment's tenant: DraftTask.where(id: draft_task_id, company_id: company_id).first if draft_task_id",
+          "label": null
+        },
+        {
+          "title": "Attach happy path is stubbed and untested",
+          "file": "spec/requests/api/v1/draft_tasks_spec.rb",
+          "severity": 3,
+          "confidence": 2,
+          "unchecked": false,
+          "details": "**What's wrong:** The example stubs `DraftTasks::Commands::Attach`, so no attachment ever happens, and the stub has no `with(...)`, so the controller's arguments go unchecked too. Only the echoed `id` is asserted — this is the only stubbed command call in `spec/requests`.\n\n**When it happens:** If the controller passed the wrong `list_id`, or the command broke, this test still passes.\n\n**Fix:** Drop the stub and assert the outcome, e.g. `expect(json[\"list_id\"]).to eq(list.id.to_s)` and `expect(draft.reload.list_id).to eq(list.id)`.",
+          "label": {
+            "title": "Attach request spec stubs the command so it passes with no attach",
+            "file": "spec/requests/api/v1/draft_tasks_spec.rb",
+            "label": "nit",
+            "kind": "test gap",
+            "push": "both",
+            "note": "the 'attaches the draft to the list' example stubs DraftTasks::Commands::Attach.call to return Result.success(draft) and asserts 200 and the id, so it would pass if the controller never attached anything; the command spec covers behaviour, the request spec only covers routing/authorization"
+          }
+        },
+        {
+          "title": "Destroy policy change lacks test coverage",
+          "file": "app/policies/list_policy.rb",
+          "severity": 2,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** `destroy?` now permits destroying any list that is not soft-deleted, dropping the old archived-only guard, but nothing tests the new rule — no policy spec is updated and the modified lists request spec contains no destroy cases.\n\n**When it happens:** A later edit re-requires `archived?` or re-allows destroying already-deleted lists, and the full suite still passes.\n\n**Fix:** Add specs: an owner/admin can destroy an active, non-archived list; an already soft-deleted list is rejected.",
+          "label": null
+        },
+        {
+          "title": "Swallowed comment failure permanently drops the draft note",
+          "file": "app/lib/lists/commands/convert_draft_task_comment.rb",
+          "severity": 3,
+          "confidence": 2,
+          "unchecked": false,
+          "details": "**What's wrong:** Any comment failure — validation errors raised by `.value!`, or transient DB errors — is silently swallowed. The draft was already marked sent by `SendDraft`, so the note is never retried and the author is never notified (the job only notifies on failure results).\n\n**When it happens:** `ConvertDraftTasksJob` converts a draft whose comment fails to save, e.g. a validation or database error during `Comments::Commands::Create`.\n\n**Fix:** Handle `Result.failure` explicitly — retry or notify the author — instead of returning `nil`, and log at `error` level.",
+          "label": {
+            "title": "Note comment failure is swallowed after the draft is already sent",
+            "file": "app/lib/lists/commands/convert_draft_task_comment.rb",
+            "label": "real",
+            "push": "both",
+            "note": "build_comment rescues StandardError from Comments::Commands::Create.value! (for example a note longer than Comment::MAX_BODY, which DraftTask does not validate), logs and returns nil; the task exists and the draft is sent, so the job cannot retry and the user sees a sent draft with its note missing"
+          }
+        },
+        {
+          "title": "Deleted-list guard lacks test coverage",
+          "file": "spec/lib/draft_tasks/commands/attach_spec.rb",
+          "severity": 3,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** `Attach` refuses deleted lists with a distinct failure (\"list ... has been deleted\"), but this spec never exercises that branch. Every other guard — archived, foreign company, sent state, non-author — has a case in this file.\n\n**When it happens:** Someone refactors `Attach` and drops or breaks the `list.deleted?` check; no spec fails, and drafts can be attached to deleted lists.\n\n**Fix:** Add a case mirroring the archived one: attach to a deleted list and assert the deleted failure.",
+          "label": null
+        },
+        {
+          "title": "Author name field causes N+1 on public pages",
+          "file": "app/lib/tasks/blueprints/task_summary_blueprint.rb",
+          "severity": 3,
+          "confidence": 2,
+          "unchecked": false,
+          "details": "**summary:** **What's wrong:** `task.author.display_name` lazily loads each task's author record. `Sharing::Queries::PublicList#tasks` builds tasks via `list.tasks.not_archived.ordered.to_a` with no `includes(:author)`, so every task adds one extra SQL query.\n\n**When it happens:** Any public share page request whose list has tasks — 30 tasks triggers 30 extra `User` queries per request, on unauthenticated traffic.\n\n**Fix:** Preload the association where tasks are loaded, e.g. `list.tasks.not_archived.ordered.includes(:author)`, and do the same for the search results passed to this blueprint.\n\n**confidence_note:** Verified the public list query performs no eager loading of authors.",
+          "label": null
+        },
+        {
+          "title": "Author name serialized twice in public payload",
+          "file": "app/lib/sharing/blueprints/public_draft_blueprint.rb",
+          "severity": 3,
+          "confidence": 2,
+          "unchecked": false,
+          "details": "**What's wrong:** the same value is rendered twice in this brand-new public payload: flat `author_name` (via `fields`) and nested `author: { name: ... }`. Consumers get two keys for one datum, and the public contract must now keep both in sync forever.\n\n**When it happens:** every draft in the share-page JSON contains both `\"author_name\"` and `\"author\": {\"name\": ...}` with identical values.\n\n**Fix:** keep exactly one form — drop `author_name` from `fields`, or drop the `author` block.",
+          "label": null
+        },
+        {
+          "title": "Notification creation result is silently ignored",
+          "file": "app/lib/lists/jobs/convert_draft_tasks_job.rb",
+          "severity": 3,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** `notify_failure` discards the `Result` returned by `Notifications::Commands::Create`, which fails when the recipient is not a company member or the notification record is invalid.\n\n**When it happens:** A draft's author was removed from the company, then their draft fails conversion; the notification is skipped with no log line or error.\n\n**Fix:** Capture the result and log failures, mirroring how the conversion result is handled in `perform`:\n\n```ruby\nresult = Notifications::Commands::Create.call(...)\nlogger.warn(\"draft #{draft.id} notification not created: #{result.error}\") if result.failure?\n```",
+          "label": null
+        },
+        {
+          "title": "Mid-run failure makes cleanup permanently unretryable",
+          "file": "app/lib/lists/commands/destroy.rb",
+          "severity": 3,
+          "confidence": 2,
+          "unchecked": false,
+          "details": "**What's wrong:** The list is marked deleted before the cleanup runs. If a later step raises, the run stops half-done, and retrying hits the `list.deleted?` guard and returns failure — the leftover cleanup never happens.\n\n**When it happens:** `revoke!` raises after `update!` saved; the next call short-circuits with \"already deleted\", so drafts, draft comments and active share links stay on the deleted list.\n\n**Fix:** Run the idempotent cleanup before `update!(deleted_at: ...)`, or wrap the body in a DB transaction.",
+          "label": null
+        },
+        {
+          "title": "New count fields add three queries per list",
+          "file": "app/lib/lists/blueprints/list_blueprint.rb",
+          "severity": 3,
+          "confidence": 2,
+          "unchecked": false,
+          "details": "**What's wrong:** `member_count` calls `list.members`, a non-memoized method that issues two queries (`draft_tasks.attached.not_sent.distinct(:author_id)` plus a `User` count). `attached_draft_count` then runs the same `attached.not_sent` filter a third time.\n\n**When it happens:** `GET /api/v1/lists` renders every list with `:with_counts`, so each list now fires ~5 count queries (previously 2); 50 lists means roughly 250 queries per request.\n\n**Fix:** Memoize `List#members`/`attached_author_ids`, or compute all counts in one aggregation inside the `ListLists` query and pass them to the blueprint.",
+          "label": null
+        },
+        {
+          "title": "Comment collections fire one query per draft",
+          "file": "app/lib/comments/blueprints/comment_blueprint.rb",
+          "severity": 3,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** `Comment#draft` runs a separate `DraftTask` query every time it is called. The blueprint is rendered with `render_collection` on comment index endpoints, so a thread of N attached-draft comments now costs 1 + N queries.\n\n**When it happens:** `GET /api/v1/lists/:id/comments` (or the tasks equivalent) returns many \"attached a draft\" comments; each one triggers its own `DraftTask.where(...)` lookup.\n\n**Fix:** Batch-load once — e.g. build a `DraftTask.in(id: draft_task_ids)` map in the comments query and pass it via blueprint options — instead of calling `comment.draft` per comment.",
+          "label": {
+            "title": "Comment list loads the draft once per comment",
+            "file": "app/lib/comments/blueprints/comment_blueprint.rb",
+            "label": "nit",
+            "kind": "performance",
+            "push": "both",
+            "note": "the draft field calls comment.draft (DraftTask.where(id:).first) for each comment rendered; the comments index is paginated (25 default, 100 max) and only attach comments have draft_task_id, so it is a bounded N+1 off the hot path"
+          }
+        }
+      ],
+      "held_back": [
+        {
+          "title": "Destroy returns success without deleting comment",
+          "file": "app/lib/comments/commands/destroy.rb",
+          "severity": 3,
+          "confidence": 3,
+          "unchecked": false,
+          "details": "**What's wrong:** When the comment holds a draft, deletion is delegated to `DraftTasks::Commands::Detach`. If the draft is not attached (or is attached to a different list), `Detach` succeeds without deleting any comment, yet `Destroy` still reports success.\n\n**When it happens:** The comment's `draft_task_id` references a draft whose `list` is nil or another list. The API answers success and the comment stays visible.\n\n**Fix:** After a successful detach, remove the comment explicitly (idempotent):\n\n```ruby\nresult = DraftTasks::Commands::Detach.call(draft: draft, actor: actor)\nreturn result if result.failure?\n\nComment.where(id: comment.id).delete_all\nResult.success(comment)\n```",
+          "label": null
+        }
+      ],
+      "warnings": [
+        "Asked again for the review JSON of spec/models/list_spec.rb after no valid JSON found in response",
+        "Asked again for the verdict on ''Refuses other members' test uses a non-member' (spec/lib/comments/commands/destroy_spec.rb) after the critic reply has no JSON",
+        "Asked again for the verdict on 'New draft field lacks test coverage' (app/lib/comments/blueprints/comment_blueprint.rb) after the critic reply has no verdict"
+      ],
+      "repeat": 0
+    },
+    {
+      "case": "attach-drafts-to-lists",
+      "ref": "first-push",
+      "model": "z-ai/glm-5.3",
+      "metrics": {
+        "quality": {
+          "real_recall": {
+            "found": 2,
+            "total": 5
+          },
+          "first_push_recall": null,
+          "reals_held_back": 0
+        },
+        "noise": {
+          "posted": 13,
+          "nit": 1,
+          "wrong": 0,
+          "unlabelled": 10,
+          "nit_rate": 8,
+          "wrong_rate": 0,
+          "changed_lines": 650,
+          "threads_per_100_lines": 2.0,
+          "duplicates": 0
+        },
+        "calibration": {
+          "highs_real": {
+            "real": 2,
+            "total": 2
+          },
+          "mediums_nit": {
+            "nit": 1,
+            "total": 9
+          },
+          "conf3_posted": 0
+        },
+        "latency": {
+          "seconds": 257,
+          "unchecked": 0,
+          "critic_timeouts": 0
+        },
+        "cost": {
+          "cost_usd": 1.97,
+          "input_tokens": 286897,
+          "output_tokens": 287466
+        }
+      },
+      "first_pass": 29,
+      "posted": [
+        {
+          "title": "Public author field leaks private draft author names",
+          "file": "app/lib/sharing/blueprints/public_draft_blueprint.rb",
+          "severity": 2,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** The `author` field reads `view.draft.author.name` directly, bypassing the privacy guard in `DraftPublicView`, which sets `author_name` to nil for private drafts and uses `display_name` (with email fallback). The public payload can expose the real author name anyway.\n\n**When it happens:** A visitor opens a share page whose list has a draft where `private?` is true: `author_name` renders null but `author.name` shows the real name (plus the author id).\n\n**Fix:** Use the view's guarded value instead of the raw association:\n\n```ruby\nfield :author do |view|\n  view.author_name && { id: view.draft.author_id.to_s, name: view.author_name }\nend\n```",
+          "label": {
+            "title": "Public share page leaks the author of a private draft",
+            "file": "app/lib/sharing/blueprints/public_draft_blueprint.rb",
+            "label": "real",
+            "push": "first",
+            "note": "early PublicDraftBlueprint's author field renders view.draft.author.name (and author_id) for every draft, so a private draft has author_name nil but author.name set; the share page is unauthenticated; head renders author only from author_name"
+          }
+        },
+        {
+          "title": "Draft is created after the job already ran",
+          "file": "spec/lib/lists/jobs/convert_draft_tasks_job_spec.rb",
+          "severity": 3,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** `draft` is a lazy `let` from the shared context, and in this example it is first referenced only after `perform`. So the list contains just `broken` while the job runs.\n\n**When it happens:** Running this spec: the job never sees `draft`, so `expect(draft.reload).to be_sent` fails — the draft is created at that line, still `ready`.\n\n**Fix:** Force creation before `perform`, as the archived-list example does (the first example needs it too):\n\n```ruby\ndraft\nbroken = create(:draft_task, :ready, company: company, list: list, author: member)\n```",
+          "label": null
+        },
+        {
+          "title": "Swallowed comment failures silently drop draft notes",
+          "file": "app/lib/lists/commands/convert_draft_task_comment.rb",
+          "severity": 2,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** Every comment failure is swallowed: `.value!` raises on the failure Results that `Comments::Commands::Create` returns (and on real bugs), and the rescue hides all of it at warn level.\n\n**When it happens:** A ready draft converts and comment creation fails — the draft is already `sent`, so the task ships without its note, and `ConvertDraftTasksJob` skips its `draft_conversion_failed` author notification because the command still returns success.\n\n**Fix:** At minimum log at `error`; better, return a failure Result from `call` so `notify_failure` informs the author.",
+          "label": {
+            "title": "Note comment failure is swallowed after the draft is already sent",
+            "file": "app/lib/lists/commands/convert_draft_task_comment.rb",
+            "label": "real",
+            "push": "both",
+            "note": "build_comment rescues StandardError from Comments::Commands::Create.value! (for example a note longer than Comment::MAX_BODY, which DraftTask does not validate), logs and returns nil; the task exists and the draft is sent, so the job cannot retry and the user sees a sent draft with its note missing"
+          }
+        },
+        {
+          "title": "Soft-deleted lists keep their unique slug",
+          "file": "app/models/list.rb",
+          "severity": 3,
+          "confidence": 2,
+          "unchecked": false,
+          "details": "**What's wrong:** Deleting now only stamps `deleted_at`; the document stays in the collection and keeps its `slug`, so the unique index on `{ company_id, slug }` still counts the tombstone and that slug stays taken forever.\n\n**When it happens:** A user deletes the \"Marketing\" list, then later creates a new \"Marketing\" list. Slug generation collides with the invisible deleted document: creation fails with a duplicate-key/uniqueness error, or the new list gets a suffixed slug even though no visible list uses that name.\n\n**Fix:** Use a partial unique index (`partialFilterExpression: { deleted_at: null }`), scope slug-uniqueness checks to `not_deleted`, or clear/rename the slug when soft-deleting.",
+          "label": null
+        },
+        {
+          "title": "author_name field triggers N+1 user queries",
+          "file": "app/lib/tasks/blueprints/task_summary_blueprint.rb",
+          "severity": 3,
+          "confidence": 2,
+          "unchecked": false,
+          "details": "**What's wrong:** The new field calls `task.author.display_name` for every task, but no call site preloads `author` (no `includes`/`preload` exists in `app/`). Each task triggers one extra `User` query.\n\n**When it happens:** The public share page and the search endpoint render this blueprint; a list with 50 tasks fires ~50 extra queries per page view.\n\n**Fix:** Preload authors where the tasks collection is loaded, e.g. `tasks.includes(:author)` in both the public list query and the search controller.",
+          "label": null
+        },
+        {
+          "title": "Rendering comments fires one DraftTask query each",
+          "file": "app/models/comment.rb",
+          "severity": 3,
+          "confidence": 2,
+          "unchecked": false,
+          "details": "**What's wrong:** `draft` runs a fresh `DraftTask.where(id: ...)` query on every call, and `CommentBlueprint` calls it once per rendered comment — a classic N+1.\n\n**When it happens:** A request renders a comment list where several comments have `draft_task_id` set; each one triggers its own query.\n\n**Fix:** Replace the raw field with `belongs_to :draft_task, optional: true` (drop the manual field and method) and render collections with `Comment.includes(:draft_task)`.",
+          "label": {
+            "title": "Comment list loads the draft once per comment",
+            "file": "app/lib/comments/blueprints/comment_blueprint.rb",
+            "label": "nit",
+            "kind": "performance",
+            "push": "both",
+            "note": "the draft field calls comment.draft (DraftTask.where(id:).first) for each comment rendered; the comments index is paginated (25 default, 100 max) and only attach comments have draft_task_id, so it is a bounded N+1 off the hot path"
+          }
+        },
+        {
+          "title": "Draft author assertion compares wrong attribute",
+          "file": "spec/requests/public/share_pages_spec.rb",
+          "severity": 4,
+          "confidence": 2,
+          "unchecked": false,
+          "details": "**What's wrong:** `DraftPublicView` renders `author.display_name`, but this expectation compares the payload value to `member.name`. The sibling task assertion correctly uses `admin.display_name`.\n\n**When it happens:** The test only passes because both values happen to match for factory users; if `display_name` falls back to email or differs from `name`, the expectation no longer matches what the endpoint returns.\n\n**Fix:** Assert the attribute actually rendered:\n```ruby\nexpect(json[\"drafts\"].first[\"author\"][\"name\"]).to eq(member.display_name)\n```",
+          "label": null
+        },
+        {
+          "title": "Index runs five count queries per list",
+          "file": "app/lib/lists/blueprints/list_blueprint.rb",
+          "severity": 3,
+          "confidence": 2,
+          "unchecked": false,
+          "details": "**summary:** **What's wrong:** `ListsController#index` renders the `with_counts` view for every list, and each added field runs its own Mongo query; `member_count` alone costs two (`draft_tasks.attached.not_sent.distinct(:author_id)` plus a `User` count).\n\n**When it happens:** A company with 100 lists triggers roughly 500 queries to render the index response.\n\n**Fix:** Batch the counts in one aggregate grouped by `list_id`, or memoize the shared `attached.not_sent` criteria on the list.",
+          "label": null
+        },
+        {
+          "title": "member_count and member_ids count different people",
+          "file": "app/lib/lists/blueprints/list_blueprint.rb",
+          "severity": 3,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**summary:** **What's wrong:** `member_count` uses `list.members`, which merges stored `member_ids` with authors of attached, unsent drafts. The base `member_ids` field only exposes the stored ids, so the same response can show 1 member id but a count of 3.\n\n**When it happens:** A list with one stored member and an attached draft written by another user renders `member_ids: [\"<owner>\"]` yet `member_count: 2`.\n\n**Fix:** Count the same set you expose, e.g. `list.member_ids.size`, or rename the field (e.g. `effective_member_count`) if the wider set is intended.",
+          "label": null
+        },
+        {
+          "title": "Attached guard misses deleted lists, diverging from SendDraft",
+          "file": "app/lib/draft_tasks/commands/mark_ready.rb",
+          "severity": 3,
+          "confidence": 2,
+          "unchecked": false,
+          "details": "**What's wrong:** `attached?` only checks `list_id.present?`, but the sibling `SendDraft` command treats a draft on a deleted list as not attached, raising the same `DraftTasks::NotAttached` error from a different condition.\n\n**When it happens:** A draft sits on a soft-deleted list: `mark_ready` passes this guard, marks it ready and reserves its points, yet `send_draft` then always fails — the draft is stuck in `ready` with points held.\n\n**Fix:** Share one predicate, e.g. make `attached?` also require `!list.deleted?`, and call it from both commands.",
+          "label": null
+        },
+        {
+          "title": "Attach-comment deletion query duplicated across commands",
+          "file": "app/lib/draft_tasks/commands/detach.rb",
+          "severity": 4,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** The query that finds and deletes a draft's attach comment is copy-pasted from `Attach#replace_attach_comment`. The rule \"an attach comment is a `List` comment tagged with `draft_task_id`\" is now encoded in two commands.\n\n**When it happens:** If how attach comments are stored ever changes (e.g. a different `commentable_type`), both sites must be updated in sync; missing one leaves stale comments on the list after detaching.\n\n**Fix:** Extract a `Comment` scope such as `attach_comment_for(draft, list_id)` and call it from both `Attach` and `Detach`.\n\n```ruby\nComment.attach_comment_for(locked, previous_list_id).delete_all\n```",
+          "label": null
+        },
+        {
+          "title": "Failed attach leaves draft attached, comment missing",
+          "file": "app/lib/draft_tasks/commands/attach.rb",
+          "severity": 3,
+          "confidence": 2,
+          "unchecked": false,
+          "details": "**What's wrong:** The draft is persisted before its attach comment is replaced. If `Comments::Commands::Create` fails, `.value!` raises after the old comment was already deleted, leaving the draft attached with no comment.\n\n**When it happens:** Comment creation fails once; a retry hits the `draft.list_id == list.id` early return, so the attach comment is never recreated.\n\n**Fix:** Create the new comment before updating the draft, and delete the old comment only after both succeed.",
+          "label": null
+        },
+        {
+          "title": "Destroy returns success without deleting comment",
+          "file": "app/lib/comments/commands/destroy.rb",
+          "severity": 3,
+          "confidence": 2,
+          "unchecked": false,
+          "details": "**What's wrong:** `Detach` returns an early success when the draft is not `attached?` and deletes no comments, but `release_draft` then returns success unconditionally — a \"destroyed\" comment can still exist.\n\n**When it happens:** The list comment references a live draft whose `attached?` is false (e.g. a flow that un-attaches without cleaning up comments); the API reports deleted, but the comment stays and can never be removed via this command.\n\n**Fix:** Guarantee removal after detaching:\n\n```ruby\ncomment.destroy! if Comment.where(id: comment.id).exists?\n```",
+          "label": null
+        }
+      ],
+      "held_back": [],
+      "warnings": [
+        "Asked again for the review JSON of spec/factories/lists.rb after no valid JSON found in response",
+        "Asked again for the review JSON of app/models/draft_task.rb after no valid JSON found in response",
+        "Asked again for the verdict on 'Failed attach leaves draft attached, comment missing' (app/lib/draft_tasks/commands/attach.rb) after the critic reply has no JSON",
+        "Asked again for the verdict on 'Destroy returns success without deleting comment' (app/lib/comments/commands/destroy.rb) after the critic reply has no JSON",
+        "Asked again for the verdict on 'Soft-deleted lists keep their unique slug' (app/models/list.rb) after the critic reply has no JSON",
+        "Asked again for the verdict on 'Draft is created after the job already ran' (spec/lib/lists/jobs/convert_draft_tasks_job_spec.rb) after the critic reply has no JSON"
+      ],
+      "repeat": 0
+    },
+    {
+      "case": "draft-tasks-api",
+      "ref": "final-push",
+      "model": "z-ai/glm-5.3",
+      "metrics": {
+        "quality": {
+          "real_recall": {
+            "found": 2,
+            "total": 3
+          },
+          "first_push_recall": {
+            "found": 2,
+            "total": 5
+          },
+          "reals_held_back": 0
+        },
+        "noise": {
+          "posted": 19,
+          "nit": 4,
+          "wrong": 0,
+          "unlabelled": 13,
+          "nit_rate": 21,
+          "wrong_rate": 0,
+          "changed_lines": 864,
+          "threads_per_100_lines": 2.2,
+          "duplicates": 0
+        },
+        "calibration": {
+          "highs_real": {
+            "real": 2,
+            "total": 7
+          },
+          "mediums_nit": {
+            "nit": 3,
+            "total": 9
+          },
+          "conf3_posted": 0
+        },
+        "latency": {
+          "seconds": 369,
+          "unchecked": 3,
+          "critic_timeouts": 3
+        },
+        "cost": {
+          "cost_usd": 2.27,
+          "input_tokens": 421385,
+          "output_tokens": 305196
+        }
+      },
+      "first_pass": 38,
+      "posted": [
+        {
+          "title": "Feature flag subject mismatch breaks mark_ready rollout",
+          "file": "app/policies/draft_task_policy.rb",
+          "severity": 2,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** `mark_ready?` checks `Features.enabled?(:draft_tasks, user)`, which matches the user's email against the flag's `users` list. The controller gate `require_feature!(:draft_tasks)` checks `current_company` against `companies` slugs. Same flag, two different subjects.\n\n**When it happens:** Production enables `draft_tasks` only via `companies: [acme, northwind]` with no `users`. Acme users pass the controller gate, but `mark_ready?` is always false, so the whole draft-to-send flow 403s for every rollout company. Specs miss it because `enable_feature(:draft_tasks)` turns on `everyone`.\n\n**Fix:** Use the same subject as the controller:\n\n```ruby\nsame_company? && author? && record.drafting? && Features.enabled?(:draft_tasks, record.company)\n```\n\nor drop the check, since the controller's `before_action` already gates this action.",
+          "label": {
+            "title": "Policy and controller check the flag against different subjects",
+            "file": "app/policies/draft_task_policy.rb",
+            "label": "real",
+            "push": "final",
+            "note": "`mark_ready?` adds `Features.enabled?(:draft_tasks, user)` while RequiresFeature checks `Features.enabled?(:draft_tasks, current_company)`. Features matches a Company by slug and a User by email, so a flag rolled out with `companies:` (the production config) passes the controller and fails the policy: mark_ready is a 403 for every pilot company. Specs enable the flag with `everyone: true` so they do not see it."
+          }
+        },
+        {
+          "title": "Draft can be converted twice, creating duplicate tasks",
+          "file": "app/lib/lists/commands/convert_draft_task_comment.rb",
+          "severity": 2,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** `SendDraft` creates the task while holding the draft's Redis lock, but the lock is released before `mark_sent!` runs here. Another request still sees the draft as `ready` and creates a second task.\n\n**When it happens:** Double-clicking the convert action, or `build_comment` raising via `.value!` after the task was already created and the user retries.\n\n**Fix:** Run comment creation, `mark_sent!` and the notification inside the locked section, e.g. by passing a callback/block to `SendDraft`.",
+          "label": {
+            "title": "mark_sent! runs after the lock is released",
+            "file": "app/lib/lists/commands/convert_draft_task_comment.rb",
+            "label": "real",
+            "push": "both",
+            "note": "ConvertDraftTaskComment calls SendDraft with `finalize: false` (task created under WithLockedDraft) and then calls `draft.mark_sent!(task)` after the block has returned the lock. A release that claims ready -> drafting in between makes the claim in `mark_sent!` raise WrongState: the task exists, points are spent, and the draft is back in drafting where it can be marked ready and sent again."
+          }
+        },
+        {
+          "title": "Shared lock service raises SendDraft-scoped error",
+          "file": "app/lib/draft_tasks/services/with_locked_draft.rb",
+          "severity": 3,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** The generic `WithLockedDraft` service now raises `DraftTasks::Commands::SendDraft::Lock::Busy`, a class owned by one specific command. `MarkReady` and `Release` use this same service, so their lock failures raise and rescue an error named after `SendDraft`, and the service layer depends on a command namespace.\n\n**When it happens:** Lock contention while running `MarkReady` or `Release` — the error object is `SendDraft::Lock::Busy`, misattributing the failure and breaking if `SendDraft` is renamed.\n\n**Fix:** Move the class to the shared error home, e.g. `DraftTasks::LockBusy < DraftTasks::Error` in `draft_tasks/errors.rb`, and update all raise/rescue sites.",
+          "label": {
+            "title": "Lock::Busy lives in the Send command but is raised by the lock service",
+            "file": "app/lib/draft_tasks/services/with_locked_draft.rb",
+            "label": "nit",
+            "kind": "structure",
+            "push": "both",
+            "note": "WithLockedDraft raises `DraftTasks::Commands::SendDraft::Lock::Busy`, which MarkReady and Release also rescue, so the error class is owned by one command but shared by three callers and the lock service. Behaviour is correct; this is placement."
+          }
+        },
+        {
+          "title": "Limit keeps oldest 50 comments, drops newest",
+          "file": "app/lib/draft_tasks/queries/list_draft_comments.rb",
+          "severity": 2,
+          "confidence": 2,
+          "unchecked": false,
+          "details": "**What's wrong:** `chronological` orders comments oldest-first, so `.limit(LIMIT)` returns the 50 *oldest* comments and silently drops every comment added after that. Users can never see the latest ones. The sibling `Comments::Queries::ListComments` has no cap at all.\n\n**When it happens:** The sent task has 51+ comments; the draft comments endpoint renders only the first 50, so the newest comments are invisible.\n\n**Fix:** Take the newest 50, then present them oldest-first:\n\n```ruby\nComment.where(commentable_type: \"Task\", commentable_id: draft.sent_task_id)\n       .order(created_at: :desc).limit(LIMIT).reverse\n```\n\nUpdate the \"caps the list\" spec to assert the newest comments are kept.",
+          "label": null
+        },
+        {
+          "title": "One failing draft blocks all scheduled sends",
+          "file": "app/lib/draft_tasks/jobs/send_scheduled_drafts_job.rb",
+          "severity": 2,
+          "confidence": 2,
+          "unchecked": false,
+          "details": "**What's wrong:** Re-raising inside `send_one` stops the whole loop, so a draft that keeps failing blocks every draft after it. After Sidekiq's 3 retries the job dies and no scheduled sends happen at all.\n\n**When it happens:** One draft's Mongo write fails persistently, e.g. a duplicate-key `OperationFailure`; each retry run stops at that draft and the drafts behind it are never sent.\n\n**Fix:** Log and continue instead of re-raising — the failed draft stays in the `ready` scope, so the next scheduled run retries it:",
+          "label": null
+        },
+        {
+          "title": "New ReadOnlyKeys error has no test coverage",
+          "file": "app/lib/draft_tasks/errors.rb",
+          "severity": 3,
+          "confidence": 2,
+          "unchecked": false,
+          "details": "**What's wrong:** `ReadOnlyKeys` is raised when a client tries to set protected params, but no spec in the repo references the class, its message, or its `draft_tasks.errors.read_only` translation key.\n\n**When it happens:** A `PATCH` sending a read-only param (e.g. `state`) must be rejected; if the guard regresses, no test fails and clients could silently overwrite protected fields.\n\n**Fix:** Add a request spec that submits a read-only param and asserts the error status and message.",
+          "label": null
+        },
+        {
+          "title": "Failed replacement still deletes the old recording",
+          "file": "spec/lib/draft_tasks/commands/replace_attachment_spec.rb",
+          "severity": 2,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** `ReplaceAttachment` destroys the draft's current recording before validating the new upload. On rejection the old recording is already gone and `attachment_id` dangles, but this test only checks the failure.\n\n**When it happens:** A draft that already has a recording receives an upload above `MEDIA_MAX_BYTES`; the command returns failure after `draft.attachment&.destroy` already ran.\n\n**Fix:** Assert the old recording survives, and in the command destroy it only after the new upload validates.",
+          "label": {
+            "title": "Old recording is removed before the new upload is validated",
+            "file": "app/lib/draft_tasks/commands/replace_attachment.rb",
+            "label": "nit",
+            "kind": "documented tradeoff",
+            "push": "both",
+            "note": "`draft.attachment&.destroy` runs before `attachment.update(draft_task_id: ...)`, so a media-limit validation failure on the new upload leaves the draft with no recording. Only reachable when an over-limit media file got past the client's pre-upload check, and the PR body states it as a deliberate tradeoff with a follow-up."
+          }
+        },
+        {
+          "title": "Concurrent drafts can claim the same attachment",
+          "file": "app/lib/draft_tasks/commands/replace_attachment.rb",
+          "severity": 2,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** `claimed?` is read before `draft_task_id` is written in a separate `update`, so two requests can both see \"unclaimed\" and both claim the attachment; both drafts then point at one attachment owned by only one of them, and the unconditional `draft.attachment&.destroy` can later delete a recording another record now owns.\n\n**When it happens:** The same fresh upload is attached to two different drafts at nearly the same time; both pass the `claimed?` check inside the race window.\n\n**Fix:** Claim atomically like `DraftTask#claim!` does: `Attachment.where(id: attachment.id, draft_task_id: nil, task_id: nil).find_one_and_update({ \"$set\" => { draft_task_id: draft.id } })` and treat a `nil` result as `:claimed`.",
+          "label": null
+        },
+        {
+          "title": "Un-prefixed Tasks:: constant can NameError at load",
+          "file": "app/controllers/api/v1/draft_tasks_controller.rb",
+          "severity": 2,
+          "confidence": 2,
+          "unchecked": true,
+          "details": "**What's wrong:** `Tasks::Blueprints::TaskBlueprint` lacks the leading `::` that this same diff adds to the `DraftTasks::` constants. Ruby resolves a bare `Tasks` through the enclosing `Api::V1` scope, and a `Tasks` module already exists there (`app/controllers/api/v1/tasks/comments_controller.rb`), so it can resolve to `Api::V1::Tasks` instead of the top-level `Tasks`.\n\n**When it happens:** If `Api::V1::Tasks` is loaded before this controller loads (order-dependent), the class-body lookup raises `NameError: uninitialized constant Api::V1::Tasks::Blueprints`, breaking every draft-task request.\n\n**Fix:** Prefix the constant path:\n\n```ruby\nTASK_BLUEPRINT = ::Tasks::Blueprints::TaskBlueprint\n```",
+          "label": null
+        },
+        {
+          "title": "Oversized attachment fails validation at create",
+          "file": "spec/lib/draft_tasks/commands/replace_attachment_spec.rb",
+          "severity": 3,
+          "confidence": 2,
+          "unchecked": false,
+          "details": "**What's wrong:** `Attachment` validates `byte_size` against `MEDIA_MAX_BYTES` whenever the file is audio or video, including on create. This record is therefore invalid, so `create` raises `Mongoid::Errors::Validations` and the example never reaches the command.\n\n**When it happens:** Running the suite; the factory tries to persist a 10 MB + 1 byte audio upload.\n\n**Fix:** Persist without validations, e.g. `upload = build(...); upload.save(validate: false)`.",
+          "label": null
+        },
+        {
+          "title": "Draft-claimed attachments are never tested as claimed",
+          "file": "spec/models/attachment_spec.rb",
+          "severity": 4,
+          "confidence": 2,
+          "unchecked": false,
+          "details": "**What's wrong:** `claimed?` is true when `task_id` or `draft_task_id` is set, but the test only asserts the task case. The draft branch that `ReplaceAttachment` relies on to reject already-claimed recordings is untested.\n\n**When it happens:** If `draft_task_id.present?` is dropped from `claimed?`, this spec still passes and one recording could be attached to two drafts.\n\n**Fix:** Add `expect(build(:attachment, :unclaimed, draft_task_id: BSON::ObjectId.new)).to be_claimed`.",
+          "label": null
+        },
+        {
+          "title": "Task stores draft link twice, index unused",
+          "file": "app/models/task.rb",
+          "severity": 4,
+          "confidence": 2,
+          "unchecked": false,
+          "details": "**What's wrong:** The draft→task link is now stored in two places: `Task#draft_task_id` and the existing `DraftTask#sent_task_id`. Nothing queries tasks by `draft_task_id`, so the new sparse index only adds write overhead, and the two copies can drift.\n\n**When it happens:** `SendDraft` creates the task with `draft_task_id`, then `mark_sent!` separately writes `sent_task_id`; if `mark_sent!` fails or `finalize: false`, only one side is set.\n\n**Fix:** Drop both lines and read the link via `draft.sent_task`, or keep a single direction.",
+          "label": null
+        },
+        {
+          "title": "Duplicate size validations produce conflicting errors",
+          "file": "app/models/attachment.rb",
+          "severity": 3,
+          "confidence": 2,
+          "unchecked": true,
+          "details": "**What's wrong:** Two separate `validates :byte_size` lines both run for media files. An oversized video fails both, so `errors[:byte_size]` gets two contradictory messages (\"must be less than or equal to 26214400\" and \"... 10485760\").\n\n**When it happens:** Uploading any audio or video file larger than `MAX_BYTES` (25 MB); `attachment.errors.full_messages` then returns both size errors to the client.\n\n**Fix:** Make the two validations mutually exclusive so only one runs per record:\n\n```ruby\nvalidates :byte_size, numericality: { greater_than: 0, less_than_or_equal_to: MAX_BYTES }, unless: :media?\nvalidates :byte_size, numericality: { greater_than: 0, less_than_or_equal_to: MEDIA_MAX_BYTES }, if: :media?\n```",
+          "label": null
+        },
+        {
+          "title": "Concurrent edits write the same revision",
+          "file": "app/lib/draft_tasks/commands/update.rb",
+          "severity": 3,
+          "confidence": 2,
+          "unchecked": false,
+          "details": "**What's wrong:** `draft.revision + 1` is read from the in-memory copy and written with a plain `$set`. If two edits run at the same time, both read the same revision and both persist the same next number, so the counter silently loses an increment.\n\n**When it happens:** Two requests edit the same draft concurrently, e.g. a double-submit or two browser tabs.\n\n**Fix:** Let MongoDB increment it atomically: drop `revision` from the `set` hash and use `draft.inc(revision: 1)` (a `$inc` update).",
+          "label": null
+        },
+        {
+          "title": "Failed edits still release the draft",
+          "file": "app/lib/draft_tasks/commands/release.rb",
+          "severity": 3,
+          "confidence": 2,
+          "unchecked": true,
+          "details": "**What's wrong:** `resume_drafting!` saves the new state before the edits are checked. If `locked.update(edits)` fails, the draft is already back in `drafting` with its reservation freed, yet a failure is returned.\n\n**When it happens:** Releasing a `ready` draft with an invalid `note` or `scheduled_for` shows an error, but the draft actually moved; retrying then hits the `drafting?` early-return and silently drops the edits.\n\n**Fix:** Validate first, then transition once, mirroring `MarkReady`:\n\n```ruby\nlocked.assign_attributes(edits)\nreturn Result.failure(locked.errors.full_messages) unless locked.valid?\nlocked.resume_drafting!\n```",
+          "label": null
+        },
+        {
+          "title": "Attachment field causes N+1 queries on index",
+          "file": "app/lib/draft_tasks/blueprints/draft_task_blueprint.rb",
+          "severity": 3,
+          "confidence": 2,
+          "unchecked": false,
+          "details": "**What's wrong:** The new `attachment` field calls `draft.attachment`, which runs a separate `Attachment.where(id: ...)` query for each draft. The `index` action renders a whole collection through this blueprint, so every draft with an attachment adds one extra DB query.\n\n**When it happens:** `GET /api/v1/draft_tasks` returning 50 drafts with attachments fires roughly 50 extra queries on top of the list query.\n\n**Fix:** Batch-load attachments once (e.g. `Attachment.in(id: ids)` mapped by `attachment_id` in `ListDrafts`) and render from that map, or memoize the lookup.",
+          "label": null
+        },
+        {
+          "title": "Serializer queries DraftTask once per comment",
+          "file": "app/lib/draft_tasks/blueprints/comment_blueprint.rb",
+          "severity": 3,
+          "confidence": 2,
+          "unchecked": false,
+          "details": "**What's wrong:** The `draft` block calls `DraftTask.find` for every from-draft comment — a DB query inside the serializer. It also raises `Mongoid::Errors::DocumentNotFound` if the referenced draft no longer exists, failing the whole comments response.\n\n**When it happens:** Listing comments where several carry `draft_task_id` (a bare field with no association, so nothing nullifies it after a draft is deleted).\n\n**Fix:** Batch-load drafts in `ListDraftComments` (`DraftTask.where(:_id.in => ids)`) and pass the map via render `options`; return `nil` when a draft is missing.",
+          "label": {
+            "title": "Per-comment DraftTask.find in the comments blueprint",
+            "file": "app/lib/draft_tasks/blueprints/comment_blueprint.rb",
+            "label": "nit",
+            "kind": "performance",
+            "push": "both",
+            "note": "The `draft` field does `DraftTask.find(comment.draft_task_id)` per comment. The list is capped at ListDraftComments::LIMIT (50) and in practice one comment per task comes from a draft, so this is a handful of extra reads on a cold endpoint, not something to block on."
+          }
+        },
+        {
+          "title": "Duplicated `draft` helper across three controllers",
+          "file": "app/controllers/api/v1/draft_tasks/comments_controller.rb",
+          "severity": 4,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**text:** **What's wrong:** The `draft` memoized finder is copy-pasted verbatim into `CommentsController` and `AttachmentsController`, with a near-identical variant in `DraftTasksController` (only the param key differs). The `DraftTaskScoped` concern added in this same PR is the natural shared home for it.\n\n**When it happens:** Any future change to draft lookup (scoping, soft-delete handling, error behavior) must now be repeated in three controllers and can silently diverge.\n\n**Fix:** Define it once in `DraftTaskScoped`:\n\n```ruby\ndef draft\n  @draft ||= draft_tasks.find(params[:draft_task_id] || params[:id])\nend\n```\n\nand delete the three per-controller copies.",
+          "label": null
+        },
+        {
+          "title": "Hand-rolled failure rendering bypasses shared result helper",
+          "file": "app/controllers/api/v1/draft_tasks/attachments_controller.rb",
+          "severity": 3,
+          "confidence": 2,
+          "unchecked": false,
+          "details": "**summary:** **What's wrong:** Every sibling command action in this controller family renders results through the shared `render_result` helper (see `DraftTasksController#update`), but this action re-implements failure handling locally. Exception failures are re-raised into `HandlesErrors` (body `{error: {code, message}}`), while string/array failures render `{errors: [...]}` — two different error body shapes from the same endpoint.\n\n**When it happens:** A non-author calling the endpoint gets `\"only the author can change the recording\"` as `{errors: [...]}`; a non-editable draft gets `DraftTasks::NotEditable` re-raised and rendered as `{error: {...}}` by the global handler.\n\n**Fix:** Reuse `render_result(result, blueprint: BLUEPRINT)` like `DraftTasksController#update`, or extract this failure branch into the shared base so all endpoints share one error format.\n\n**word_count:** 95",
+          "label": {
+            "title": "Attachment 422 body has a different shape",
+            "file": "app/controllers/api/v1/draft_tasks/attachments_controller.rb",
+            "label": "nit",
+            "kind": "messaging",
+            "push": "both",
+            "note": "Validation failures from ReplaceAttachment render `{ errors: [...] }` while InvalidAttachment and the rest of the API render `{ error: { code, message } }`. Status and behaviour are right; the client just has two shapes to parse."
+          }
+        }
+      ],
+      "held_back": [],
+      "warnings": [
+        "Asked again for the review JSON of config/initializers/features.rb after no valid JSON found in response",
+        "Asked again for the verdict on 'No test for release with invalid edits' (app/lib/draft_tasks/commands/release.rb) after the critic reply has no verdict",
+        "Asked again for the verdict on 'Oversized video recordings are never rejected in tests' (spec/models/attachment_spec.rb) after the critic reply has no JSON",
+        "Asked again for the verdict on 'Failed replacement still deletes the old recording' (spec/lib/draft_tasks/commands/replace_attachment_spec.rb) after the critic reply has no JSON",
+        "Asked again for the verdict on 'Feature flag subject mismatch breaks mark_ready rollout' (app/policies/draft_task_policy.rb) after the critic reply has no JSON",
+        "Could not verify finding 'Un-prefixed Tasks:: constant can NameError at load' (app/controllers/api/v1/draft_tasks_controller.rb): Async::TimeoutError: execution expired",
+        "Could not verify finding 'Duplicate size validations produce conflicting errors' (app/models/attachment.rb): Async::TimeoutError: execution expired",
+        "Could not verify finding 'Failed edits still release the draft' (app/lib/draft_tasks/commands/release.rb): Async::TimeoutError: execution expired"
+      ],
+      "repeat": 0
+    },
+    {
+      "case": "draft-tasks-api",
+      "ref": "first-push",
+      "model": "z-ai/glm-5.3",
+      "metrics": {
+        "quality": {
+          "real_recall": {
+            "found": 2,
+            "total": 5
+          },
+          "first_push_recall": null,
+          "reals_held_back": 0
+        },
+        "noise": {
+          "posted": 16,
+          "nit": 4,
+          "wrong": 0,
+          "unlabelled": 10,
+          "nit_rate": 25,
+          "wrong_rate": 0,
+          "changed_lines": 816,
+          "threads_per_100_lines": 2.0,
+          "duplicates": 0
+        },
+        "calibration": {
+          "highs_real": {
+            "real": 1,
+            "total": 3
+          },
+          "mediums_nit": {
+            "nit": 3,
+            "total": 13
+          },
+          "conf3_posted": 0
+        },
+        "latency": {
+          "seconds": 347,
+          "unchecked": 3,
+          "critic_timeouts": 2
+        },
+        "cost": {
+          "cost_usd": 2.46,
+          "input_tokens": 327310,
+          "output_tokens": 349227
+        }
+      },
+      "first_pass": 45,
+      "posted": [
+        {
+          "title": "Budget-short mark_ready 422 lost its request test",
+          "file": "spec/requests/api/v1/draft_tasks_spec.rb",
+          "severity": 2,
+          "confidence": 2,
+          "unchecked": true,
+          "details": "**What's wrong:** The \"budget is short\" request test was deleted. `Commands::MarkReady` still returns `Points::InsufficientBalance`, but only the command unit spec covers it — the API's 422 response for exhausted points is untested.\n\n**When it happens:** The author's giving balance cannot cover the draft's points and the error mapping regresses; clients get a wrong status instead of 422.\n\n**Fix:** Restore the removed scenario (a second ready draft exhausting the balance).",
+          "label": null
+        },
+        {
+          "title": "Draft marked sent outside the send lock",
+          "file": "app/lib/lists/commands/convert_draft_task_comment.rb",
+          "severity": 3,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** `SendDraft` releases its Redis lock before returning, and `draft.mark_sent!(task)` now runs after that, so the ready→sent state flip is no longer atomic with task creation.\n\n**When it happens:** If `build_comment` raises (its `.value!` fails) or the process dies, the task exists but the draft is still `ready`; a retry creates a duplicate task. A concurrent send in that window can also double-send.\n\n**Fix:** Run comment creation and finalization inside `SendDraft`'s locked block, e.g. via an `on_finalize` callback, so state and task change together.",
+          "label": {
+            "title": "mark_sent! runs after the lock is released",
+            "file": "app/lib/lists/commands/convert_draft_task_comment.rb",
+            "label": "real",
+            "push": "both",
+            "note": "ConvertDraftTaskComment calls SendDraft with `finalize: false` (task created under WithLockedDraft) and then calls `draft.mark_sent!(task)` after the block has returned the lock. A release that claims ready -> drafting in between makes the claim in `mark_sent!` raise WrongState: the task exists, points are spent, and the draft is back in drafting where it can be marked ready and sent again."
+          }
+        },
+        {
+          "title": "Failed replace still deletes the old recording",
+          "file": "app/lib/draft_tasks/commands/replace_attachment.rb",
+          "severity": 2,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** The draft's current recording is destroyed before the new attachment is saved. If that save fails, the old recording is already gone and `draft.attachment_id` still points to the deleted record.\n\n**When it happens:** An author replaces the recording with an upload that fails validation, e.g. media larger than `MEDIA_MAX_BYTES`; the command returns failure but the previous recording was destroyed.\n\n**Fix:** Reorder: run `attachment.update(draft_task_id: draft.id)` first, and only destroy `draft.attachment` after it succeeds.",
+          "label": {
+            "title": "Old recording is removed before the new upload is validated",
+            "file": "app/lib/draft_tasks/commands/replace_attachment.rb",
+            "label": "nit",
+            "kind": "documented tradeoff",
+            "push": "both",
+            "note": "`draft.attachment&.destroy` runs before `attachment.update(draft_task_id: ...)`, so a media-limit validation failure on the new upload leaves the draft with no recording. Only reachable when an over-limit media file got past the client's pre-upload check, and the PR body states it as a deliberate tradeoff with a follow-up."
+          }
+        },
+        {
+          "title": "Release races with send, corrupts draft state",
+          "file": "app/lib/draft_tasks/commands/release.rb",
+          "severity": 2,
+          "confidence": 2,
+          "unchecked": false,
+          "details": "**What's wrong:** Release dropped the draft lock and the atomic `resume_drafting!` transition. The `sent?` check and the later `update` are not atomic, so another process can change state in between.\n\n**When it happens:** A ready draft is released while `SendDraft` (which still locks) sends it; the unconditional `update(state: \"drafting\")` then flips the sent draft back and clears `points_reserved_at`.\n\n**Fix:** Restore `WithLockedDraft` and `locked.resume_drafting!`, as `mark_ready` and `send_draft` still do.",
+          "label": {
+            "title": "Release overwrites a concurrent send",
+            "file": "app/lib/draft_tasks/commands/release.rb",
+            "label": "real",
+            "push": "first",
+            "note": "At the early push Release does not take WithLockedDraft and ends with `draft.update(state: \"drafting\", ready_at: nil, points_reserved_at: nil)` with no state filter; a send that lands between the `draft.sent?` check and the update is overwritten, leaving a draft in drafting with a task already created and points spent. Head uses `resume_drafting!`, a filtered claim on state \"ready\", under the lock."
+          }
+        },
+        {
+          "title": "Draft destroy lacks tests for attachment cleanup",
+          "file": "app/lib/draft_tasks/commands/destroy.rb",
+          "severity": 3,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** The command now deletes the draft's attachment, but the PR adds no spec for this behavior. Every other command changed in this PR (`mark_ready`, `release`, `send_draft`, `update`) has an updated spec; `Destroy` has none.\n\n**When it happens:** A future refactor of `DraftTask#attachment` or this command could silently stop destroying attachments, leaving orphaned `Attachment` records (and their uploaded files) for every deleted draft.\n\n**Fix:** Add a case to `spec/lib/draft_tasks/commands/destroy_spec.rb` (creating it if absent) asserting the attachment record is gone after `Destroy.call`, plus a no-attachment case.",
+          "label": null
+        },
+        {
+          "title": "Failure responses break the API error format",
+          "file": "app/controllers/api/v1/draft_tasks/attachments_controller.rb",
+          "severity": 3,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** Failures render `{ \"errors\": [...] }`, but the API-wide convention is `{ \"error\": { code, message, details } }` (`HandlesErrors#render_error` and the 422 renderer in `Api::V1::BaseController`).\n\n**When it happens:** A string failure like `\"only the author can change the recording\"` gets the new shape, while exception failures (`DraftTasks::NotEditable`) are re-raised and come back in the standard shape — two formats from one endpoint.\n\n**Fix:** Render every failure with the existing unprocessable-entity error shape, passing `Array(error)` as the message list.",
+          "label": {
+            "title": "Attachment 422 body has a different shape",
+            "file": "app/controllers/api/v1/draft_tasks/attachments_controller.rb",
+            "label": "nit",
+            "kind": "messaging",
+            "push": "both",
+            "note": "Validation failures from ReplaceAttachment render `{ errors: [...] }` while InvalidAttachment and the rest of the API render `{ error: { code, message } }`. Status and behaviour are right; the client just has two shapes to parse."
+          }
+        },
+        {
+          "title": "Shared lock error nested under one command",
+          "file": "app/controllers/concerns/handles_errors.rb",
+          "severity": 3,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** `Lock::Busy` is the shared draft-lock error — raised by the `WithLockedDraft` service and rescued by the `mark_ready` and `release` commands — yet it is defined inside `Commands::SendDraft`, so a service depends on one command's namespace and sibling commands must reach into it.\n\n**When it happens:** Renaming or refactoring `SendDraft`, or grepping for lock errors, breaks or misleads the service, two other commands, specs, and this concern.\n\n**Fix:** Move it to a shared home, e.g. `class LockBusy < Error` in `draft_tasks/errors.rb`, and update all references.",
+          "label": {
+            "title": "Lock::Busy lives in the Send command but is raised by the lock service",
+            "file": "app/lib/draft_tasks/services/with_locked_draft.rb",
+            "label": "nit",
+            "kind": "structure",
+            "push": "both",
+            "note": "WithLockedDraft raises `DraftTasks::Commands::SendDraft::Lock::Busy`, which MarkReady and Release also rescue, so the error class is owned by one command but shared by three callers and the lock service. Behaviour is correct; this is placement."
+          }
+        },
+        {
+          "title": "`count(true)` works only through accidental SQL",
+          "file": "spec/lib/draft_tasks/queries/list_draft_comments_spec.rb",
+          "severity": 3,
+          "confidence": 2,
+          "unchecked": true,
+          "details": "**What's wrong:** `.count(true)` does not count truthy items here. On an ActiveRecord relation, Rails treats `true` as a column expression and runs `COUNT(TRUE)` SQL, which only coincidentally equals the row count.\n\n**When it happens:** Anyone reads or edits the \"caps the list\" assertion and wonders what `true` means; a plain `.count` or `.length` already respects `.limit` because Rails counts limited relations via a subquery.\n\n**Fix:** `expect(described_class.call(draft: draft).length).to eq(described_class::LIMIT)`",
+          "label": null
+        },
+        {
+          "title": "Draft-claimed attachments never tested as claimed",
+          "file": "spec/models/attachment_spec.rb",
+          "severity": 3,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** `claimed?` also returns true when only `draft_task_id` is set, but the new test only covers the unclaimed and task-claimed states.\n\n**When it happens:** If `claimed?` ever loses `draft_task_id.present?`, every spec still passes while `replace_attachment` starts re-claiming uploads already owned by another draft.\n\n**Fix:** Add the draft branch to the test:\n```ruby\nexpect(build(:attachment, :unclaimed, draft_task_id: BSON::ObjectId.new)).to be_claimed\n```",
+          "label": null
+        },
+        {
+          "title": "Private-draft test never uses a list member",
+          "file": "spec/requests/api/v1/draft_tasks/comments_spec.rb",
+          "severity": 3,
+          "confidence": 2,
+          "unchecked": false,
+          "details": "**summary:** The \"hides private drafts from other list members\" test requests as `create(:user)` — a user with no company or list membership. The `forbidden` therefore comes from basic access checks, not from `visibility: \"private\"`, so the test stays green even if private drafts are visible to every fellow list member. Remove the `draft.update!(visibility: \"private\")` line and it still passes, proving the visibility rule is untested.\n\n**when:** Any regression in the private-visibility check for the new comments endpoint goes undetected by this spec.\n\n**fix:** Request as a real other list member who is not the draft author — e.g. add a second member to `list` (or use `admin`, if admins don't bypass private visibility) instead of an ad-hoc non-member user.",
+          "label": null
+        },
+        {
+          "title": "Comment list silently hides newest comments",
+          "file": "app/lib/draft_tasks/queries/list_draft_comments.rb",
+          "severity": 3,
+          "confidence": 2,
+          "unchecked": false,
+          "details": "**What's wrong:** `chronological` sorts comments oldest-first, so `.limit(LIMIT)` keeps the oldest 50 and silently drops every newer comment.\n\n**When it happens:** A sent task has 51 or more comments; the endpoint returns comments 1–50 and the most recent ones never appear.\n\n**Fix:** Keep the newest 50 and reverse them for display, or use a `since` cursor like `Comments::Queries::ListComments` (which has no cap):\n\n```ruby\nComment.where(commentable_type: \"Task\", commentable_id: draft.sent_task_id)\n       .order(created_at: :desc).limit(LIMIT).reverse\n```",
+          "label": null
+        },
+        {
+          "title": "Draft lookup fires one query per comment",
+          "file": "app/lib/draft_tasks/blueprints/comment_blueprint.rb",
+          "severity": 3,
+          "confidence": 2,
+          "unchecked": false,
+          "details": "**What's wrong:** The `draft` block runs once per serialized comment, so every from-draft comment issues its own `DraftTask.find` SQL query. `find` also raises `RecordNotFound` (failing the whole response) if a referenced draft no longer exists.\n\n**When it happens:** `CommentsController#index` renders up to 50 comments, so one request can run ~50 extra SELECTs.\n\n**Fix:** Use a preloaded association (e.g. `comment.draft_task` with `includes`) or pass the already-loaded draft into the blueprint.",
+          "label": {
+            "title": "Per-comment DraftTask.find in the comments blueprint",
+            "file": "app/lib/draft_tasks/blueprints/comment_blueprint.rb",
+            "label": "nit",
+            "kind": "performance",
+            "push": "both",
+            "note": "The `draft` field does `DraftTask.find(comment.draft_task_id)` per comment. The list is capped at ListDraftComments::LIMIT (50) and in practice one comment per task comes from a draft, so this is a handful of extra reads on a cold endpoint, not something to block on."
+          }
+        },
+        {
+          "title": "Revision increment is not atomic",
+          "file": "app/lib/draft_tasks/commands/update.rb",
+          "severity": 3,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** `draft.revision + 1` reads the counter in memory and then writes a fixed number via `$set`. Two updates running at the same time both read the same value and write the same number, so one edit is never counted.\n\n**When it happens:** The same author saves the draft from two tabs or devices at once; the `update` endpoint runs without the `WithLockedDraft` lock, so nothing serializes the two requests.\n\n**Fix:** Increment atomically in MongoDB with `$inc` instead of computing the value in Ruby.",
+          "label": null
+        },
+        {
+          "title": "Comment blueprint duplicates existing serializer fields",
+          "file": "app/lib/draft_tasks/blueprints/comment_blueprint.rb",
+          "severity": 3,
+          "confidence": 2,
+          "unchecked": true,
+          "details": "**What's wrong:** `Comments::Blueprints::CommentBlueprint` already declares the same `id`, `body`, `edited_at`, `created_at`, `author_id` and `from_draft` fields for this model. This blueprint repeats all six and hand-builds the nested draft hash instead of a nested blueprint (as `attachment` does in `DraftTaskBlueprint`).\n\n**When it happens:** Any future change to comment serialization must now be applied in two separate namespaces.\n\n**Fix:** Reuse the existing blueprint via a Blueprinter `view` that adds the `draft` field.",
+          "label": null
+        },
+        {
+          "title": "Attachment claim check races under concurrent requests",
+          "file": "app/lib/draft_tasks/commands/replace_attachment.rb",
+          "severity": 3,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** `claimed?` is read first and the attachment is claimed later with a plain `update`, so the check and the claim are not one atomic step.\n\n**When it happens:** The same upload id is submitted to two drafts at nearly the same time; both requests pass the check and both drafts end up claiming one attachment.\n\n**Fix:** Claim atomically with `find_one_and_update` guarded by `draft_task_id: nil` and `task_id: nil`, mirroring how `DraftTask#claim!` guards state transitions.",
+          "label": null
+        },
+        {
+          "title": "Attachment field adds N+1 queries on lists",
+          "file": "app/lib/draft_tasks/blueprints/draft_task_blueprint.rb",
+          "severity": 3,
+          "confidence": 2,
+          "unchecked": false,
+          "details": "**What's wrong:** `draft.attachment` runs `Attachment.where(id: attachment_id).first` — one database query per draft. The new field therefore issues a query for every rendered object.\n\n**When it happens:** Any endpoint that renders a collection of drafts (e.g. a drafts index) now fires one extra Attachment query per record, with no batching or preload possible since it is a hand-written method, not an association.\n\n**Fix:** Batch-load the attachments (`Attachment.in(id: draft_ids)`) before rendering and resolve them from a preloaded map.",
+          "label": null
+        }
+      ],
+      "held_back": [],
+      "warnings": [
+        "Could not verify finding 'Comment blueprint duplicates existing serializer fields' (app/lib/draft_tasks/blueprints/comment_blueprint.rb): RubyLLM::ToolCallParseError: Provider returned malformed tool call arguments (finish_reason: tool_calls)",
+        "Asked again for the verdict on 'Oversized media trait alone builds valid attachment' (spec/factories/attachments.rb) after the critic reply has no JSON",
+        "Asked again for the verdict on 'Draft marked sent outside the send lock' (app/lib/lists/commands/convert_draft_task_comment.rb) after the critic reply has no JSON",
+        "Asked again for the verdict on 'Finalize and notify logic duplicated across commands' (app/lib/lists/commands/convert_draft_task_comment.rb) after the critic reply has no JSON",
+        "Could not verify finding 'Budget-short mark_ready 422 lost its request test' (spec/requests/api/v1/draft_tasks_spec.rb): Async::TimeoutError: execution expired",
+        "Could not verify finding '`count(true)` works only through accidental SQL' (spec/lib/draft_tasks/queries/list_draft_comments_spec.rb): Async::TimeoutError: execution expired"
+      ],
+      "repeat": 0
+    },
+    {
+      "case": "draft-tasks-model",
+      "ref": "final-push",
+      "model": "z-ai/glm-5.3",
+      "metrics": {
+        "quality": {
+          "real_recall": {
+            "found": 3,
+            "total": 3
+          },
+          "first_push_recall": {
+            "found": 1,
+            "total": 4
+          },
+          "reals_held_back": 0
+        },
+        "noise": {
+          "posted": 14,
+          "nit": 1,
+          "wrong": 0,
+          "unlabelled": 9,
+          "nit_rate": 7,
+          "wrong_rate": 0,
+          "changed_lines": 762,
+          "threads_per_100_lines": 1.8,
+          "duplicates": 1
+        },
+        "calibration": {
+          "highs_real": {
+            "real": 3,
+            "total": 6
+          },
+          "mediums_nit": {
+            "nit": 1,
+            "total": 8
+          },
+          "conf3_posted": 0
+        },
+        "latency": {
+          "seconds": 437,
+          "unchecked": 0,
+          "critic_timeouts": 0
+        },
+        "cost": {
+          "cost_usd": 2.13,
+          "input_tokens": 325286,
+          "output_tokens": 278610
+        }
+      },
+      "first_pass": 29,
+      "posted": [
+        {
+          "title": "Override test lets task points diverge from ledger",
+          "file": "spec/lib/draft_tasks/commands/send_draft_spec.rb",
+          "severity": 2,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** The test only pins the ledger amount. `SendDraft#create_task` builds the task from the draft's own `task_attributes` and never sees the `points` override, so `task.points` stays 10 while only 4 points are settled — this spec passes and hides the divergence.\n\n**When it happens:** A sender sends a 10-point draft with `points: \"4\"`: the recipient sees a 10-point task, but the giver is only charged 4.\n\n**Fix:** Also pin the task, e.g. `task = described_class.call(...).value` then `expect(task.points).to eq(4)`; if that fails, pass the override into `Tasks::Commands::Create` as well.",
+          "label": {
+            "title": "Ledger entry on send uses the request's points, not the reservation",
+            "file": "app/lib/draft_tasks/commands/send_draft.rb",
+            "label": "real",
+            "push": "final",
+            "note": "SendDraft#settle_amount returns points.to_i when send_now carries a points param and passes it to SettleReservation, while the task is built from locked.task_attributes (the held amount) and the balance was checked against locked.points. points: 1 (or 500) moves a different amount through the ledger than was held or put on the task, with no balance check.\n"
+          }
+        },
+        {
+          "title": "No test that lock is held during block",
+          "file": "spec/lib/points/services/with_locked_giver_spec.rb",
+          "severity": 3,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** No spec asserts the lock is actually held while the block runs — the core guarantee of `WithLockedGiver`. A regression that releases the lock before yielding would pass all current examples.\n\n**When it happens:** If `call` is refactored so `lock.release` runs before `yield`, every spec stays green, but concurrent givers are no longer serialized and can double-spend points.\n\n**Fix:** Assert inside the block that the key exists in Redis.\n\n```ruby\n  it \"holds the lock while the block runs and releases it afterwards\" do\n    result = described_class.call(user: user, company: company) do\n      expect(AppRedis.with { |redis| redis.exists?(key) }).to be(true)\n      :held\n    end\n\n    expect(result).to eq(:held)\n    expect(AppRedis.with { |redis| redis.exists?(key) }).to be(false)\n  end\n```",
+          "label": null
+        },
+        {
+          "title": "Retry double-charges giver after failed send",
+          "file": "app/lib/points/commands/settle_reservation.rb",
+          "severity": 2,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** The award entry is written while the draft is still `ready`, and nothing stops a second entry for the same draft. If anything fails after `write_entry` (e.g. `TaskEvent.track!` or the caller's `mark_sent!`), the draft stays `ready`, so a retry settles again.\n\n**When it happens:** A send fails between the ledger write and the state change; the user retries and two `award` entries are created for one `draft_task_id`, charging the giver twice.\n\n**Fix:** Make settlement idempotent — skip when an `award` entry already exists for `draft_task_id`, or enforce a unique index on it.",
+          "label": null
+        },
+        {
+          "title": "Adding **options breaks existing call(title: ...) tests",
+          "file": "spec/lib/tasks/commands/create_spec.rb",
+          "severity": 3,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** The helper now accepts keywords via `**options`. In Ruby 3, a bare call like `call(title: \"Review\", ...)` sends those pairs as keywords, which `**options` swallows — the required positional `attrs` stays empty and Ruby raises `ArgumentError` (wrong number of arguments, given 0, expected 1).\n\n**When it happens:** Running this spec file — \"creates the task\", \"awards points\", \"notifies assignees\" and \"returns validation messages\" all invoke `call(title: ...)` without braces, so four examples now error.\n\n**Fix:** Wrap the attributes in braces at those call sites, e.g. `call({ title: \"Review\", assignee_ids: [member.id, admin.id] })`.",
+          "label": null
+        },
+        {
+          "title": "Sent drafts ignore private visibility",
+          "file": "app/lib/lists/services/draft_public_view.rb",
+          "severity": 3,
+          "confidence": 2,
+          "unchecked": false,
+          "details": "**What's wrong:** `sent_view` always shows `draft.author.display_name`, dropping the `private?` check that `pending_view` still applies. Before this change, sent drafts were never shown publicly at all, so a private draft's author was never exposed.\n\n**When it happens:** A draft with `visibility: \"private\"` is marked ready and then sent; the public share page's drafts section now shows its author name. No spec covers the private + sent case.\n\n**Fix:** Reuse the privacy rule in `sent_view`, or if showing the author after sending is intended, add a spec pinning that behavior.",
+          "label": {
+            "title": "Private sent drafts leak the author's name on the share page",
+            "file": "app/lib/lists/services/draft_public_view.rb",
+            "label": "real",
+            "push": "both",
+            "note": "DraftPublicView#call branches on draft.sent?; only pending_view consults draft.private?. sent_view always renders draft.author.display_name, and PublicList now includes drafts sent in the last 7 days, so GET /s/:token shows the author of a private draft as soon as it has a sent_task_id.\n"
+          }
+        },
+        {
+          "title": "Update query lacks the drafting-state guard",
+          "file": "app/lib/draft_tasks/commands/update.rb",
+          "severity": 2,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** `editable?` and the author check read the in-memory snapshot, but the write filters only on `_id`, so a draft that concurrently left `drafting` still gets edited — including `points`, after `MarkReady` already reserved the old amount against the giver's balance.\n\n**When it happens:** The author edits the draft while it is being marked ready in another tab or by a background flow.\n\n**Fix:** Follow the model's own `release_reservation!` pattern: query `where(_id: draft.id, state: \"drafting\")` and return a failure when nothing matched.",
+          "label": {
+            "title": "Update can overwrite a draft that was sent in the meantime",
+            "file": "app/lib/draft_tasks/commands/update.rb",
+            "label": "real",
+            "push": "both",
+            "note": "Update#call checks editable? on the in-memory draft, then runs DraftTask.where(_id: draft.id).find_one_and_update({\"$set\" => changes}) with no state filter and ignores the returned document, so an edit landing after a concurrent mark_ready + send overwrites title/points on a sent draft. It should filter on state: \"drafting\" and fail when nil comes back.\n"
+          }
+        },
+        {
+          "title": "Update persists changes made outside the command",
+          "file": "app/lib/draft_tasks/commands/update.rb",
+          "severity": 2,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** `changes` is built from `draft.changes`, which lists every unsaved change on the instance — including edits made before this command ran — so the `$set` persists those too and clobbers newer database values.\n\n**When it happens:** The new spec \"writes only the fields that changed\" nils `stale.note` before calling; `draft.changes` then includes `\"note\" => nil`, so the `$set` overwrites the DB value and the spec's `note: \"set elsewhere\"` expectation is not met.\n\n**Fix:** Diff `attrs` against a freshly loaded copy of the record and `$set` only those keys; drop the now-unused helper.",
+          "label": null
+        },
+        {
+          "title": "Unvalidated points param bypasses giving budget",
+          "file": "app/lib/draft_tasks/commands/send_draft.rb",
+          "severity": 2,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** `send_now` passes raw `params[:points]` into the settle amount with no server-side bound. Budget checks only ran on the draft's reserved `points` field, so the settled amount is never validated anywhere.\n\n**When it happens:** `POST /api/v1/draft_tasks/1/send_now?points=1000000` on a draft that reserved 50 points writes a 1,000,000-point award entry.\n\n**Fix:** Clamp or reject the override in `settle_amount`, e.g. `requested.clamp(0, locked.points)`.",
+          "label": {
+            "title": "Ledger entry on send uses the request's points, not the reservation",
+            "file": "app/lib/draft_tasks/commands/send_draft.rb",
+            "label": "real",
+            "push": "final",
+            "note": "SendDraft#settle_amount returns points.to_i when send_now carries a points param and passes it to SettleReservation, while the task is built from locked.task_attributes (the held amount) and the balance was checked against locked.points. points: 1 (or 500) moves a different amount through the ledger than was held or put on the task, with no balance check.\n"
+          }
+        },
+        {
+          "title": "Giver lock doesn't serialize other balance writers",
+          "file": "app/lib/draft_tasks/commands/mark_ready.rb",
+          "severity": 2,
+          "confidence": 2,
+          "unchecked": false,
+          "details": "**What's wrong:** The new giver lock is only acquired by `mark_ready`. Commands that mutate the same totals — `send_draft` (settles a reservation into spent points), `release`, and `update` — never take it, so the balance check followed by `mark_ready!` is still not atomic.\n\n**When it happens:** A user marks draft A ready while sending ready draft D. `GivingBalance` reads `spent` and `reserved` in two separate queries; D's settlement commits between them, inflating `remaining` by D's points, so A is approved beyond budget.\n\n**Fix:** Have every writer of spent/reserved points acquire the same giver lock (in `settle_reservation`, `release`, `update`), or enforce the cap with one atomic DB query/transaction.",
+          "label": null
+        },
+        {
+          "title": "Spec never asserts the debited user",
+          "file": "spec/lib/points/commands/settle_reservation_spec.rb",
+          "severity": 3,
+          "confidence": 2,
+          "unchecked": false,
+          "details": "**What's wrong:** The award entry's `user_id` — the giver whose balance is debited — is never asserted. The `task` fixture is also created with `author: member`, the same user as the draft author, so giver and task author are indistinguishable here.\n\n**When it happens:** If `write_entry` debited `task.author` or any other user instead of `draft.author`, all six examples still pass, silently corrupting the giving ledger.\n\n**Fix:** Assert the user and give the task a different author:\n\n```ruby\nexpect(result.value).to have_attributes(\n  amount: 10, kind: \"award\", user_id: draft.author.id,\n  task_id: task.id, draft_task_id: draft.id, note: PointsLedgerEntry::ESCROW_NOTE\n)\n```",
+          "label": null
+        },
+        {
+          "title": "No-op spec can't detect an unwanted write",
+          "file": "spec/lib/draft_tasks/commands/update_spec.rb",
+          "severity": 3,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** The draft is created moments before the call, so `updated_at` is always within 1 second of `created_at`. The assertion passes even if the command does save, so it never actually proves the no-op.\n\n**When it happens:** If `Update` starts bumping `updated_at` on unchanged input, this spec stays green and the regression ships unnoticed.\n\n**Fix:** Compare with the pre-call value instead:\n\n```ruby\nupdated_before = draft.updated_at\nexpect(draft.reload.updated_at).to eq(updated_before)\n```",
+          "label": null
+        },
+        {
+          "title": "Budget validation blocks unrelated edits and sends",
+          "file": "app/models/draft_task.rb",
+          "severity": 3,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** `points_within_budget` runs on every save, not only when `points` changes. Once a draft's points exceed the current budget, the record cannot be saved at all, even for unrelated changes.\n\n**When it happens:** An author has a draft with 30 points; an admin lowers the weekly budget to 20. The author then fixes a title typo and the save fails with \"Points exceeds your weekly budget of 20\". The `update!` inside `mark_sent` fails the same way, turning a send into a validation exception instead of a graceful failure.\n\n**Fix:** Only validate when points actually change: `validate :points_within_budget, if: -> { new_record? || points_changed? }` (the real remaining-balance check stays in `MarkReady`/`GivingBalance`).",
+          "label": null
+        },
+        {
+          "title": "author_name field adds N+1 queries on lists",
+          "file": "app/lib/draft_tasks/blueprints/draft_task_blueprint.rb",
+          "severity": 3,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** The new `draft.author.display_name` lookup loads the author `User` lazily, once per rendered draft. List endpoints now fire one extra query per draft.\n\n**When it happens:** `GET /api/v1/draft_tasks` or `/reservations` with 100 drafts triggers up to 100 extra `User` loads, even when all drafts share the same author.\n\n**Fix:** Eager load the association in the queries, e.g. add `.includes(:author)` to `ListDrafts` and `ListReservations`.",
+          "label": {
+            "title": "author_name field queries the author per draft",
+            "file": "app/lib/draft_tasks/blueprints/draft_task_blueprint.rb",
+            "label": "nit",
+            "kind": "performance",
+            "push": "both",
+            "note": "field :author_name calls draft.author.display_name, one User read per draft on index (paginated to 25) and reservations (capped at 100); the author is the caller on both, so cheap primary-key reads.\n"
+          }
+        },
+        {
+          "title": "Escrow total stays wrong after Send now",
+          "file": "app/javascript/pages/DraftTasksPage.tsx",
+          "severity": 3,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** The `sendNow` patch keeps the draft's old `reserved_points`, but the server computes `reserved_points` as `ready? ? points : 0`, so a sent draft holds 0. The \"points held in escrow\" header keeps counting points that were already settled.\n\n**When it happens:** A ready draft holding 5 points is sent; the header still shows those 5 points as held until the page is reloaded (the effect only refetches when `listId` changes).\n\n**Fix:** Mirror the server value in the local patch.\n\n```tsx\n{ ...item, state: \"sent\", sent_task_id: task.id, reserved_points: 0 }\n```",
+          "label": null
+        }
+      ],
+      "held_back": [],
+      "warnings": [
+        "Asked again for the review JSON of spec/lib/draft_tasks/commands/create_spec.rb after no valid JSON found in response",
+        "Asked again for the review JSON of spec/factories/draft_tasks.rb after no valid JSON found in response",
+        "Asked again for the verdict on 'Non-atomic settle can double-award on retry' (app/lib/draft_tasks/commands/send_draft.rb) after the critic reply has no verdict",
+        "Asked again for the verdict on 'Changed-fields spec fails against current Update command' (spec/lib/draft_tasks/commands/update_spec.rb) after the critic reply has no JSON",
+        "Asked again for the verdict on 'Update query lacks the drafting-state guard' (app/lib/draft_tasks/commands/update.rb) after the critic reply has no JSON",
+        "Asked again for the verdict on 'Unvalidated points param bypasses giving budget' (app/lib/draft_tasks/commands/send_draft.rb) after the critic reply has no JSON",
+        "Asked again for the verdict on 'Giver lock key duplicated between spec and service' (spec/lib/draft_tasks/commands/mark_ready_spec.rb) after the critic reply has no JSON"
+      ],
+      "repeat": 0
+    },
+    {
+      "case": "draft-tasks-model",
+      "ref": "first-push",
+      "model": "z-ai/glm-5.3",
+      "metrics": {
+        "quality": {
+          "real_recall": {
+            "found": 1,
+            "total": 4
+          },
+          "first_push_recall": null,
+          "reals_held_back": 0
+        },
+        "noise": {
+          "posted": 10,
+          "nit": 0,
+          "wrong": 0,
+          "unlabelled": 9,
+          "nit_rate": 0,
+          "wrong_rate": 0,
+          "changed_lines": 643,
+          "threads_per_100_lines": 1.6,
+          "duplicates": 0
+        },
+        "calibration": {
+          "highs_real": {
+            "real": 1,
+            "total": 3
+          },
+          "mediums_nit": {
+            "nit": 0,
+            "total": 7
+          },
+          "conf3_posted": 0
+        },
+        "latency": {
+          "seconds": 295,
+          "unchecked": 0,
+          "critic_timeouts": 0
+        },
+        "cost": {
+          "cost_usd": 2.02,
+          "input_tokens": 283374,
+          "output_tokens": 279788
+        }
+      },
+      "first_pass": 26,
+      "posted": [
+        {
+          "title": "Adding **options breaks existing keyword-style spec calls",
+          "file": "spec/lib/tasks/commands/create_spec.rb",
+          "severity": 3,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** In Ruby 3, once `call` accepts keywords (`**options`), bare keywords are no longer packed into the positional `attrs` hash; they all go into `options`, leaving the required `attrs` empty. `call(title: \"x\")` now raises `ArgumentError: wrong number of arguments (given 0, expected 1)`.\n\n**When it happens:** Running this spec file: the \"creates the task\", \"awards points\", \"notifies assignees\" and \"returns validation messages\" examples all fail with that error.\n\n**Fix:** Wrap attrs in braces at those call sites, e.g. `call({ title: \"Review\", assignee_ids: [member.id, admin.id] })`.",
+          "label": null
+        },
+        {
+          "title": "Update writes every dirty field, not just attrs",
+          "file": "app/lib/draft_tasks/commands/update.rb",
+          "severity": 3,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**what_is_wrong:** The `$set` is built from `draft.changes`, which holds *all* pending in-memory changes on the draft object, not only the `attrs` passed to the command. So unrelated dirty fields get force-written, silently clobbering database values.\n\n**when_it_happens:** The new spec \"writes only the fields that changed\" sets `stale.note = nil` before updating `title`; `note => nil` is included in the `$set`, so the `note: \"set elsewhere\"` expectation fails and the suite goes red.\n\n**fix:** Restrict the write to the command's own fields: `draft.changes.slice(*attrs.keys.map(&:to_s)).transform_values(&:last)`.",
+          "label": null
+        },
+        {
+          "title": "Sent private drafts expose the author name",
+          "file": "app/lib/lists/services/draft_public_view.rb",
+          "severity": 2,
+          "confidence": 2,
+          "unchecked": false,
+          "details": "**What's wrong:** `pending_view` hides the author when `draft.private?`, but `sent_view` always returns `draft.author.display_name`, so a private draft loses its anonymity as soon as it is sent.\n\n**When it happens:** A draft with `visibility: \"private\"` gets sent; the public share page then shows the author's display name. No spec covers the private + sent case.\n\n**Fix:** Unless the linked task already reveals the author publicly on purpose, mirror the guard:\n\n```ruby\nauthor_name: draft.private? ? nil : draft.author.display_name,\n```",
+          "label": {
+            "title": "Private sent drafts leak the author's name on the share page",
+            "file": "app/lib/lists/services/draft_public_view.rb",
+            "label": "real",
+            "push": "both",
+            "note": "DraftPublicView#call branches on draft.sent?; only pending_view consults draft.private?. sent_view always renders draft.author.display_name, and PublicList now includes drafts sent in the last 7 days, so GET /s/:token shows the author of a private draft as soon as it has a sent_task_id.\n"
+          }
+        },
+        {
+          "title": "Retry after partial failure double-awards points",
+          "file": "app/lib/points/commands/settle_reservation.rb",
+          "severity": 2,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** The settle is not idempotent. The ledger entry is saved while the draft is still `ready`, and nothing stops a second entry for the same draft — the `draft_task_id` index is not unique and the command has no existing-entry check.\n\n**When it happens:** If `TaskEvent.track!` or the caller's later `mark_sent!` raises, the draft stays `ready` with the award already persisted; the user retries the send and a second `award` entry is created, double-spending the escrowed points.\n\n**Fix:** Return the existing entry when one is already recorded, and/or make the `draft_task_id` index unique so `create!` fails on duplicates.",
+          "label": null
+        },
+        {
+          "title": "Escrowed path lets send_now award unlimited points",
+          "file": "app/lib/tasks/commands/create.rb",
+          "severity": 2,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "\n\n**What's wrong:** With `escrowed: true` the balance check is skipped entirely, but the only caller (`DraftTasks::Commands::SendDraft`) settles a user-supplied amount that is never validated against the reservation or the author's budget.\n\n**When it happens:** `POST /api/v1/draft_tasks/:id/send_now` with `points=1000000` on a draft that reserved 10 points: the task is created unchecked, then `Points::Commands::SettleReservation` awards 1,000,000 points (the task's own `points` and the ledger amount even diverge).\n\n**Fix:** Validate the override in `SendDraft#settle_amount` — reject `points` above `locked.points`, or re-check `GivingBalance` for the excess before settling.",
+          "label": null
+        },
+        {
+          "title": "Suspended-company exclusion is never actually verified",
+          "file": "spec/lib/points/jobs/release_stale_reservations_job_spec.rb",
+          "severity": 3,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** The first example creates a `:suspended` company, but that company has no draft tasks, so `DraftTask.ready.count eq 0` passes even if the job wrongly processes suspended companies.\n\n**When it happens:** If `Company.active` in `perform` regresses to `Company.all`, reservations in suspended companies get released and this spec still stays green.\n\n**Fix:** Give the suspended company a stale reservation and assert it survives:\n\n```ruby\nfrozen = create(:draft_task, :ready, company: suspended, author: create(:user), points: 5)\nexpect(frozen.reload).to be_ready\n```",
+          "label": null
+        },
+        {
+          "title": "No-op test cannot detect a forced write",
+          "file": "spec/lib/draft_tasks/commands/update_spec.rb",
+          "severity": 3,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** `be_within(1.second)` is too loose: an accidental write happens milliseconds after creation, so `updated_at` still sits within a second of `created_at`. The example passes even when the no-op guard is broken, so it guards nothing.\n\n**When it happens:** If the `changes.empty?` early return in `Update` is removed, every update writes `updated_at`, yet this spec stays green.\n\n**Fix:** Create the draft first, then travel time forward so a forced write moves `updated_at` measurably (needs `ActiveSupport::Testing::TimeHelpers`): wrap the call and assertion in `travel_to(draft.created_at + 1.hour)`.",
+          "label": null
+        },
+        {
+          "title": "Failed settlement leaves orphaned task behind",
+          "file": "app/lib/draft_tasks/commands/send_draft.rb",
+          "severity": 3,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**summary:** The task is persisted (with its `task.created` webhook and assignee notifications) before settlement runs. If `SettleReservation` then fails, `finalize` just returns the failure: the saved task is left orphaned, because `WithLockedDraft` is only a Redis lock with no rollback. The draft stays `ready`, so a retry creates a duplicate task.\n\n**when:** `SettleReservation` returns a failure or raises (e.g. the draft is no longer `ready`, or `PointsLedgerEntry.create!` hits a DB/validation error) after the task is already saved.\n\n**fix:** Compensate on failure by destroying the just-created task before returning, or wrap task creation + settlement + `mark_sent!` in one DB transaction.",
+          "label": null
+        },
+        {
+          "title": "Ready-to-drafting transition now has two implementations",
+          "file": "app/lib/draft_tasks/commands/release.rb",
+          "severity": 3,
+          "confidence": 2,
+          "unchecked": false,
+          "details": "**What's wrong:** The command now uses the atomic `release_reservation!`, but the old AASM event `resume_drafting` (DraftTask) still performs the same ready-to-drafting transition non-atomically. No app code calls `resume_drafting!` anymore; only its model spec keeps it alive.\n\n**When it happens:** A future caller picks `draft.resume_drafting!` and reintroduces the race `release_reservation!` was built to prevent (e.g., concurrent stale-reservation release), or the two paths drift in what they clear.\n\n**Fix:** Remove the `resume_drafting` event and its spec test, or make it delegate to `release_reservation!`.",
+          "label": null
+        },
+        {
+          "title": "Escrow total stays wrong after Send now",
+          "file": "app/javascript/pages/DraftTasksPage.tsx",
+          "severity": 3,
+          "confidence": 2,
+          "unchecked": false,
+          "details": "**What's wrong:** `sendNow` builds the updated row locally instead of using the server's draft, so the old `reserved_points` is kept. The backend settles the reservation on send (`Points::Commands::SettleReservation` in `SendDraft`), so a reloaded draft would show `reserved_points: 0`. This also diverges from `transition`, which trusts the server response.\n\n**When it happens:** Click \"Send now\" on a ready draft; the row flips to \"Sent\" but \"{held} points held in escrow\" still counts that draft's points until the page is reloaded.\n\n**Fix:** Have `send_now` return the updated `DraftTask` like `mark_ready` does, or zero it locally:\n\n```\n{ ...item, state: \"sent\", sent_task_id: task.id, reserved_points: 0 }\n```",
+          "label": null
+        }
+      ],
+      "held_back": [],
+      "warnings": [
+        "Asked again for the review JSON of spec/factories/draft_tasks.rb after no valid JSON found in response",
+        "Asked again for the verdict on 'Typed fields untested through raw Mongo update' (app/lib/draft_tasks/commands/update.rb) after the critic reply has no verdict",
+        "Asked again for the verdict on 'Stale note test fails against Update command' (spec/lib/draft_tasks/commands/update_spec.rb) after the critic reply has no JSON",
+        "Asked again for the verdict on 'Adding **options breaks existing keyword-style spec calls' (spec/lib/tasks/commands/create_spec.rb) after the critic reply has no verdict"
+      ],
+      "repeat": 0
+    },
+    {
+      "case": "paged-connectors",
+      "ref": "final-push",
+      "model": "z-ai/glm-5.3",
+      "metrics": {
+        "quality": {
+          "real_recall": {
+            "found": 0,
+            "total": 2
+          },
+          "first_push_recall": {
+            "found": 2,
+            "total": 4
+          },
+          "reals_held_back": 0
+        },
+        "noise": {
+          "posted": 9,
+          "nit": 2,
+          "wrong": 0,
+          "unlabelled": 7,
+          "nit_rate": 22,
+          "wrong_rate": 0,
+          "changed_lines": 820,
+          "threads_per_100_lines": 1.1,
+          "duplicates": 0
+        },
+        "calibration": {
+          "highs_real": {
+            "real": 0,
+            "total": 2
+          },
+          "mediums_nit": {
+            "nit": 0,
+            "total": 5
+          },
+          "conf3_posted": 0
+        },
+        "latency": {
+          "seconds": 304,
+          "unchecked": 0,
+          "critic_timeouts": 0
+        },
+        "cost": {
+          "cost_usd": 1.96,
+          "input_tokens": 328454,
+          "output_tokens": 251939
+        }
+      },
+      "first_pass": 26,
+      "posted": [
+        {
+          "title": "Replies pagination cursor discarded, threads truncated",
+          "file": "app/lib/connectors/slack/client.rb",
+          "severity": 2,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** Slack's `conversations.replies` is paginated, but only the first page is kept — `next_cursor` is thrown away. Unlike `messages` and `channels`, this method returns a raw array instead of `Connectors::Page`.\n\n**When it happens:** A thread with more replies than `limit` (the caller `ListMessages` passes 500) silently loses the overflow; those replies are never synced or indexed.\n\n**Fix:** Return a `Connectors::Page` so the caller can follow the cursor until it's empty.",
+          "label": {
+            "title": "Thread replies are capped at 500 and never paged",
+            "file": "app/lib/connectors/slack/queries/list_messages.rb",
+            "label": "nit",
+            "kind": "latent edge case",
+            "push": "both",
+            "note": "replies_for fetches conversations.replies once with limit REPLY_LIMIT (500) and no oldest, then filters by since client-side; a thread with more than 500 replies silently loses the rest and the window is only applied to what came back. Needs a 500-reply thread inside a 14-day window to matter."
+          }
+        },
+        {
+          "title": "New replies to old threads are never synced",
+          "file": "app/lib/connectors/slack/queries/list_messages.rb",
+          "severity": 2,
+          "confidence": 2,
+          "unchecked": false,
+          "details": "**What's wrong:** Replies are only fetched for parents returned by `conversations.history` with `oldest: since`. Slack filters parents by their own timestamp, so a thread started before the window never appears and its newer replies are skipped entirely.\n\n**When it happens:** A thread started 20 days ago (past the 14-day default window) gets a reply today; that reply is never indexed.\n\n**Fix:** Slack has no \"threads with recent activity\" query; document the gap, or scan parents without `oldest` and expand only threads whose `latest_reply` falls inside the window.",
+          "label": null
+        },
+        {
+          "title": "Multi-page test never asserts collected items",
+          "file": "spec/lib/connectors/linear/queries/list_issues_spec.rb",
+          "severity": 3,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** The new page-budget test checks `pages_fetched` and `next_cursor` but never inspects `result.items`, even though its stub builds a distinct node per page. So aggregation of items across pages is untested for this query.\n\n**When it happens:** If `items.concat(page.items)` in the query regressed to keeping only the last page, every example in this file would still pass.\n\n**Fix:** Assert the accumulated items the stub already produces:\n\n```ruby\nexpect(result.items.map { |item| item[:external_id] }).to eq(%w[lin-ENG-1 lin-ENG-2 lin-ENG-3])\n```",
+          "label": null
+        },
+        {
+          "title": "Repeated providers duplicate search results and API calls",
+          "file": "app/lib/search/tools/registry.rb",
+          "severity": 3,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** `Registry.for` never removes duplicate entries from the provider list, so the same tool is returned twice.\n\n**When it happens:** A request like `?providers[]=github&providers[]=github` resolves to the GitHub tool twice; `ConnectedSearch` then runs it twice, duplicating items in the response and doubling calls to the external API.\n\n**Fix:**\n```ruby\nwanted.uniq.map { |provider| find(provider) }\n```",
+          "label": null
+        },
+        {
+          "title": "Invalid `kind` silently falls back to issues search",
+          "file": "app/lib/search/tools/github_search.rb",
+          "severity": 3,
+          "confidence": 2,
+          "unchecked": false,
+          "details": "**summary:** Any `kind` value other than exactly `\"pull_request\"` silently runs the issues query instead of erroring. The declared enum is never enforced at runtime, unlike `pages` (validated in `Base#call`) and Slack's `channel` (raises `Connectors::InvalidInput`), so an explicitly wrong value is treated as the documented default.\n\n**when:** The tool caller (LLM) sends `kind: \"pr\"`, `\"issues\"` or `\"pull requests\"`; the user silently gets issue results when they asked for pull requests, with no error to signal the mismatch.\n\n**fix:** Keep the blank-means-issue default, but raise for values outside `KINDS`, mirroring the `Connectors::InvalidInput` pattern used for Slack's `channel` param.",
+          "label": null
+        },
+        {
+          "title": "Thread fetching multiplies Slack API calls",
+          "file": "app/lib/connectors/slack/queries/list_messages.rb",
+          "severity": 3,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** Every parent with replies triggers an extra `conversations.replies` call, and each reply then goes through `normalize`, which calls `chat.getPermalink` — one HTTP request per reply. Hitting Slack's rate limit raises `Connectors::RateLimited` and aborts the whole query.\n\n**When it happens:** One page with 50 threaded messages averaging 20 replies ≈ 1,100 API calls.\n\n**Fix:** Build permalinks locally (`https://<team>.slack.com/archives/<channel>/p<ts>`) instead of one `chat.getPermalink` request per item.",
+          "label": null
+        },
+        {
+          "title": "Pages validation uses hardcoded cap, not configured one",
+          "file": "app/lib/connectors/github/queries/list_issues.rb",
+          "severity": 4,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**summary:** The `pages` input is validated against the hardcoded `PageLimit::MAX_PAGES` (5), but the fallback default uses the configurable `PageLimit.max_pages` (`config.x.connectors.max_pages_per_call`).\n\n**when:** If an operator raises the config to 10, `pages: 8` is wrongly rejected even though the default allows 10. If they lower it to 3, `pages: 5` is accepted and fetches 5 pages, bypassing the operator's cap.\n\n**fix:** Validate against the effective limit so both directions stay consistent:\n```ruby\noptional(:pages).maybe(:integer, gt?: 0, lteq?: Connectors::Services::PageLimit.max_pages)\n```",
+          "label": null
+        },
+        {
+          "title": "Pagination off-by-one fetches an empty extra page",
+          "file": "app/lib/connectors/github/client.rb",
+          "severity": 4,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** `page_number * per_page <= total_count` returns a next-page cursor even when every matching result has already been fetched, so one extra request is made for a page that is guaranteed empty.\n\n**When it happens:** A user has 100 matching pull requests with `per_page: 50`; after fetching page 2, `2 * 50 <= 100` yields a cursor for page 3, which returns zero items (and burns one of the `PageLimit` page slots).\n\n**Fix:** Use strict less-than:\n\n```\nnext_page = page_number * per_page < body.fetch(\"total_count\", 0) ? page_number + 1 : nil\n```",
+          "label": {
+            "title": "Exact multiple of per_page triggers one extra empty search call",
+            "file": "app/lib/connectors/github/client.rb",
+            "label": "nit",
+            "kind": "performance",
+            "push": "both",
+            "note": "pull_requests computes next_page with page_number * per_page <= total_count, so when total_count is exactly 50 or 100 the walk requests one more page that returns zero items before stopping. One wasted request in a rare case; should be <."
+          }
+        },
+        {
+          "title": "Page limit validated against constant, not configured max",
+          "file": "app/lib/connectors/linear/queries/list_issues.rb",
+          "severity": 3,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** The schema caps `pages` with the hardcoded `PageLimit::MAX_PAGES` (5), but the real budget is `PageLimit.max_pages`, which reads the `max_pages_per_call` config. Two sources of truth for the same limit, even within this file.\n\n**When it happens:** With `max_pages_per_call = 2`, a caller passing `pages: 5` passes validation and fetches 5 pages, bypassing the configured cap; with `= 10`, valid values 6–10 are rejected.\n\n**Fix:** Use one source, e.g. clamp the input: `[input[:pages] || PageLimit.max_pages, PageLimit.max_pages].min`.",
+          "label": null
+        }
+      ],
+      "held_back": [],
+      "warnings": [
+        "Asked again for the review JSON of app/lib/search/errors.rb after no valid JSON found in response",
+        "Asked again for the verdict on 'Channel-setting access duplicated with sync job' (app/lib/search/tools/slack_search.rb) after the critic reply has no JSON",
+        "Asked again for the verdict on 'Replies beyond the first page are silently dropped' (app/lib/connectors/slack/queries/list_messages.rb) after the critic reply has no verdict",
+        "Asked again for the verdict on 'Team filter construction has no test coverage' (app/lib/connectors/linear/client.rb) after the critic reply has no JSON",
+        "Asked again for the verdict on 'Invalid `kind` silently falls back to issues search' (app/lib/search/tools/github_search.rb) after the critic reply has no JSON"
+      ],
+      "repeat": 0
+    },
+    {
+      "case": "paged-connectors",
+      "ref": "first-push",
+      "model": "z-ai/glm-5.3",
+      "metrics": {
+        "quality": {
+          "real_recall": {
+            "found": 2,
+            "total": 4
+          },
+          "first_push_recall": null,
+          "reals_held_back": 0
+        },
+        "noise": {
+          "posted": 16,
+          "nit": 1,
+          "wrong": 0,
+          "unlabelled": 13,
+          "nit_rate": 6,
+          "wrong_rate": 0,
+          "changed_lines": 815,
+          "threads_per_100_lines": 2.0,
+          "duplicates": 0
+        },
+        "calibration": {
+          "highs_real": {
+            "real": 2,
+            "total": 4
+          },
+          "mediums_nit": {
+            "nit": 1,
+            "total": 12
+          },
+          "conf3_posted": 0
+        },
+        "latency": {
+          "seconds": 503,
+          "unchecked": 0,
+          "critic_timeouts": 0
+        },
+        "cost": {
+          "cost_usd": 2.29,
+          "input_tokens": 279555,
+          "output_tokens": 307643
+        }
+      },
+      "first_pass": 36,
+      "posted": [
+        {
+          "title": "Connected search endpoint 500s on every request",
+          "file": "app/controllers/api/v1/search_controller.rb",
+          "severity": 1,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** `ConnectedSearch` accepts a `cursors:` hash and exposes `next_cursors`; the action passes `cursor:` (unknown keyword → `ArgumentError`) and reads `result.next_cursor` (undefined → `NoMethodError`).\n\n**When it happens:** Every `GET /api/v1/search/connected` call crashes and `HandlesErrors` returns a 500; the new request specs (sending `cursors[github]=2`, expecting `next_cursors`) fail.\n\n**Fix:** Pass `cursors: params[:cursors]` and render `next_cursors: result.next_cursors`.",
+          "label": null
+        },
+        {
+          "title": "Spec uses wrong cursor API; tests fail",
+          "file": "spec/lib/search/queries/connected_search_spec.rb",
+          "severity": 3,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**summary:** **What's wrong:** The spec calls `ConnectedSearch.call` with `cursor:` (singular string) and reads `result.next_cursor`, but the query only accepts `cursors:` (a per-provider hash, as the controller passes) and its `Result` struct exposes `next_cursors`, not `next_cursor`. Both example assertions can never pass.\n\n**When it happens:** Running this spec: `described_class.call(..., cursor: \"abc\")` raises `ArgumentError: unknown keyword :cursor` before any tool stub is hit; even if fixed, `result.next_cursor` raises `NoMethodError` on the struct.\n\n**Fix:** Pass the per-provider cursors hash and assert the returned hash:\n\n**fix:** ```ruby\nresult = described_class.call(company: company, user: member, q: \"x\",\n  cursors: { \"github\" => \"abc\", \"slack\" => \"abc\" })\n...\nexpect(result.next_cursors).to eq(\"github\" => \"2\", \"slack\" => \"dXNlcjpV\")\n```",
+          "label": null
+        },
+        {
+          "title": "Pagination keeps only the last provider's cursor",
+          "file": "app/lib/search/queries/connected_search.rb",
+          "severity": 2,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** When several connected providers each return a `next_cursor`, only the last one is kept and the others are dropped. That single cursor is then broadcast to every tool as if it were its own pagination token.\n\n**When it happens:** GitHub and Slack are both truncated: the next request feeds Slack's cursor into the GitHub query, which starts paging from it (see `ListIssues#call`), giving wrong or duplicate items.\n\n**Fix:** Build a per-provider cursor map (e.g. JSON) and have each tool read its own entry.",
+          "label": {
+            "title": "One cursor is reused across providers, so Slack's cursor is sent to GitHub",
+            "file": "app/lib/search/queries/connected_search.rb",
+            "label": "real",
+            "push": "first",
+            "note": "early ConnectedSearch takes a single cursor and passes it to every tool in Registry.for(providers); next_cursor is whichever provider's came last, so the second page of a multi-provider search sends Slack's opaque cursor to GitHub's page-number query (to_i => 0 => page 1 again) and vice versa. Head keys cursors by provider (cursors[tool.provider], next_cursors hash). Fixed at head."
+          }
+        },
+        {
+          "title": "Capped syncs skip items after cursor wipe",
+          "file": "app/models/connector_account.rb",
+          "severity": 2,
+          "confidence": 2,
+          "unchecked": false,
+          "details": "**What's wrong:** `touch_synced!` now always clears `cursor`, and `SyncAccountJob` discards each query's `next_cursor` while `PageLimit` caps runs at 5 pages. A capped run still advances `last_synced_at`, so items past page 5 can fall outside the next lookback window and never be imported.\n\n**When it happens:** A busy Slack channel posts more than 5 pages of messages since `since`; the run stops early, the sync is marked done, and the excess messages age out of the window.\n\n**Fix:** Persist `result.next_cursor` (restore a `cursor:` param) or don't advance `last_synced_at` when `PageLimit.capped?(pages_fetched)`.",
+          "label": {
+            "title": "Sync advances last_synced_at even when the page cap cut the walk short",
+            "file": "app/lib/connectors/jobs/sync_account_job.rb",
+            "label": "real",
+            "push": "both",
+            "note": "perform discards result.next_cursor and calls account.touch_synced!(synced_at: started_at) (early: touch_synced!) regardless of whether pages_fetched hit PageLimit.max_pages; the next run's LookBack starts at last_synced_at - 5 minutes, so items older than the last fetched page but newer than the previous watermark are never imported. Any account with more than 5 pages (250 GitHub issues, 500 Slack messages) in a window silently loses the rest. Real: data loss on the sync path every run."
+          }
+        },
+        {
+          "title": "Expected `since` never matches LookBack's output",
+          "file": "spec/lib/connectors/jobs/sync_account_job_spec.rb",
+          "severity": 3,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** `expected_since` is midnight on 2026-10-02, but `LookBack` only ever returns `last_synced_at - 5.minutes` or `now - 14.days` (09:00) — never a beginning-of-day value. The shared context also sets `last_synced_at: 2.days.ago`, so the 14-day floor branch is not even taken.\n\n**When it happens:** Running this example: the job passes `since: last_synced_at - OVERLAP`, so both `have_received(...).with(since: expected_since)` assertions fail and the example is red.\n\n**Fix:** Force the window branch and expect the exact floor:\n```ruby\naccount.update!(last_synced_at: nil)\nexpected_since = Time.zone.parse(\"2026-10-16 09:00:00\") - Connectors::Services::LookBack::DEFAULT_WINDOW\n```",
+          "label": null
+        },
+        {
+          "title": "Never-ending stub cursor duplicates fetched messages",
+          "file": "spec/lib/search/tools/slack_search_spec.rb",
+          "severity": 3,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** The `messages` stub always returns the same page with `next_cursor: \"abc\"`, so `ListMessages` keeps paginating until the page cap and appends the same messages on every round.\n\n**When it happens:** Running this example: the result holds `\"deploy done\"` once per fetched page, so `eq([\"deploy done\"])` fails (or the loop hangs if unbounded).\n\n**Fix:** Cap the fetch to a single page, e.g. `described_class.call(company: company, user: member, channel: \"C456\", q: \"deploy\", pages: 1)`.",
+          "label": null
+        },
+        {
+          "title": "New client pagination logic has no tests",
+          "file": "app/lib/connectors/github/client.rb",
+          "severity": 3,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** The new cursor logic has no test coverage. Every spec stubs `Connectors::Github::Client` with fabricated `Connectors::Page` objects, and no client spec exists.\n\n**When it happens:** The `<=` off-by-one ships green today; any future change to `total_count` or `Link`-header handling is likewise unverified.\n\n**Fix:** Add a `Connectors::Github::Client` spec with stubbed HTTP responses covering full page, exact multiple of `per_page`, last page, and empty result.",
+          "label": null
+        },
+        {
+          "title": "API errors silently become empty PR pages",
+          "file": "app/lib/connectors/github/client.rb",
+          "severity": 2,
+          "confidence": 2,
+          "unchecked": false,
+          "details": "**What's wrong:** `get` only raises on 401 and 429. Other errors (GitHub uses 403 for secondary rate limits) return a JSON error object, and `body.fetch(\"items\", [])` turns it into an empty page that looks like success.\n\n**When it happens:** GitHub answers 403 with `{\"message\": \"...rate limit...\"}` during a PR sync; the loop sees no items and no cursor, ends quietly, and the run reports zero pull requests.\n\n**Fix:** Raise on any non-2xx status in `get`, or treat a body missing `\"items\"`/`\"total_count\"` as an error.",
+          "label": null
+        },
+        {
+          "title": "Request cursor param never reaches the endpoint",
+          "file": "spec/requests/api/v1/search_spec.rb",
+          "severity": 3,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** The endpoint reads cursors from `params[:cursors]` (a provider-keyed hash in `cursor_params`), but the spec sends a top-level `cursor` param, which is ignored.\n\n**When it happens:** The client stub requires `cursor: \"2\"`, yet `ConnectedSearch` passes `cursor: nil` from the empty cursors hash, so RSpec raises an unexpected-arguments error and the example fails.\n\n**Fix:** Send the param the endpoint accepts:\n\n```ruby\nparams: { q: \"flaky\", providers: [\"github\"], cursors: { github: \"2\" }, since_days: \"3\" }\n```",
+          "label": null
+        },
+        {
+          "title": "Spec asserts next_cursor key endpoint never returns",
+          "file": "spec/requests/api/v1/search_spec.rb",
+          "severity": 3,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** The endpoint renders `next_cursors`, a per-provider hash like `{\"github\" => 3}`, not a `next_cursor` string. `json[\"next_cursor\"]` is always nil.\n\n**When it happens:** In this example, so `expect(json[\"next_cursor\"]).to eq(\"3\")` fails even when the request succeeds.\n\n**Fix:** Assert the real shape: `expect(json[\"next_cursors\"]).to eq(\"github\" => 3)` — the stub builds an integer `next_cursor: 3`, and nothing converts it to a string.",
+          "label": null
+        },
+        {
+          "title": "README pagination params don't match the endpoint",
+          "file": "README.md",
+          "severity": 3,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** The HTTP endpoint does not use `cursor`/`next_cursor`. Its response is `next_cursors`, a hash keyed by provider, and it accepts `cursors[<provider>]` on the next request (see `SearchController#cursor_params`).\n\n**When it happens:** A client follows the README and calls `?q=bug&cursor=abc`; the param is silently ignored, so every call returns the first page again.\n\n**Fix:** Document the real contract: \"returns further pages via `next_cursors`; pass each back as `cursors[<provider>]`\".",
+          "label": null
+        },
+        {
+          "title": "Duplicate providers run the same search twice",
+          "file": "app/lib/search/tools/registry.rb",
+          "severity": 3,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** `Registry.for` maps each requested provider without removing duplicates, so the same tool can be returned and executed more than once.\n\n**When it happens:** A request like `?providers[]=github&providers[]=github` runs `GithubSearch` twice, doubling external API calls and likely returning every GitHub item twice.\n\n**Fix:** Deduplicate the list before resolving tools:\n\n```ruby\nwanted = Array(providers).map(&:to_s).reject(&:blank?).uniq\n```",
+          "label": null
+        },
+        {
+          "title": "Pages validation ignores configured page cap",
+          "file": "app/lib/connectors/slack/queries/list_messages.rb",
+          "severity": 3,
+          "confidence": 2,
+          "unchecked": false,
+          "details": "**What's wrong:** `pages` is validated against the hard-coded `PageLimit::MAX_PAGES` (5), but the fallback in `max_pages` uses the configurable `PageLimit.max_pages`, so the two limits disagree.\n\n**When it happens:** With `max_pages_per_call` configured to 10, `pages: 8` raises `InvalidInput` even though a run without `pages` fetches 10 pages; configured to 3, callers can still force 5.\n\n**Fix:** Validate against `Connectors::Services::PageLimit.max_pages` so input validation and the fallback share one source of truth.",
+          "label": null
+        },
+        {
+          "title": "Thread replies add unbounded N+1 API calls",
+          "file": "app/lib/connectors/slack/queries/list_messages.rb",
+          "severity": 3,
+          "confidence": 2,
+          "unchecked": false,
+          "details": "**What's wrong:** Every thread parent adds one `conversations.replies` HTTP call, and every reply then adds a `chat.getPermalink` call inside `normalize`. None of these count toward the page budget, so a single page can fire hundreds of sequential calls.\n\n**When it happens:** A page of 100 messages where 40 have threads produces ~180 calls; Slack returns 429, `Connectors::RateLimited` is raised, and the whole sync aborts.\n\n**Fix:** Skip threads whose `latest_reply` is older than `since`, and build permalinks locally from channel and `ts` instead of one API call per message.",
+          "label": null
+        },
+        {
+          "title": "Replies of subtyped parents are never fetched",
+          "file": "app/lib/connectors/slack/queries/list_messages.rb",
+          "severity": 3,
+          "confidence": 2,
+          "unchecked": false,
+          "details": "**What's wrong:** Replies are only fetched for parents that survive the subtype filter, so threads started by `file_share` or `bot_message` messages lose all of their replies.\n\n**When it happens:** A file share starts a thread with ten human replies; none of them end up in the indexed items.\n\n**Fix:** Gate only the parent's normalization, not the reply fetch:\n```ruby\npage.items.each do |raw|\n  items << normalize(raw) unless raw[\"subtype\"]\n  items.concat(replies_for(raw, since)) if raw[\"reply_count\"].to_i.positive?\nend\n```",
+          "label": null
+        },
+        {
+          "title": "Thread replies beyond one page are silently dropped",
+          "file": "app/lib/connectors/slack/client.rb",
+          "severity": 3,
+          "confidence": 2,
+          "unchecked": false,
+          "details": "**What's wrong:** Slack's `conversations.replies` paginates like `conversations.history`, but this method discards `response_metadata.next_cursor`, so only the first page of a thread is returned.\n\n**When it happens:** A thread with more than 500 replies (the caller's `REPLY_LIMIT` in `ListMessages`); replies after the first 500 never sync and are silently missing from search.\n\n**Fix:** Return `Connectors::Page` and pass the cursor, mirroring `messages` (update `replies_for` to follow it):\n\n```ruby\ndef replies(channel:, ts:, cursor: nil, limit: LIMIT)\n  body = post(\"conversations.replies\", channel: channel, ts: ts, cursor: cursor, limit: limit)\n  Connectors::Page.new(items: body.fetch(\"messages\", []), next_cursor: next_cursor(body))\nend\n```",
+          "label": {
+            "title": "Thread replies are capped at 500 and never paged",
+            "file": "app/lib/connectors/slack/queries/list_messages.rb",
+            "label": "nit",
+            "kind": "latent edge case",
+            "push": "both",
+            "note": "replies_for fetches conversations.replies once with limit REPLY_LIMIT (500) and no oldest, then filters by since client-side; a thread with more than 500 replies silently loses the rest and the window is only applied to what came back. Needs a 500-reply thread inside a 14-day window to matter."
+          }
+        }
+      ],
+      "held_back": [],
+      "warnings": [
+        "Asked again for the review JSON of app/lib/search/tools/slack_search.rb after no valid JSON found in response",
+        "Asked again for the verdict on 'Resume cursor passthrough for projects is untested' (spec/lib/connectors/linear/queries/list_projects_spec.rb) after the critic reply has no verdict",
+        "Asked again for the verdict on 'Connected search endpoint 500s on every request' (app/controllers/api/v1/search_controller.rb) after the critic reply has no verdict",
+        "Asked again for the verdict on 'Spec uses wrong cursor API; tests fail' (spec/lib/search/queries/connected_search_spec.rb) after the critic reply has no verdict",
+        "Asked again for the verdict on 'README pagination params don't match the endpoint' (README.md) after the critic reply has no JSON",
+        "Asked again for the verdict on 'Request cursor param never reaches the endpoint' (spec/requests/api/v1/search_spec.rb) after the critic reply has no verdict"
+      ],
+      "repeat": 0
+    },
+    {
+      "case": "readme-typo",
+      "ref": "final-push",
+      "model": "z-ai/glm-5.3",
+      "metrics": {
+        "quality": {
+          "real_recall": {
+            "found": 0,
+            "total": 0
+          },
+          "first_push_recall": null,
+          "reals_held_back": 0
+        },
+        "noise": {
+          "posted": 0,
+          "nit": 0,
+          "wrong": 0,
+          "unlabelled": 0,
+          "nit_rate": null,
+          "wrong_rate": null,
+          "changed_lines": 1,
+          "threads_per_100_lines": 0.0,
+          "duplicates": 0
+        },
+        "calibration": {
+          "highs_real": {
+            "real": 0,
+            "total": 0
+          },
+          "mediums_nit": {
+            "nit": 0,
+            "total": 0
+          },
+          "conf3_posted": 0
+        },
+        "latency": {
+          "seconds": 63,
+          "unchecked": 0,
+          "critic_timeouts": 0
+        },
+        "cost": {
+          "cost_usd": 0.01,
+          "input_tokens": 5225,
+          "output_tokens": 1598
+        }
+      },
+      "first_pass": 1,
+      "posted": [],
+      "held_back": [],
+      "warnings": [],
+      "repeat": 0
+    },
+    {
+      "case": "route-discovery",
+      "ref": "final-push",
+      "model": "z-ai/glm-5.3",
+      "metrics": {
+        "quality": {
+          "real_recall": {
+            "found": 1,
+            "total": 2
+          },
+          "first_push_recall": {
+            "found": 1,
+            "total": 3
+          },
+          "reals_held_back": 0
+        },
+        "noise": {
+          "posted": 11,
+          "nit": 1,
+          "wrong": 0,
+          "unlabelled": 9,
+          "nit_rate": 9,
+          "wrong_rate": 0,
+          "changed_lines": 757,
+          "threads_per_100_lines": 1.5,
+          "duplicates": 0
+        },
+        "calibration": {
+          "highs_real": {
+            "real": 1,
+            "total": 2
+          },
+          "mediums_nit": {
+            "nit": 1,
+            "total": 9
+          },
+          "conf3_posted": 0
+        },
+        "latency": {
+          "seconds": 284,
+          "unchecked": 0,
+          "critic_timeouts": 0
+        },
+        "cost": {
+          "cost_usd": 1.27,
+          "input_tokens": 193216,
+          "output_tokens": 169085
+        }
+      },
+      "first_pass": 25,
+      "posted": [
+        {
+          "title": "Connector routes dropped, spec claims \"every route\"",
+          "file": "spec/lib/search/queries/discover_routes_spec.rb",
+          "severity": 2,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**what_is_wrong:** The real router stores the `/connectors` routes in a `connectorRoutes` array, attached via an entry with no `path` and `children: connectorRoutes`. `RouteParser#entry` returns early when `path` is missing, so those three routes are silently dropped from discovery, yet the spec titled \"parses every route\" never checks them.\n\n**when_it_happens:** Running `described_class.call` against the real router: `/connectors`, `/connectors/:id`, and `/connectors/:id/items` are absent from the result, but every assertion in this spec still passes.\n\n**fix:** Add `\"/connectors\"` to the `include` assertion — it fails today — then fix `RouteParser` so an entry without `path` still yields its `children` (and ideally follows array references like `connectorRoutes`).",
+          "label": {
+            "title": "Route groups the parser cannot read are silently dropped, so their pages are pruned as stale",
+            "file": "app/lib/search/services/route_parser.rb",
+            "label": "real",
+            "push": "both",
+            "note": "RouteParser#entry returns [] for an object with no `path` without descending, and entries finds no `{` after `children: connectorRoutes` (an identifier, not an array literal), so the three /connectors routes never reach the upsert and prune deletes them on the first reindex; same for a capitalised `Component` key. Unreadable shapes must be marked or fail the reindex, never pruned."
+          }
+        },
+        {
+          "title": "Failed /me fetch leaves page loading forever",
+          "file": "app/javascript/components/RequireAdmin.tsx",
+          "severity": 2,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** `get(\"/me\")` throws an `ApiError` on any non-2xx response and rejects on network errors, but the promise has no `.catch`. `allowed` stays `null`, so users see \"Loading...\" forever, plus an unhandled rejection in the console.\n\n**When it happens:** The stored API key expires and `GET /api/v1/me` returns 401; every admin page hangs on \"Loading...\" with no error or way forward.\n\n**Fix:** Handle the rejection:\n\n```tsx\nget<Profile>(\"/me\")\n  .then((profile) => setAllowed(roleFor(profile) === \"staff\"))\n  .catch(() => setAllowed(false));\n```",
+          "label": null
+        },
+        {
+          "title": "New SourceMask service has no specs",
+          "file": "app/lib/search/services/source_mask.rb",
+          "severity": 3,
+          "confidence": 2,
+          "unchecked": false,
+          "details": "**What's wrong:** `SourceMask` is a new hand-written tokenizer with tricky escape and template-literal logic, but the PR adds no spec for it, while sibling `ConstantResolver` got one.\n\n**When it happens:** Any change to `mask_string`/`mask_template` (e.g., the escape gap above) passes CI, because `discover_routes_spec` never exercises strings containing quotes, braces, commas, or backticks.\n\n**Fix:** Add `spec/lib/search/services/source_mask_spec.rb` covering quoted strings, escapes, nested templates, and unterminated input.",
+          "label": null
+        },
+        {
+          "title": "Role permission lists duplicated from permissions.ts",
+          "file": "app/lib/search/queries/search_routes.rb",
+          "severity": 3,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** The `MEMBER`/`ADMIN`/`STAFF` constants hand-copy the role-to-permission lists that already exist in `app/javascript/permissions.ts` (`ROLE_PERMISSIONS`). The two copies can drift apart silently.\n\n**When it happens:** A new permission like `reports:read` is added to `permissions.ts` and gates a route; the Ruby lists never include it, so search hides that route for every role while the app itself still shows it.\n\n**Fix:** Treat `permissions.ts` as the single source of truth: resolve the role lists via `ConstantResolver` at index time (store allowed roles on `RouteIndexEntry`), or add a spec that parses `permissions.ts` and asserts these constants match.",
+          "label": null
+        },
+        {
+          "title": "No test for unreadable entries becoming readable",
+          "file": "spec/lib/search/commands/upsert_route_index_spec.rb",
+          "severity": 3,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** The command's headline change is marking entries `unreadable: true` instead of deleting them, with `upsert` resetting `unreadable` to `false`. No spec covers that reset: the `unreadable: false` assertion in the first test runs on a brand-new record where the default is already `false`, so it cannot catch a regression.\n\n**When it happens:** A route fails to parse once (entry marked unreadable), then parses fine again; if a refactor of `upsert` drops the `unreadable: false` reset, every existing spec still passes and the route stays hidden from search forever.\n\n**Fix:** Add a test that re-indexes an unreadable entry with a readable route and asserts the flag flips back (the unused `:unreadable` factory trait exists for this):\n\n```ruby\nit \"clears unreadable when a route becomes readable again\" do\n  existing = create(:route_index_entry, :unreadable, path: \"/a\")\n\n  described_class.call(routes: [route(\"/a\")], now: now)\n\n  expect(existing.reload).to have_attributes(unreadable: false, indexed_at: now)\nend\n```",
+          "label": {
+            "title": "No spec covers a flag change on a route whose permission is unchanged",
+            "file": "spec/lib/search/commands/upsert_route_index_spec.rb",
+            "label": "nit",
+            "kind": "test gap",
+            "push": "both",
+            "note": "the \"updates existing entries\" example only changes permission old->new; UpsertRouteIndex#upsert does write flag, so this is a missing assertion, not a bug."
+          }
+        },
+        {
+          "title": "Escaped backticks end template masking early",
+          "file": "app/lib/search/services/source_mask.rb",
+          "severity": 3,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** `mask_template` ignores backslash escapes, while `mask_string` handles them. In JavaScript, `\\`` inside a template literal is an escaped backtick, not the end of the literal.\n\n**When it happens:** A router file containing `He said \\`hi\\`` inside a template stops masking at the first escaped backtick; the rest is treated as code, corrupting `RouteParser`'s brace counting (wrong routes or `Search::ParseError`).\n\n**Fix:** Skip escape sequences at the top of the loop, as `mask_string` does.",
+          "label": null
+        },
+        {
+          "title": "Component regex misses `.then()`-wrapped imports",
+          "file": "app/lib/search/services/route_parser.rb",
+          "severity": 3,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** `LAZY` requires the `import(\"\")` call to be the entire component value. An import followed by `.then(...)` doesn't match, so `component_at` returns `nil`.\n\n**When it happens:** The `admin.index` route in `app-router.tsx` uses `import(\"./pages/AdminRoutesPage\").then((m) => ...)`, so it fails `Route#readable?` and is lost from the route index.\n\n**Fix:** Capture the module path and ignore anything after the import call.",
+          "label": null
+        },
+        {
+          "title": "Stale tsconfig alias crashes with raw Errno::ENOENT",
+          "file": "app/lib/search/services/constant_resolver.rb",
+          "severity": 3,
+          "confidence": 2,
+          "unchecked": false,
+          "details": "**What's wrong:** The alias branch of `resolve` skips the `File.exist?` check that the relative branch performs, so `constant_value`'s `File.read` raises a raw `Errno::ENOENT` instead of the intended `Search::UnresolvedConstant`.\n\n**When it happens:** Any `compilerOptions.paths` entry whose target file is missing — for example an alias written without the `.ts` extension (the usual TypeScript style) or a module that was moved or renamed.\n\n**Fix:** Mirror the relative branch: try the target with and without extensions, and return nil unless a candidate exists so callers get `Search::UnresolvedConstant`.",
+          "label": null
+        },
+        {
+          "title": "Reindex errors silent; duplicate clicks allowed",
+          "file": "app/javascript/pages/AdminRoutesPage.tsx",
+          "severity": 3,
+          "confidence": 2,
+          "unchecked": false,
+          "details": "**What's wrong:** `reindex` is an async click handler with no `catch`, so a failed POST rejects unhandled and the UI shows nothing. The button also stays enabled, so extra clicks start concurrent reindex requests.\n\n**When it happens:** Admin double-clicks \"Reindex\", or the POST fails while the server indexes routes.\n\n**Fix:** Catch errors into an error message and disable the button while a reindex runs.",
+          "label": null
+        },
+        {
+          "title": "Failed load leaves page stuck on Loading",
+          "file": "app/javascript/pages/AdminRoutesPage.tsx",
+          "severity": 3,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** `get` throws `ApiError` on any failed response, but this fetch has no `catch`. The page then stays on \"Loading...\" forever with no error message.\n\n**When it happens:** The admin opens the page with an expired API key (401) or the endpoint returns a 500.\n\n**Fix:** Add error state, chain a `.catch` onto the fetch, and render the message instead of the loading text.",
+          "label": null
+        },
+        {
+          "title": "New flagEnabled helper has no callers",
+          "file": "app/javascript/flags.ts",
+          "severity": 3,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** `flagEnabled` is exported but nothing in the codebase calls it, so no client-side flag check actually runs through it.\n\n**When it happens:** Searching the repo at this commit, the only mention of `flagEnabled` is its own definition; the router and pages never invoke it.\n\n**Fix:** Wire it into route matching (e.g., filter routes in `findRoute`) or remove it until a caller exists.",
+          "label": null
+        }
+      ],
+      "held_back": [],
+      "warnings": [
+        "Asked again for the verdict on 'Connector routes dropped, spec claims \"every route\"' (spec/lib/search/queries/discover_routes_spec.rb) after the critic reply has no verdict",
+        "Asked again for the verdict on 'Component regex misses `.then()`-wrapped imports' (app/lib/search/services/route_parser.rb) after the critic reply has no JSON"
+      ],
+      "repeat": 0
+    },
+    {
+      "case": "route-discovery",
+      "ref": "first-push",
+      "model": "z-ai/glm-5.3",
+      "metrics": {
+        "quality": {
+          "real_recall": {
+            "found": 1,
+            "total": 3
+          },
+          "first_push_recall": null,
+          "reals_held_back": 0
+        },
+        "noise": {
+          "posted": 11,
+          "nit": 1,
+          "wrong": 0,
+          "unlabelled": 9,
+          "nit_rate": 9,
+          "wrong_rate": 0,
+          "changed_lines": 749,
+          "threads_per_100_lines": 1.5,
+          "duplicates": 0
+        },
+        "calibration": {
+          "highs_real": {
+            "real": 1,
+            "total": 3
+          },
+          "mediums_nit": {
+            "nit": 1,
+            "total": 8
+          },
+          "conf3_posted": 0
+        },
+        "latency": {
+          "seconds": 220,
+          "unchecked": 0,
+          "critic_timeouts": 0
+        },
+        "cost": {
+          "cost_usd": 1.25,
+          "input_tokens": 228021,
+          "output_tokens": 175893
+        }
+      },
+      "first_pass": 33,
+      "posted": [
+        {
+          "title": "Missing-router test expects [] but code raises",
+          "file": "spec/lib/search/queries/discover_routes_spec.rb",
+          "severity": 2,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** The example expects `described_class.call(router_path: \"/nowhere/app-router.tsx\")` to return `[]`, but `DiscoverRoutes#read_source` rescues `Errno::ENOENT` and raises `Search::RouterMissing`, so this example can never pass.\n\n**When it happens:** On every test run — the path does not exist, so the query raises instead of returning.\n\n**Fix:** Pick one behavior: assert the raise, or make `read_source` return `[]` and delete `RouterMissing`.",
+          "label": null
+        },
+        {
+          "title": "Apostrophe in comment corrupts route masking",
+          "file": "app/lib/search/services/source_mask.rb",
+          "severity": 3,
+          "confidence": 2,
+          "unchecked": false,
+          "details": "**What's wrong:** The scanner never skips comments, so a `'` inside a comment opens a string mask that runs to the next apostrophe or end of file, replacing real code with `#`.\n\n**When it happens:** Add `// Don't edit manually` above `export const routes` in `app-router.tsx`; the masked text hides that line, `ROUTES_ARRAY` fails to match, and all routes silently vanish from the index.\n\n**Fix:** Skip `//` and `/* */` comment regions (and regex literals) in `call` before testing `QUOTES`.",
+          "label": {
+            "title": "A comment between entries that contains a bracket makes parsing raise",
+            "file": "app/lib/search/services/route_parser.rb",
+            "label": "nit",
+            "kind": "latent edge case",
+            "push": "both",
+            "note": "SourceMask does not mask // or /* */ comments, so a `{` or `[` inside a comment between two entries unbalances closing_index and raises Search::ParseError; app-router.tsx has no comments."
+          }
+        },
+        {
+          "title": "Named-export lazy imports lose their component",
+          "file": "app/lib/search/services/route_parser.rb",
+          "severity": 3,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** `LAZY` requires closing parens immediately after `import(\"...\")`, so the named-export form `.then((m) => ({ default: m.X }))` fails to match and `component_at` returns `nil`.\n\n**When it happens:** The `admin.index` route in `app-router.tsx` imports `AdminRoutesPage` with exactly that `.then` form, so it is indexed without a component and fails `Route#readable?`.\n\n**Fix:** Allow trailing content after the import call, e.g. `LAZY = /\\A(?:requireAdmin\\()?\\s*lazy\\(\\(\\)\\s*=>\\s*import\\(\"(?<module>[^\"]*)\"\\).*\\z/`.",
+          "label": null
+        },
+        {
+          "title": "Path-less route wrappers silently drop all children",
+          "file": "app/lib/search/services/route_parser.rb",
+          "severity": 2,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** `entry` returns `[]` before it ever parses `children` when a wrapper route has no `path` of its own, and constant references like `children: connectorRoutes` are never expanded because only literal text is scanned.\n\n**When it happens:** `app-router.tsx` groups the connector pages as `{ flag: FLAGS.CONNECTORS, children: connectorRoutes }`, so `/connectors`, `/connectors/:id` and `/connectors/:id/items` (all gated by `PERMISSIONS.CONNECTORS_READ`) silently vanish from the route index.\n\n**Fix:** Parse `children` before the early return, and expand constant `children` references through the resolver.",
+          "label": {
+            "title": "Route groups the parser cannot read are silently dropped, so their pages are pruned as stale",
+            "file": "app/lib/search/services/route_parser.rb",
+            "label": "real",
+            "push": "both",
+            "note": "RouteParser#entry returns [] for an object with no `path` without descending, and entries finds no `{` after `children: connectorRoutes` (an identifier, not an array literal), so the three /connectors routes never reach the upsert and prune deletes them on the first reindex; same for a capitalised `Component` key. Unreadable shapes must be marked or fail the reindex, never pruned."
+          }
+        },
+        {
+          "title": "Role permission sets duplicated in Ruby and TypeScript",
+          "file": "app/lib/search/queries/search_routes.rb",
+          "severity": 3,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** The role→permission mapping (`MEMBER`/`ADMIN`/`STAFF`) is defined both here and in `app/javascript/permissions.ts`, and `\"admin:staff\"` is already defined as `Search::Services::RouteParser::ADMIN_PERMISSION`. Two sources of truth for authorization data.\n\n**When it happens:** A gated route is added to the router with a new permission token; this Ruby list isn't updated, so `SearchRoutes` silently hides that route from every role.\n\n**Fix:** Reuse `RouteParser::ADMIN_PERMISSION` here and add a spec asserting parity with the sets in `permissions.ts`.",
+          "label": null
+        },
+        {
+          "title": "requireAdmin wrapper breaks component type contract",
+          "file": "app/javascript/app-router.tsx",
+          "severity": 3,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** `RouteDefinition.component` is typed as `LazyExoticComponent`, but `requireAdmin()` returns a plain `ComponentType`, so the two admin route entries fail TypeScript checking.\n\n**When it happens:** Any `tsc` type-check run (this PR adds `tsconfig.json`) errors on the `admin.companies` and `admin.company` definitions.\n\n**Fix:** Widen the field: `component?: LazyExoticComponent<ComponentType<unknown>> | ComponentType<unknown>;`",
+          "label": null
+        },
+        {
+          "title": "Failed /me request leaves page loading forever",
+          "file": "app/javascript/components/RequireAdmin.tsx",
+          "severity": 2,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** `get(\"/me\")` throws on any failed request, but the promise has no `.catch()`. `allowed` stays `null`, so the page shows \"Loading...\" forever and logs an unhandled rejection.\n\n**When it happens:** someone opens `/admin/companies` without a valid API key; `/me` returns 401 and the spinner never ends.\n\n**Fix:** Add `.catch(() => setAllowed(false))` (or a distinct error state) so every request outcome resolves the gate.",
+          "label": null
+        },
+        {
+          "title": "Filter test can't distinguish name from path",
+          "file": "spec/lib/search/queries/search_routes_spec.rb",
+          "severity": 3,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** `q: \"task\"` matches both the name (`tasks.index`) and the path (`/tasks`), so this test stays green even if either branch of the query's name/path `$or` matcher is removed or broken.\n\n**When it happens:** A regression that drops path-only or name-only matching in `SearchRoutes#call` — CI still passes because the other field still matches.\n\n**Fix:** Add cases that match only one field, plus a no-hit case:\n```ruby\nexpect(search(member, q: \"/tasks\")).to eq([tasks]) # path only\nexpect(search(member, q: \"index\")).to eq([tasks])  # name only\nexpect(search(member, q: \"nomatch\")).to be_empty\n```",
+          "label": null
+        },
+        {
+          "title": "New flagEnabled helper has no callers",
+          "file": "app/javascript/flags.ts",
+          "severity": 3,
+          "confidence": 2,
+          "unchecked": false,
+          "details": "**What's wrong:** `flagEnabled` is exported but nothing in the repository calls it. Routes already declare `flag` values (`FLAGS.POINTS_LEDGER`, `FLAGS.CONNECTORS`), yet no client-side code ever checks them, so the helper ships as dead code.\n\n**When it happens:** Grep for `flagEnabled` across the repo matches only its definition in this file; the flagged routes stay reachable because nothing filters on `flag`.\n\n**Fix:** Either wire `flagEnabled` into the route resolution/filtering logic, or remove the unused export if gating is handled server-side only.",
+          "label": null
+        },
+        {
+          "title": "Failed API calls leave page stuck loading",
+          "file": "app/javascript/pages/AdminRoutesPage.tsx",
+          "severity": 3,
+          "confidence": 1,
+          "unchecked": false,
+          "details": "**What's wrong:** No request has error handling. A failed initial load leaves `index` as `null`, so the page shows \"Loading...\" forever; a failed `reindex` is silently swallowed.\n\n**When it happens:** The admin's token expires and `GET /admin/route_index` returns 401 — `ApiError` is thrown with no `catch`, so the page never renders data.\n\n**Fix:** Catch errors into an error state and render a message; disable the Reindex button while it runs.",
+          "label": null
+        },
+        {
+          "title": "Missing alias target crashes with Errno::ENOENT",
+          "file": "app/lib/search/services/constant_resolver.rb",
+          "severity": 3,
+          "confidence": 2,
+          "unchecked": false,
+          "details": "**What's wrong:** The tsconfig-alias branch of `resolve` returns a path without checking that the file exists, and without the `.ts`/`.tsx` fallback the relative branch has. `File.read` in `constant_value` then raises a raw `Errno::ENOENT` instead of the intended `Search::UnresolvedConstant`.\n\n**When it happens:** Any `paths` entry whose target is missing, extension-less, or a wildcard — e.g. `\"@app/flags\": [\"app/javascript/flags\"]` — makes the route indexing crash with an unrelated system error.\n\n**Fix:** Apply the same existence/extension check in the alias branch:\n\n```ruby\ntarget = aliases[spec]&.first\nbase = target && File.expand_path(target, File.dirname(tsconfig_path))\nbase && [base, *EXTENSIONS.map { |ext| \"#{base}#{ext}\" }].find { |c| File.exist?(c) }\n```",
+          "label": null
+        }
+      ],
+      "held_back": [],
+      "warnings": [
+        "Failed to review app/controllers/api/v1/search_controller.rb: KeyError: key not found: \"title\"",
+        "Asked again for the verdict on 'Path-less route wrappers silently drop all children' (app/lib/search/services/route_parser.rb) after the critic reply has no JSON",
+        "Asked again for the verdict on 'Every-route test misses silently dropped connector routes' (spec/lib/search/queries/discover_routes_spec.rb) after the critic reply has no JSON",
+        "Asked again for the verdict on 'requireAdmin rejects admins, admits only staff' (app/javascript/components/RequireAdmin.tsx) after the critic reply has no JSON",
+        "Asked again for the verdict on 'Named-export lazy imports lose their component' (app/lib/search/services/route_parser.rb) after the critic reply has no JSON"
+      ],
+      "repeat": 0
+    }
+  ],
+  "at": "2026-10-19T13:50:12Z",
+  "sha": "10bc9fd",
+  "variant": "baseline",
+  "thingie": "0.11.0",
+  "model": "z-ai/glm-5.3",
+  "source": "https://github.com/bonusly/thingie/actions/runs/39261932525"
+}
