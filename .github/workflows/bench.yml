@@ -57,7 +57,7 @@ jobs:
         case: ${{ fromJson(needs.cases.outputs.cases) }}
     env:
       LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
-      LLM_MODEL: ${{ vars.LLM_MODEL }}
+      LLM_MODEL: z-ai/glm-5.3-flash
       LLM_PROVIDER: ${{ vars.LLM_PROVIDER }}
     steps:
       - uses: actions/checkout@v7
