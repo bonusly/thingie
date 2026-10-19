@@ -24,7 +24,7 @@ Always run `bundle exec rake` before committing to ensure both linting and tests
 The review pipeline runs in this order:
 
 1. **CLI** (`lib/thingie/cli.rb`) — Thor commands. `review` is the primary command.
-2. **Configuration** (`lib/thingie/configuration.rb`) — 5-layer merge: bundled defaults → `.thingie/config.toml` → `~/.thingie/.env` → env vars → CLI flags. `prompt_vars` deep-merges; other keys override.
+2. **Configuration** (`lib/thingie/configuration.rb`) — 5-layer merge: bundled defaults → `.thingie/config.toml` → `~/.thingie/.env` → env vars → CLI flags. `.thingie/config.toml` deep-merges over the defaults at every table level (e.g. one key in `[change_risk.ratings.critical]` keeps the rest); env vars and CLI flags replace top-level keys.
 3. **Changeset** (`lib/thingie/changeset.rb`) — Uses `Rugged` (libgit2) to produce the diff between two git refs.
 4. **Reviewer** (`lib/thingie/reviewer.rb`) — Orchestrates concurrent file reviews via `Async` fibers.
 5. **PromptBuilder** (`lib/thingie/prompt_builder.rb`) — Renders ERB templates with config and skills merged in.

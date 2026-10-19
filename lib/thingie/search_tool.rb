@@ -3,7 +3,6 @@
 require 'open3'
 require 'timeout'
 require 'ruby_llm'
-require_relative 'llm_compat'
 
 module Thingie
   # RubyLLM tool that lets the model search the reviewed repository with
@@ -26,11 +25,11 @@ module Thingie
       limit the search to a path inside the repository.
     DESC
 
-    LlmCompat.parameter(self, :pattern, description: 'Extended regular expression to search for', required: true)
-    LlmCompat.parameter(self, :path, description: 'Directory or file to limit the search to, relative to the ' \
-                                                  'repository root (optional)', required: false)
-    LlmCompat.parameter(self, :ignore_case, description: 'Match case-insensitively (optional, default false)',
-                                            required: false)
+    parameter :pattern, description: 'Extended regular expression to search for', required: true
+    parameter :path, description: 'Directory or file to limit the search to, relative to the ' \
+                                  'repository root (optional)', required: false
+    parameter :ignore_case, description: 'Match case-insensitively (optional, default false)',
+                            required: false
 
     # Builds a search tool bound to the repository at `root`.
     #

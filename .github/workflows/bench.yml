@@ -1,0 +1,140 @@
+name: Bench
+
+# Scores a pull request on the seeded cases when a label is added to it: `eval-fast` runs the small cases,
+# final push only, for a quick read; `eval-full` runs every case, first and final push. Add the label again to re-run. One job per case in parallel,
+# then one report: the job summary, a run file artifact, and an "Eval results" comment on the pull request.
+# Informational: it never blocks a merge. Each case is a first and a final push reviewed on a paid model.
+on:
+  pull_request:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Pull request to comment on (optional)"
+        required: false
+      tier:
+        description: "fast or full"
+        default: full
+
+concurrency:
+  group: bench-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  cases:
+    name: List cases
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'eval-fast' || github.event.label.name == 'eval-full'
+    runs-on: ubuntu-latest
+    outputs:
+      cases: ${{ steps.list.outputs.cases }}
+      tier: ${{ steps.list.outputs.tier }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+          bundler-cache: true
+      - id: list
+        run: |
+          tier="${{ github.event.inputs.tier || (github.event.label.name == 'eval-fast' && 'fast') || 'full' }}"
+          flag=""; [ "$tier" = fast ] && flag="--fast"
+          echo "tier=$tier" >> "$GITHUB_OUTPUT"
+          echo "cases=$(bundle exec evals/bench/run --list $flag | jq -R . | jq -sc .)" >> "$GITHUB_OUTPUT"
+
+  case:
+    name: ${{ matrix.case }}
+    needs: cases
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        case: ${{ fromJson(needs.cases.outputs.cases) }}
+    env:
+      LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+      LLM_MODEL: ${{ vars.LLM_MODEL }}
+      LLM_PROVIDER: ${{ vars.LLM_PROVIDER }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+          bundler-cache: true
+      - name: Review the case
+        run: bundle exec evals/bench/run "${{ matrix.case }}" ${{ needs.cases.outputs.tier == 'fast' && '--no-first-push' || '' }} --no-record --label "${GITHUB_SHA::7}" --out "tmp/bench/${{ matrix.case }}.json"
+      - name: Keep the case's run file
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-case-${{ matrix.case }}
+          path: tmp/bench/${{ matrix.case }}.json
+          if-no-files-found: ignore
+
+  report:
+    name: Report
+    needs: [cases, case]
+    if: always() && needs.cases.result == 'success'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TIER: ${{ needs.cases.outputs.tier }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+          bundler-cache: true
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: bench-case-*
+          path: tmp/bench/cases
+          merge-multiple: true
+      - name: Merge the cases and report against the baseline
+        run: |
+          ls tmp/bench/cases/*.json >/dev/null 2>&1 || { echo "No case finished." | tee -a "$GITHUB_STEP_SUMMARY"; exit 0; }
+          bundle exec evals/bench/run --merge tmp/bench/cases/*.json --no-record --label "${GITHUB_SHA::7}-${TIER}" --out tmp/bench/run.json | tee tmp/bench/report.md
+          cat tmp/bench/report.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Keep the run file
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-run-${{ github.sha }}
+          path: tmp/bench/run.json
+          if-no-files-found: ignore
+      - name: Comment on the pull request
+        if: always()
+        run: |
+          [ -f tmp/bench/report.md ] || exit 0
+          number="${{ github.event.pull_request.number || github.event.inputs.pr_number }}"
+          [ -n "$number" ] || { echo "No pull request to comment on; summary only."; exit 0; }
+          started=$(gh run view "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --json createdAt --jq .createdAt)
+          minutes=$(( ( $(date +%s) - $(date -d "$started" +%s) ) / 60 ))
+          {
+            sed -n '1,/^### Quality/p' tmp/bench/report.md | sed '$d'
+            echo '<details><summary>Full report</summary>'
+            echo
+            sed -n '/^### Quality/,$p' tmp/bench/report.md
+            echo
+            echo '</details>'
+            echo
+            echo '<details><summary>Run</summary>'
+            echo
+            pushes="first and final push each"; [ "$TIER" = fast ] && pushes="final push only"
+            echo "- Tier: ${TIER} ($(ls tmp/bench/cases/*.json | wc -l | tr -d ' ') cases, ${pushes})"
+            echo "- Run time: ${minutes} min wall clock, cases in parallel"
+            echo "- Logs and run file: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo "- Re-run: remove and add the \`eval-fast\` or \`eval-full\` label"
+            echo
+            echo '</details>'
+          } > tmp/bench/comment.md
+          existing=$(gh api "repos/$GITHUB_REPOSITORY/issues/$number/comments" --paginate --jq '.[] | select(.body | startswith("## Eval results")) | .id' | head -1)
+          if [ -n "$existing" ]; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$existing" -F body=@tmp/bench/comment.md >/dev/null
+          else
+            gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$number/comments" -F body=@tmp/bench/comment.md >/dev/null
+          fi

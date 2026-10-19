@@ -486,6 +486,15 @@ RSpec.describe Thingie::GitHub::Approver do # rubocop:disable RSpec/SpecFilePath
                                                        a_string_including("_Thingie v#{Thingie::VERSION} · m_"))
   end
 
+  it 'names the decision model in the status comment when System One scored the change' do
+    allow(pr).to receive_messages(additions: 600, deletions: 0)
+    report = report_for([]).tap { |built| built.change_risk = { 'model' => 'jev-latest', 'max' => {} } }
+    approver.run(report)
+
+    expect(client).to have_received(:add_comment)
+      .with('o/r', 1, a_string_including("_Thingie v#{Thingie::VERSION} · m · decision model: jev-latest_"))
+  end
+
   it 'includes the Thingie version in the approval review body' do
     approver.run(report_for([]))
 

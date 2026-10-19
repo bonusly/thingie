@@ -60,20 +60,6 @@ module Thingie
         raw && Integer(raw, exception: false)
       end
 
-      # The pull request's title from the event payload.
-      #
-      # @return [String, nil] the title, or nil when the event is not a pull request
-      def pr_title
-        event_payload&.dig('pull_request', 'title')
-      end
-
-      # The pull request's description from the event payload.
-      #
-      # @return [String, nil] the body, or nil when the event is not a pull request or it has none
-      def pr_body
-        event_payload&.dig('pull_request', 'body')
-      end
-
       # The repository owner, parsed from `repo`.
       #
       # @return [String, nil] the repository owner, parsed from `repo`

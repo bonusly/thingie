@@ -98,6 +98,8 @@ module Thingie
       target = @report.target
       rows = ["- Thingie version: #{Thingie::VERSION}"]
       rows << "- Review model: #{@report.model}" unless @report.model.to_s.strip.empty?
+      decision_model = @report.change_risk&.dig('model')
+      rows << "- Decision model: #{decision_model}" unless decision_model.to_s.strip.empty?
       rows << "- Base: `#{short_ref(target.base_ref)}`" if target.base_ref
       rows << "- Reviewed at: #{Time.parse(@report.created_at).utc.strftime('%Y-%m-%d %H:%M UTC')}"
       "<details><summary>Thingie details</summary>\n\n#{rows.join("\n")}\n\n</details>"

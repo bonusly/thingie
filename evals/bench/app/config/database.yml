@@ -1,0 +1,18 @@
+# Only ActionMailer previews and the test log use a relational store; the
+# application data lives in MongoDB (see config/mongoid.yml).
+default: &default
+  adapter: sqlite3
+  pool: 5
+  timeout: 5000
+
+development:
+  <<: *default
+  database: storage/development.sqlite3
+
+test:
+  <<: *default
+  database: storage/test.sqlite3
+
+production:
+  <<: *default
+  database: storage/production.sqlite3

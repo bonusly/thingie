@@ -429,7 +429,7 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
         'o/r', 1,
         a_string_including(
           Thingie::ReportRenderer::NO_NEW_CHANGES,
-          '<details><summary>1 lower-confidence finding, not posted as review comments</summary>',
+          '<details><summary>1 finding not posted as review comments</summary>',
           "<details><summary>High · T · <code>app.rb:11</code></summary>\n\nd\n\n" \
           "#{described_class::UNCHECKED_NOTE}\n\n</details>"
         )
@@ -460,7 +460,7 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
 
       expect(client).not_to have_received(:create_pull_request_review)
       expect(client).to have_received(:add_comment)
-        .with('o/r', 1, a_string_including('1 lower-confidence finding, not posted as review comments'))
+        .with('o/r', 1, a_string_including('1 finding not posted as review comments'))
     end
   end
 
@@ -472,6 +472,19 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
       .with('o/r', 1, a_string_including('<!-- thingie-reviewed commit- -->',
                                          '**⚠️ 1 new finding, posted as review comments**'))
     expect(client).not_to have_received(:add_comment).with('o/r', 1, a_string_including('THE FULL REPORT'))
+  end
+
+  it 'folds the change risk into the short summary when an in-diff issue is found' do
+    report = report_for([build_issue('app.rb', 11)])
+    report.change_risk = { 'model' => 'jev-latest', 'max' => { 'overall' => 0.6 }, 'rating' => 'risky',
+                           'files' => { 'app.rb' => { 'scores' => { 'overall' => 0.6 }, 'rating' => 'risky' } },
+                           'escalations' => [] }
+
+    commenter.post_review(summary: 'THE FULL REPORT', report: report)
+
+    expect(client).to have_received(:add_comment)
+      .with('o/r', 1, a_string_including('<details><summary>Change risk: risky (overall 0.60)</summary>',
+                                         '| `app.rb` | risky | 0.60 |'))
   end
 
   context 'when the run posts new findings' do

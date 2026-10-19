@@ -96,22 +96,33 @@ RSpec.describe Thingie::ReportRenderer do
 
   context 'with a change risk' do
     let(:change_risk) do
-      { 'max' => { 'user_impact' => 0.9, 'overall' => 0.52 }, 'files' => {},
+      { 'model' => 'jev-latest', 'max' => { 'user_impact' => 0.9, 'overall' => 0.52 }, 'rating' => 'risky',
+        'files' => { 'spec/a_spec.rb' => { 'scores' => { 'user_impact' => 0.0, 'overall' => 0.05 },
+                                           'rating' => 'trivial' },
+                     'lib/a.rb' => { 'scores' => { 'user_impact' => 0.9, 'overall' => 0.52 }, 'rating' => 'risky' } },
         'escalations' => [{ 'label' => 'risk: needs review' }] }
     end
 
     before { report.change_risk = change_risk }
 
-    it 'shows the overall score, the per-question scores and the escalations in Markdown', :aggregate_failures do
+    it "shows the rating, each file's scores and the escalations in Markdown", :aggregate_failures do
       output = renderer.to_md
-      expect(output).to include('Change risk: overall 0.52, escalated: `risk: needs review`')
-      expect(output).to include('- user impact: 0.90', "Escalations:\n\n- `risk: needs review`")
+      expect(output).to include('Change risk: risky (overall 0.52), escalated: `risk: needs review`')
+      expect(output).to include("| File | Rating | Overall | User impact |\n| --- | --- | --- | --- |\n" \
+                                "| `lib/a.rb` | risky | 0.52 | 0.90 |\n| `spec/a_spec.rb` | trivial | 0.05 | 0.00 |")
+      expect(output).to include("Escalations:\n\n- `risk: needs review`")
     end
 
-    it 'shows the scores and the escalations in CLI output', :aggregate_failures do
+    it 'lists files riskiest first with their scores and the escalations in CLI output', :aggregate_failures do
       output = renderer.to_cli
-      expect(output).to include('Change risk: user impact 0.90, overall 0.52')
+      expect(output).to include("Change risk: risky (overall 0.52), escalated: `risk: needs review`\n  " \
+                                "- lib/a.rb: risky (overall 0.52; user impact 0.90)\n  " \
+                                "- spec/a_spec.rb: trivial (overall 0.05; user impact 0.00)\n")
       expect(output).to include("Escalations:\n  - risk: needs review")
+    end
+
+    it 'names the decision model beside the review model' do
+      expect(renderer.to_md).to include("- Review model: gpt-4o\n- Decision model: jev-latest\n")
     end
 
     context 'when the escalation has a title and description' do
@@ -134,12 +145,12 @@ RSpec.describe Thingie::ReportRenderer do
 
     it 'says no escalation was taken when none applied', :aggregate_failures do
       change_risk['escalations'] = []
-      expect(renderer.to_md).to include('Change risk: overall 0.52</summary>', 'Escalations: none')
+      expect(renderer.to_md).to include('Change risk: risky (overall 0.52)</summary>', 'Escalations: none')
       expect(renderer.to_cli).to include('Escalations: none')
     end
 
     it 'says no files were scored when there are no scores', :aggregate_failures do
-      change_risk.merge!('max' => {}, 'escalations' => [])
+      change_risk.merge!('max' => {}, 'rating' => nil, 'files' => {}, 'escalations' => [])
       expect(renderer.to_md).to include('Change risk: no files scored', 'No files were scored.')
       expect(renderer.to_cli).to include('Change risk: no files scored')
     end

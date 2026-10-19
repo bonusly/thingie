@@ -1,0 +1,11 @@
+<%= t("mailers.task.reminder.greeting", name: @user.display_name) %>
+
+<%= t("mailers.task.reminder.body", title: @task.title) %>
+<% if @task.due_on %>
+<%= t("mailers.task.reminder.due", date: l(@task.due_on, format: :long)) %>
+<% end %>
+<% if @task.points.positive? %>
+<%= t("tasks.points", count: @task.points) %>
+<% end %>
+
+<%= t("mailers.task.reminder.open", url: @task_url) %>

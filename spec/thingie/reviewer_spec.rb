@@ -191,20 +191,7 @@ RSpec.describe Thingie::Reviewer do
 
     it 'lists them in the review prompt' do
       reviewer.review
-      expect(prompts.first).to include('----THE PULL REQUEST----', '- added app/granola_gated.rb')
-    end
-
-    context 'when the pull request is known' do
-      let(:reviewer) do
-        described_class.new(config: config, changeset: fake_changeset, llm_client: fake_llm_client,
-                            prompt_builder: Thingie::PromptBuilder.new(config),
-                            pull_request: { title: 'Gate granola', body: 'Behind a flag.' })
-      end
-
-      it 'puts its title and description in the review prompt' do
-        reviewer.review
-        expect(prompts.first).to include('Pull request title: Gate granola', 'Behind a flag.')
-      end
+      expect(prompts.first).to include('----OTHER CHANGES IN THIS PR----', '- added app/granola_gated.rb')
     end
 
     context 'when a spec and the code it tests both change' do
@@ -370,7 +357,7 @@ RSpec.describe Thingie::Reviewer do
     end
 
     context 'when the provider is overloaded on the first call' do
-      let(:failures) { [llm_error(RubyLLM::OverloadedError, 'Overloaded')] }
+      let(:failures) { [RubyLLM::OverloadedError.new('Overloaded')] }
 
       it 'tries again and reviews the file', :aggregate_failures do
         report = reviewer.review
@@ -401,7 +388,7 @@ RSpec.describe Thingie::Reviewer do
     end
 
     context 'when the API key is rejected' do
-      let(:failures) { [llm_error(RubyLLM::UnauthorizedError, 'Invalid API key')] }
+      let(:failures) { [RubyLLM::UnauthorizedError.new('Invalid API key')] }
 
       it 'does not try again' do
         expect { reviewer.review }.to raise_error(RuntimeError, /All 1 file reviews failed.*Invalid API key/m)
@@ -608,6 +595,20 @@ RSpec.describe Thingie::Reviewer do
     end
 
     it 'holds it back in the report instead of dropping it', :aggregate_failures do
+      report = reviewer.review
+
+      expect(report.issues).to be_empty
+      expect(report.held_back_issues.map(&:title)).to eq(['Missing return'])
+    end
+  end
+
+  context 'when System One rated the file trivial' do
+    subject(:reviewer) do
+      described_class.new(config: config, changeset: fake_changeset, prompt_builder: Thingie::PromptBuilder.new(config),
+                          llm_client: fake_llm_client, file_ratings: { 'app.rb' => 'trivial' })
+    end
+
+    it 'holds back an upheld finding that is not Critical', :aggregate_failures do
       report = reviewer.review
 
       expect(report.issues).to be_empty

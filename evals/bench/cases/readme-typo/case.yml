@@ -1,0 +1,9 @@
+# The smallest possible case: one wording change in the README, with nothing to find. A run on it proves
+# the runner, the matcher and the report end to end, and any thread it produces is noise by definition.
+title: Call Tasker a to-do app in the README
+tier: fast
+body: |
+  The README's first line says "task app"; everywhere else we say "to-do app". This makes the README match.
+
+  No code changes.
+labels: []

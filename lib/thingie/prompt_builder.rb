@@ -39,7 +39,7 @@ module Thingie
     # @param diff [String, nil] the diff text (or full content in `all` mode) to review
     # @param file_lines [String, nil] the full file content, given as extra context to the LLM
     # @param symbol_lookup [Boolean] whether the LSP symbol-lookup tool is available to the LLM
-    # @param pr_context [String] the pull request's title, description and touched files (see PrContext)
+    # @param pr_context [String] the list of files the PR touches (see PrContext)
     # @param whole_file [Boolean] whether this is a whole-file review (`--all` mode, no diff);
     #   switches the prompt guideline from "only changed lines" to "every line"
     # @param tool_budget [Integer, nil] the most tool calls the model may make, told to it; nil for no cap
@@ -62,7 +62,7 @@ module Thingie
     # @param diff [String, nil] the diff text (or full content in `all` mode) the finding was raised against
     # @param file_lines [String, nil] the full file content, given as extra context to the LLM
     # @param symbol_lookup [Boolean] whether the LSP symbol-lookup tool is available to the LLM
-    # @param pr_context [String] the pull request's title, description and touched files (see PrContext)
+    # @param pr_context [String] the list of files the PR touches (see PrContext)
     # @param tool_budget [Integer, nil] the most tool calls the model may make, told to it; nil for no cap
     # @param companion [String] the file's spec or the code it tests (see TestPair), '' when it has none
     # @return [String] the rendered prompt text

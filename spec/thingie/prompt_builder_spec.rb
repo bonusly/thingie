@@ -22,8 +22,8 @@ RSpec.describe Thingie::PromptBuilder do
 
     it 'shows the PR-wide changes only when there are some', :aggregate_failures do
       expect(builder.review(diff: 'x', pr_context: "Files this PR touches:\n- added a.rb"))
-        .to include('----THE PULL REQUEST----', '- added a.rb')
-      expect(builder.review(diff: 'x')).not_to include('THE PULL REQUEST')
+        .to include('----OTHER CHANGES IN THIS PR----', '- added a.rb')
+      expect(builder.review(diff: 'x')).not_to include('OTHER CHANGES IN THIS PR')
     end
 
     it 'shows the related file only when there is one', :aggregate_failures do
@@ -266,8 +266,8 @@ RSpec.describe Thingie::PromptBuilder do
 
     it 'shows the PR-wide changes only when there are some', :aggregate_failures do
       expect(builder.verify(issue: issue, diff: 'x', pr_context: "Files this PR touches:\n- added a.rb"))
-        .to include('----THE PULL REQUEST----', '- added a.rb')
-      expect(builder.verify(issue: issue, diff: 'x')).not_to include('THE PULL REQUEST')
+        .to include('----OTHER CHANGES IN THIS PR----', '- added a.rb')
+      expect(builder.verify(issue: issue, diff: 'x')).not_to include('OTHER CHANGES IN THIS PR')
     end
 
     it 'shows the related file only when there is one', :aggregate_failures do

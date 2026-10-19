@@ -30,7 +30,7 @@ RSpec.describe Thingie::CLI do
 
     before do
       allow(Thingie::Configuration).to receive(:new).and_return(config)
-      allow(RubyLLM.models).to receive(:refresh!)
+      allow(RubyLLM.models).to receive(:refresh)
     end
 
     it 'exits with a usage message and does not call refresh' do
@@ -38,7 +38,7 @@ RSpec.describe Thingie::CLI do
         run_models([])
       end.to raise_error(SystemExit) { |e| expect(e.status).to eq(1) }
 
-      expect(RubyLLM.models).not_to have_received(:refresh!)
+      expect(RubyLLM.models).not_to have_received(:refresh)
     end
   end
 
@@ -48,7 +48,7 @@ RSpec.describe Thingie::CLI do
 
     before do
       allow(Thingie::Configuration).to receive(:new).and_return(config)
-      allow(RubyLLM.models).to receive(:refresh!)
+      allow(RubyLLM.models).to receive(:refresh)
       allow(RubyLLM.models).to receive(:save_to_json)
       allow(RubyLLM.models).to receive(:count).and_return(7)
     end
@@ -58,7 +58,7 @@ RSpec.describe Thingie::CLI do
         run_models(['--path', models_path])
       end.to output(/Saved 7 models to #{Regexp.escape(models_path)}/).to_stdout
 
-      expect(RubyLLM.models).to have_received(:refresh!).with(no_args)
+      expect(RubyLLM.models).to have_received(:refresh).with(no_args)
       expect(RubyLLM.models).to have_received(:save_to_json).with(models_path)
       expect(RubyLLM.config.model_registry_file).to eq(models_path)
       expect(File.exist?(File.dirname(models_path))).to be(true)
@@ -96,41 +96,6 @@ RSpec.describe Thingie::CLI do
 
     def run_review
       Thingie::CLI.start(['review'])
-    end
-
-    it 'gives the reviewer no pull request without an event payload' do
-      run_review
-      expect(Thingie::Reviewer).to have_received(:new).with(hash_including(pull_request: nil))
-    end
-
-    context 'with a pull request event payload' do
-      let(:event_path) { File.join(tmp_dir, 'event.json') }
-
-      before do
-        File.write(event_path, JSON.generate('pull_request' => { 'number' => 7, 'title' => 'Gate granola',
-                                                                 'body' => 'Behind a flag.' }))
-        Thingie::Env['GITHUB_EVENT_PATH'] = event_path
-      end
-
-      it 'tells the reviewer what the pull request is for' do
-        run_review
-        expect(Thingie::Reviewer).to have_received(:new)
-          .with(hash_including(pull_request: { title: 'Gate granola', body: 'Behind a flag.' }))
-      end
-    end
-
-    context 'with an event payload that is not JSON' do
-      let(:event_path) { File.join(tmp_dir, 'event.json') }
-
-      before do
-        File.write(event_path, 'not json')
-        Thingie::Env['GITHUB_EVENT_PATH'] = event_path
-      end
-
-      it 'reviews without a pull request and says why', :aggregate_failures do
-        expect { run_review }.to output(/Could not read the pull request from GITHUB_EVENT_PATH/).to_stderr
-        expect(Thingie::Reviewer).to have_received(:new).with(hash_including(pull_request: nil))
-      end
     end
 
     it 'emits a review.completed stats line to the configured sink', :aggregate_failures do
@@ -313,9 +278,11 @@ RSpec.describe Thingie::CLI do
       instance_double(Thingie::Changeset, files: ['a.rb'], workdir: tmp_dir, base_ref: 'main', head_ref: 'HEAD')
     end
     let(:result) do
-      Thingie::ChangeRiskScorer::Result.new(files: { 'a.rb' => { security: 0.1, overall: 0.7 } },
-                                            max: { security: 0.1, overall: 0.7 }, obfuscation: [])
+      file_risk = Thingie::ChangeRiskScorer::FileRisk.new(scores: { security: 0.1, overall: 0.7 }, rating: 'risky')
+      Thingie::ChangeRiskScorer::Result.new(files: { 'a.rb' => file_risk }, max: { security: 0.1, overall: 0.7 },
+                                            rating: 'risky', obfuscation: [])
     end
+    let(:empty_result) { Thingie::ChangeRiskScorer::Result.new(files: {}, max: {}, rating: nil, obfuscation: []) }
     let(:scorer) { instance_double(Thingie::ChangeRiskScorer, call: result) }
 
     before do
@@ -336,28 +303,37 @@ RSpec.describe Thingie::CLI do
     it 'records the scores and the escalation labels on the report' do
       run_review
 
-      expect(report.change_risk).to eq('max' => { 'security' => 0.1, 'overall' => 0.7 },
-                                       'files' => { 'a.rb' => { 'security' => 0.1, 'overall' => 0.7 } },
+      expect(report.change_risk).to eq('model' => 'jev-latest', 'max' => { 'security' => 0.1, 'overall' => 0.7 },
+                                       'rating' => 'risky',
+                                       'files' => { 'a.rb' => { 'scores' => { 'security' => 0.1, 'overall' => 0.7 },
+                                                                'rating' => 'risky' } },
                                        'escalations' => [{ 'label' => 'risk: needs review', 'title' => 'Needs review',
                                                            'description' => 'A person should read this.' }],
                                        'rules' => rules)
     end
 
+    it 'scores before the review and hands the ratings to the reviewer', :aggregate_failures do
+      run_review
+
+      expect(Thingie::Reviewer).to have_received(:new).with(hash_including(file_ratings: { 'a.rb' => 'risky' }))
+      expect(report.change_risk['rating']).to eq('risky')
+    end
+
     it 'records an empty change risk when no file was scored, so stale labels are cleared' do
-      allow(scorer).to receive(:call)
-        .and_return(Thingie::ChangeRiskScorer::Result.new(files: {}, max: {}, obfuscation: []))
+      allow(scorer).to receive(:call).and_return(empty_result)
 
       run_review
 
-      expect(report.change_risk).to eq('max' => {}, 'files' => {}, 'escalations' => [], 'rules' => rules)
+      expect(report.change_risk).to eq('model' => 'jev-latest', 'max' => {}, 'rating' => nil, 'files' => {},
+                                       'escalations' => [],
+                                       'rules' => rules)
     end
 
     context 'with a threshold-zero rule and nothing scored' do
       let(:rules) { [{ 'threshold' => 0, 'label' => 'risk: any' }] }
 
       it 'matches no rule on the absent score' do
-        allow(scorer).to receive(:call)
-          .and_return(Thingie::ChangeRiskScorer::Result.new(files: {}, max: {}, obfuscation: []))
+        allow(scorer).to receive(:call).and_return(empty_result)
 
         run_review
 
@@ -375,12 +351,23 @@ RSpec.describe Thingie::CLI do
       end
     end
 
+    context 'with malformed change-risk ratings' do
+      before { config.dig('change_risk', 'ratings', 'critical')['floor'] = 0.4 }
+
+      it 'fails the review before the LLM review starts', :aggregate_failures do
+        expect { expect { run_review }.to raise_error(SystemExit) }
+          .to output(/Review failed: Thingie::ConfigurationError: change_risk\.ratings floors must rise/).to_stderr
+        expect(Thingie::Reviewer).not_to have_received(:new)
+      end
+    end
+
     it 'keeps the review when scoring fails', :aggregate_failures do
       allow(scorer).to receive(:call).and_raise(Thingie::SystemOneError, 'boom')
 
       expect { run_review }.to output(/Change risk scoring skipped: boom.*existing labels left unchanged/).to_stderr
       expect(report.change_risk).to be_nil
       expect(report.processing_warnings).to include(/boom/)
+      expect(Thingie::Reviewer).to have_received(:new).with(hash_including(file_ratings: {}))
     end
 
     it 'keeps the review when scoring raises an error that is not a System One error', :aggregate_failures do
@@ -388,6 +375,15 @@ RSpec.describe Thingie::CLI do
 
       expect { run_review }.to output(/Change risk scoring skipped: handshake failed/).to_stderr
       expect(report.change_risk).to be_nil
+    end
+
+    it 'keeps the review when System One is misconfigured', :aggregate_failures do
+      allow(Thingie::SystemOneClassifier).to receive(:new)
+        .and_raise(Thingie::ConfigurationError, 'Missing SYSTEM_ONE_API_KEY.')
+
+      expect { run_review }.to output(/Change risk scoring skipped: Missing SYSTEM_ONE_API_KEY/).to_stderr
+      expect(report.change_risk).to be_nil
+      expect(report.processing_warnings).to include(/Missing SYSTEM_ONE_API_KEY/)
     end
 
     context 'when System One is disabled but escalations are configured' do
@@ -400,6 +396,47 @@ RSpec.describe Thingie::CLI do
           .to_stderr
         expect(scorer).not_to have_received(:call)
         expect(report.change_risk).to be_nil
+        expect(Thingie::Reviewer).to have_received(:new).with(hash_including(file_ratings: {}))
+      end
+    end
+  end
+
+  context 'when running risk' do
+    let(:config) { Thingie::Configuration.new(root: tmp_dir, overrides: { 'system_one_enabled' => true }) }
+    let(:result) do
+      file_risk = Thingie::ChangeRiskScorer::FileRisk.new(scores: { security: 0.1, overall: 0.7 }, rating: 'risky')
+      Thingie::ChangeRiskScorer::Result.new(files: { 'a.rb' => file_risk }, max: { security: 0.1, overall: 0.7 },
+                                            rating: 'risky', obfuscation: [])
+    end
+    let(:scorer) { instance_double(Thingie::ChangeRiskScorer, call: result) }
+
+    before do
+      allow(Thingie::Configuration).to receive(:new).and_return(config)
+      allow(Thingie::Changeset).to receive(:new).and_return(instance_double(Thingie::Changeset))
+      allow(Thingie::SystemOneClassifier).to receive(:new)
+      allow(Thingie::ChangeRiskScorer).to receive(:new).and_return(scorer)
+    end
+
+    it "prints each file's rating and scores" do
+      expect { described_class.start(['risk']) }.to output(/^  - a\.rb: risky \(overall 0\.70; security 0\.10\)$/)
+        .to_stdout
+    end
+
+    it 'exits 1 when scoring fails' do
+      allow(scorer).to receive(:call).and_raise(Thingie::SystemOneError, 'boom')
+
+      expect { expect { described_class.start(['risk']) }.to raise_error(SystemExit) { |e| expect(e.status).to eq(1) } }
+        .to output(/Risk scoring failed: Thingie::SystemOneError: boom/).to_stderr
+    end
+
+    context 'with System One disabled, its default' do
+      let(:config) { Thingie::Configuration.new(root: tmp_dir) }
+
+      it 'refuses to score' do
+        allow(Thingie::SystemOneClassifier).to receive(:new).and_call_original
+
+        expect { expect { described_class.start(['risk']) }.to raise_error(SystemExit) }
+          .to output(/Risk scoring failed: Thingie::ConfigurationError: System One is disabled/).to_stderr
       end
     end
   end
