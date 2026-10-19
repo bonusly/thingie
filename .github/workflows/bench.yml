@@ -1,7 +1,7 @@
 name: Bench
 
-# Scores a pull request on the seeded cases when a label is added to it: `eval-fast` runs the small cases
-# for a quick read, `eval-full` runs them all. Add the label again to re-run. One job per case in parallel,
+# Scores a pull request on the seeded cases when a label is added to it: `eval-fast` runs the small cases,
+# final push only, for a quick read; `eval-full` runs every case, first and final push. Add the label again to re-run. One job per case in parallel,
 # then one report: the job summary, a run file artifact, and an "Eval results" comment on the pull request.
 # Informational: it never blocks a merge. Each case is a first and a final push reviewed on a paid model.
 on:
@@ -65,8 +65,8 @@ jobs:
         with:
           ruby-version: "3.4"
           bundler-cache: true
-      - name: Review both pushes
-        run: bundle exec evals/bench/run "${{ matrix.case }}" --no-record --label "${GITHUB_SHA::7}" --out "tmp/bench/${{ matrix.case }}.json"
+      - name: Review the case
+        run: bundle exec evals/bench/run "${{ matrix.case }}" ${{ needs.cases.outputs.tier == 'fast' && '--no-first-push' || '' }} --no-record --label "${GITHUB_SHA::7}" --out "tmp/bench/${{ matrix.case }}.json"
       - name: Keep the case's run file
         if: always()
         uses: actions/upload-artifact@v4
@@ -124,7 +124,8 @@ jobs:
             echo
             echo '<details><summary>Run</summary>'
             echo
-            echo "- Tier: ${TIER} ($(ls tmp/bench/cases/*.json | wc -l | tr -d ' ') cases, first and final push each)"
+            pushes="first and final push each"; [ "$TIER" = fast ] && pushes="final push only"
+            echo "- Tier: ${TIER} ($(ls tmp/bench/cases/*.json | wc -l | tr -d ' ') cases, ${pushes})"
             echo "- Run time: ${minutes} min wall clock, cases in parallel"
             echo "- Logs and run file: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
             echo "- Re-run: remove and add the \`eval-fast\` or \`eval-full\` label"

@@ -66,7 +66,8 @@ down or wrong up outside the spread is a no, whatever it does to nits.
 ## CI
 
 `.github/workflows/bench.yml` runs when a label is added to a pull request: `eval-fast` runs the cases
-marked `tier: fast` in their `case.yml` (the small ones, a quick read), `eval-full` runs them all. Add the
+marked `tier: fast` in their `case.yml` (the small ones), final push only, for a quick read; `eval-full`
+runs every case, first and final push. Add the
 label again to re-run, or run it on demand. Then: one job per case in parallel (both pushes), then a report job that merges their run
 files (`--merge`), writes the table to the job summary, keeps the merged `run.json` as an artifact, and
 posts an "Eval results" comment on the pull request (headline, the full report and the run details folded
