@@ -6,7 +6,11 @@ skill_directories = [
 
 exclude_files = [
   ".thingie/skills/**/*",
-  ".thingie/models.json"
+  ".thingie/models.json",
+  # The bench fixture and its seeded pull requests plant defects on purpose; they are reviewed by the
+  # bench, not by the review of this repo.
+  "evals/bench/app/**/*",
+  "evals/bench/cases/**/*"
 ]
 
 system_one_enabled = true
