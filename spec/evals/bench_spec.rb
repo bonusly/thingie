@@ -93,6 +93,12 @@ RSpec.describe Bench do
       expect(File.read(File.join(repo, '.thingie', 'config.toml'))).to eq("model = \"m\"\n")
     end
 
+    it 'knows which cases are the quick read', :aggregate_failures do
+      expect(described_class.load('escrow').tier).to eq('full')
+      File.write(File.join(case_dir, 'case.yml'), "title: t\nbody: b\ntier: fast\nlabels: []\n")
+      expect(described_class.fast.map(&:name)).to eq(['escrow'])
+    end
+
     it 'rejects a case name that could leave the cases directory' do
       expect { described_class.load('../app') }.to raise_error(ArgumentError, /case name/)
     end

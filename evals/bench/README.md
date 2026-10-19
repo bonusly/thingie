@@ -8,6 +8,7 @@ Nothing is posted and no pull request is opened.
 
 ```sh
 bundle exec evals/bench/run                           # every case, once, against baseline.json
+bundle exec evals/bench/run --fast                    # the small cases only (tier: fast)
 bundle exec evals/bench/run draft-tasks-model         # one case
 bundle exec evals/bench/run --repeat 3 --label pr-intent
 bundle exec evals/bench/run --report evals/bench/results/<label>.json
@@ -64,10 +65,12 @@ down or wrong up outside the spread is a no, whatever it does to nits.
 
 ## CI
 
-`.github/workflows/bench.yml` runs when the `evals` label is added to a pull request (add it again to
-re-run), or on demand: one job per case in parallel (both pushes), then a report job that merges their run
+`.github/workflows/bench.yml` runs when a label is added to a pull request: `eval-fast` runs the cases
+marked `tier: fast` in their `case.yml` (the small ones, a quick read), `eval-full` runs them all. Add the
+label again to re-run, or run it on demand. Then: one job per case in parallel (both pushes), then a report job that merges their run
 files (`--merge`), writes the table to the job summary, keeps the merged `run.json` as an artifact, and
-posts an "Eval results" comment on the pull request, updated on each run. It is informational and never
+posts an "Eval results" comment on the pull request (headline, the full report and the run details folded
+under it), updated on each run. It is informational and never
 blocks a merge. It needs the `LLM_API_KEY` secret and
 the `LLM_MODEL` and `LLM_PROVIDER` variables the review workflow already uses. Wall time is the slowest case,
 about 15 minutes; the model spend is about ten dollars per run at the pinned model.
