@@ -1,0 +1,20 @@
+en:
+  draft_tasks:
+    title: Drafts
+    states:
+      drafting: Drafting
+      ready: Ready
+      sent: Sent
+    actions:
+      attach: Add to list
+      detach: Remove from list
+      mark_ready: Mark ready
+      release: Back to drafting
+      send_now: Send now
+    attached_comment: 'Attached a draft: %{title}'
+    attached_to: Attached to %{name}
+    unattached: Not on a list
+    errors:
+      not_attached: Add this draft to a list before marking it ready.
+      sent: This draft has already been sent.
+    empty: No drafts yet.

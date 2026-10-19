@@ -1,0 +1,84 @@
+en:
+  lists:
+    title: Lists
+    states:
+      active: Active
+      archived: Archived
+    visibility:
+      private: Private
+      company: Everyone at %{company}
+      public: Anyone with the link
+    actions:
+      create: New list
+      deliver: Deliver
+      archive: Archive
+      restore: Restore
+      share: Share
+      edit: Edit
+    members:
+      title: Members
+      owner: Owner
+      member: Member
+      add: Add member
+      remove: Remove
+      count:
+        one: "%{count} member"
+        other: "%{count} members"
+    counts:
+      open:
+        one: "%{count} open task"
+        other: "%{count} open tasks"
+      ready_drafts:
+        one: "%{count} ready draft"
+        other: "%{count} ready drafts"
+    delivered:
+      never: Not delivered yet
+      at: Delivered %{at}
+      confirm: Deliver this list to %{count} members? Ready drafts will be sent as tasks.
+    empty: No lists yet.
+    created: List created.
+    updated: List updated.
+    archived: List archived.
+    restored: List restored.
+    delivered_notice: List delivered.
+  sharing:
+    title: Share links
+    create: Create link
+    revoke: Revoke
+    copy: Copy link
+    copied: Copied
+    expires: Expires %{at}
+    expired: This link has expired.
+    revoked: This link was revoked.
+    show_drafts: Include ready drafts
+    views:
+      one: "%{count} view"
+      other: "%{count} views"
+    page:
+      coming_up: Coming up
+      powered_by: Shared with Tasker
+      private_author: Someone on the team
+      sent_draft: Sent as a task
+  points:
+    title: Points
+    budget: Weekly budget
+    spent: Given this week
+    reserved: Held in escrow by ready drafts
+    remaining: Remaining
+    escrow:
+      note: Draft escrow
+      settled: "%{points} points moved from escrow to %{title}"
+      released: Escrow released
+    week: Week %{key}
+    ledger:
+      title: History
+      empty: No points activity in the last %{weeks} weeks.
+      kinds:
+        award: Awarded
+        refund: Refunded
+        reset: Weekly reset
+        adjustment: Adjustment
+    errors:
+      insufficient: You asked for %{requested} points but only %{remaining} remain this week.
+      not_a_member: Points are only available to members.
+    resets: Budgets reset every %{day}.
