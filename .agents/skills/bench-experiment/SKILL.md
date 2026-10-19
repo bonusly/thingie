@@ -21,8 +21,10 @@ this skill is the protocol around it.
    the comparison it should be read against.
 4. Add the `eval-full` label. GitHub Actions runs every case in parallel and posts an **Eval results**
    comment against `main`'s `baseline.json`. About $10 and 15 to 30 minutes on `glm-5.3`.
-5. To run again, remove the label and add it back. Wait until the current run has finished first: the
-   workflow cancels an in-progress run on the same PR when a new one starts.
+5. To run again, dispatch it: `gh workflow run bench.yml --ref <branch> -f pr_number=<n> -f tier=full`.
+   Removing and re-adding the label also works, but GitHub sometimes raises no event for the toggle and
+   nothing runs; check that a run appeared. Wait until the current run has finished first: the workflow
+   cancels an in-progress run on the same PR when a new one starts.
 6. Close the PR without merging when its runs are done. A change worth shipping gets its own real PR.
 
 ## How many runs
