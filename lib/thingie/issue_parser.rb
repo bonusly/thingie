@@ -25,19 +25,13 @@ module Thingie
     def raw_issue(issue)
       RawIssue.new(
         title: issue.fetch('title'),
-        severity: grade(issue.fetch('severity')),
-        confidence: grade(issue.fetch('confidence')),
+        severity: issue.fetch('severity'),
+        confidence: issue.fetch('confidence'),
         details: issue['details'],
         tags: issue['tags'] || [],
         affected_lines: parse_affected_lines(issue['affected_lines']),
         evidence: issue['evidence']
       )
-    end
-
-    # The schema asks for an integer, but a model can still write "2". A grade that is not a number is
-    # left as it came, so the report shows what the model said.
-    def grade(value)
-      Integer(value, exception: false) || value
     end
 
     def build_issue(raw, file)

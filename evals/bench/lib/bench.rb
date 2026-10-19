@@ -229,10 +229,6 @@ module Bench
 
       Thingie::DuplicateFilter.new(llm_client: Thingie::LlmClient.new(@config), prompt_builder: prompt_builder)
                               .call(issues, [])
-    rescue StandardError => e
-      # The commenter posts everything when the repeat check fails; the bench keeps everything the same way.
-      warn "Could not check for repeated findings, keeping all of them: #{e.class}: #{e.message}"
-      issues
     end
 
     def with_env(vars)
