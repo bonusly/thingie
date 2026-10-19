@@ -1,7 +1,7 @@
 # The fixture app's Thingie config: special_sauce's production settings as of 0.8.7, minus what only
 # applies there. Provider and model come from LLM_PROVIDER and LLM_MODEL when set.
 provider = "openrouter"
-model = "z-ai/glm-5.3"
+model = "z-ai/glm-5.3-flash"
 models_file = ".thingie/models.json"
 schema_with_tools = false
 
