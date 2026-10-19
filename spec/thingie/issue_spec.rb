@@ -18,6 +18,29 @@ RSpec.describe Thingie::Issue do
     end
   end
 
+  describe 'grades' do
+    it 'reads a grade written as a string as the integer it names, whether built or overridden',
+       :aggregate_failures do
+      built = described_class.from_hash('title' => 't', 'details' => 'd', 'severity' => '2', 'confidence' => '1',
+                                        'file' => 'app.rb', 'affected_lines' => [{ 'start_line' => 1 }])
+
+      expect(built.severity).to eq(2)
+      expect(built.confidence).to eq(1)
+
+      built.apply_override(severity: '3', confidence: '2')
+
+      expect(built.severity).to eq(3)
+      expect(built.confidence).to eq(2)
+    end
+
+    it 'keeps a grade that names no number, so the report shows what the model said' do
+      built = described_class.from_hash('title' => 't', 'details' => 'd', 'severity' => 'high', 'confidence' => 1,
+                                        'file' => 'app.rb', 'affected_lines' => [{ 'start_line' => 1 }])
+
+      expect(built.severity).to eq('high')
+    end
+  end
+
   describe '#apply_override' do
     it 'overrides severity and confidence when given', :aggregate_failures do
       issue.apply_override(severity: 1, confidence: 4)
