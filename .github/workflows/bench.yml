@@ -94,10 +94,18 @@ jobs:
           pattern: bench-case-*
           path: tmp/bench/cases
           merge-multiple: true
-      - name: Merge the cases and report against the baseline
+      - name: Merge the cases and report
+        # A full run is compared with main's baseline, read from main rather than this branch so a PR is
+        # always measured against what shipped. A fast run (two cases, final push only) is not comparable
+        # with it and is reported on its own.
         run: |
           ls tmp/bench/cases/*.json >/dev/null 2>&1 || { echo "No case finished." | tee -a "$GITHUB_STEP_SUMMARY"; exit 0; }
-          bundle exec evals/bench/run --merge tmp/bench/cases/*.json --no-record --label "${GITHUB_SHA::7}-${TIER}" --out tmp/bench/run.json | tee tmp/bench/report.md
+          compare="--no-baseline"
+          if [ "$TIER" = full ]; then
+            git fetch --quiet --depth 1 origin main
+            git show FETCH_HEAD:evals/bench/baseline.json > tmp/bench/main-baseline.json 2>/dev/null && compare="--against tmp/bench/main-baseline.json"
+          fi
+          bundle exec evals/bench/run --merge tmp/bench/cases/*.json --no-record $compare --label "${GITHUB_SHA::7}-${TIER}" --out tmp/bench/run.json | tee tmp/bench/report.md
           cat tmp/bench/report.md >> "$GITHUB_STEP_SUMMARY"
       - name: Keep the run file
         if: always()

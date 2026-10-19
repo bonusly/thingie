@@ -1,0 +1,1 @@
+{"label":"main","at":"2026-10-19T13:50:12Z","sha":"10bc9fd","variant":"baseline","thingie":"0.11.0","model":"z-ai/glm-5.3","real_recall":"7/13","first_push_recall":"8/21","nit_rate":16,"wrong_rate":0,"threads":64,"seconds":1778,"cost_usd":9.76,"source":"https://github.com/bonusly/thingie/actions/runs/39261932525"}
