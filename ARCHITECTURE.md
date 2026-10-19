@@ -41,7 +41,7 @@ review command
       |
       v
  for each changed file:
-      assemble context ........... diff + whole file snapshot
+      assemble context ........... diff + whole file snapshot + paired spec or code under test (TestPair)
       prompt LLM ................. ruby_llm with system prompt + JSON schema
                                    (model may call LSP tools for extra context)
       parse JSON issues .......... validate against Issue schema

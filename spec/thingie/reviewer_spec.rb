@@ -193,6 +193,29 @@ RSpec.describe Thingie::Reviewer do
       reviewer.review
       expect(prompts.first).to include('----OTHER CHANGES IN THIS PR----', '- added app/granola_gated.rb')
     end
+
+    context 'when a spec and the code it tests both change' do
+      let(:fake_changeset) do
+        git(repo, 'init', '-q', '-b', 'main')
+        git_write(repo, 'app/lib/deliver.rb', "class Deliver\nend\n")
+        git_write(repo, 'spec/lib/deliver_spec.rb', "RSpec.describe Deliver do\nend\n")
+        git_commit(repo, 'base')
+        git(repo, 'tag', 'base')
+        git_write(repo, 'app/lib/deliver.rb', "class Deliver\n  def call = true\nend\n")
+        git_write(repo, 'spec/lib/deliver_spec.rb', "RSpec.describe Deliver do\n  it 'calls' do\n  end\nend\n")
+        git_commit(repo, 'head')
+        Thingie::Changeset.new(repo_path: repo, base_ref: 'base')
+      end
+
+      it 'shows each the other in its review prompt', :aggregate_failures do
+        reviewer.review
+        spec_prompt = prompts.find { |prompt| prompt.include?("TO REVIEW----\ndiff --git a/spec/lib/deliver_spec.rb") }
+        code_prompt = prompts.find { |prompt| prompt.include?("TO REVIEW----\ndiff --git a/app/lib/deliver.rb") }
+        expect(spec_prompt).to include('----RELATED FILE----', 'The code these tests exercise: app/lib/deliver.rb')
+        expect(code_prompt).to include('----RELATED FILE----',
+                                       'The tests for this file, changed in this PR: spec/lib/deliver_spec.rb')
+      end
+    end
   end
 
   context 'when the LLM client raises a connection error' do
@@ -484,7 +507,7 @@ RSpec.describe Thingie::Reviewer do
       reviewer.review
       expect(prompt_builder).to have_received(:review)
         .with(diff: "def hello\nend\n", file_lines: nil, symbol_lookup: false, whole_file: true, pr_context: '',
-              tool_budget: nil)
+              companion: '', tool_budget: nil)
     end
   end
 

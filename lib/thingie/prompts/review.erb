@@ -23,6 +23,12 @@ contents to confirm a finding.
 --------
 
 <%- end -%>
+<%- unless companion.to_s.empty? -%>
+----RELATED FILE----
+<%= companion %>
+--------
+
+<%- end -%>
 ----TASK GUIDELINES----
 <%- if whole_file -%>
 - Every line of the file above is under review; report issues anywhere in it.

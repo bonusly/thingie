@@ -24,6 +24,12 @@ contents to confirm or reject the finding.
 --------
 
 <%- end -%>
+<%- unless companion.to_s.empty? -%>
+----RELATED FILE----
+<%= companion %>
+--------
+
+<%- end -%>
 ----FINDING TO CHALLENGE----
 <%= finding %>
 --------
