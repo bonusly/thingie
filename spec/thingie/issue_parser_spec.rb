@@ -12,6 +12,13 @@ RSpec.describe Thingie::IssueParser do
     expect(described_class.new.parse([finding], 'award.rb').first.evidence).to eq('award.rb:31 skips the check')
   end
 
+  it 'reads a grade the model wrote as a string as the integer it names', :aggregate_failures do
+    issue = described_class.new.parse([finding.merge('severity' => '2', 'confidence' => '1')], 'award.rb').first
+
+    expect(issue.severity).to eq(2)
+    expect(issue.confidence).to eq(1)
+  end
+
   it 'accepts a finding with no evidence' do
     expect(described_class.new.parse([finding.except('evidence')], 'award.rb').first.evidence).to be_nil
   end
