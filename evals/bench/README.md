@@ -15,8 +15,8 @@ bundle exec evals/bench/run --report evals/bench/results/<label>.json
 bundle exec evals/bench/run --rescore evals/bench/results/<label>.json   # after labels change
 ```
 
-It needs the LLM key in `~/.thingie/.env` (or `LLM_API_KEY`); `LLM_PROVIDER` and `LLM_MODEL` override the
-pinned ones in `config.toml`. Each case is built as a fresh git repo under `tmp/<case>/`: the fixture app
+It needs the LLM key in `~/.thingie/.env` (or `LLM_API_KEY`). The models come from `config.toml` or a variant;
+the bench applies them as overrides, so `LLM_MODEL` and `LLM_PROVIDER` in the environment do not change them. Each case is built as a fresh git repo under `tmp/<case>/`: the fixture app
 tagged `pr-base`, the case's `first-push/` overlay (when it has one) as `pr-first-push`, and its `final-push/`
 overlay as `pr-final-push`. The run file goes to `results/<label>.json` (`--out` to put it elsewhere) and one line to
 `history.jsonl` (`--no-record` to skip that). `--no-first-push` reviews only each case's final push.
