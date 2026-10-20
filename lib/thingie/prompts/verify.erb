@@ -65,6 +65,13 @@ what the confidence limit is applied to.
 <%- if user_impact -%>
 Two questions, in order. Reject the finding if either answer is no.
 1. Is it true? Point to the specific lines. Use the search and file tools to check the code around it: find the callers, look for a guard or validation elsewhere that already prevents it, confirm that what it calls exists. Search first, then read just the lines you need with the file tool's `offset` and `limit` rather than whole files. Do not decide from the finding's own description.
+A finding that says a failure is swallowed, lost, retried forever, or stops the rest of a batch, or that an
+edit is silently overwritten, is a claim about what the code does after the failure, not at it. Before you
+answer question 1, read the whole rescue or the whole write path: the line after the log, the job's retry
+setting, the lock or guard around the write. A re-raise, a retry, a lock or a guard the finding did not
+mention means the finding is false: reject it, and say which line. Do the same for a claim about what a
+library or framework method returns or raises: read its use elsewhere in this codebase, or the gem, before
+trusting the finding's description of it.
 2. Would it matter to someone using the product? Uphold only if you can name a concrete trigger (a request, input, data state or timing) and the result is one of: the code fails or raises, returns wrong data or a wrong result, calls something that does not exist or cannot work as written, a security, auth, tenant-isolation or data-integrity gap, a race, lost or duplicated work, or the change silently fails to do what the PR is meant to do.
 Maintainability findings (naming, wording, comments, structure, duplication, test coverage or tidiness, design preference) are held to a much higher bar: uphold one only when the cost is concrete and high, for example the design will predictably cause the failures above, or a test gives false confidence in code that is actually wrong. A slightly mis-worded comment, an imperfect name, a missing nice-to-have test or a style preference is a nit: reject it. Also reject micro-performance points, findings that only matter hypothetically, and findings about code this PR did not change.
 When you are uncertain whether it matters, reject.
