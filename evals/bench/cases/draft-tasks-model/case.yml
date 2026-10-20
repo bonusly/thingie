@@ -163,3 +163,84 @@ labels:
     kind: style
     push: both
     note: "a nested resources block is indented one level off; routes resolve the same"
+
+  # Found by Copilot on the bench (2026-10-20), labelled against the fixture
+  - title: "After a successful send, the local draft retains its old reservedpoints. The escrow total sums that field, so sending a "
+    file: app/javascript/pages/DraftTasksPage.tsx
+    label: nit
+    push: both
+    note: >-
+      sendNow spreads { state: 'sent', sent_task_id } over the local draft and leaves reserved_points, so the
+      'points held in escrow' sum keeps counting the sent draft until the page reloads; display only, the API and
+      ledger are right, and the fixture's JS is not built.
+  - title: "The advertised sendnow points override is not implemented. The controller never reads or forwards it, and task creation "
+    file: app/lib/draft_tasks/commands/send_draft.rb
+    label: real
+    push: first
+    note: >-
+      the PR body advertises an optional points override on send_now, but at the first push the controller calls
+      SendDraft.call(draft:, actor:) with no points and SendDraft#finalize settles locked.points, so a points param
+      is ignored; the final push wires it through (and that wiring is the 'Ledger entry on send uses the request's
+      points' label).
+  - title: "escrowed: true also skips the active-membership check in GivingBalance. An admin or the scheduled sender can now send a "
+    file: app/lib/draft_tasks/commands/send_draft.rb
+    label: real
+    push: both
+    note: >-
+      Tasks::Commands::Create#balance_shortfall returns nil when escrowed, so GivingBalance (which raises
+      Points::NotAMember) is never consulted, and DraftTask#points_within_budget also returns when membership_for is
+      nil; SendScheduledDraftsJob and an admin's send_now can therefore turn a removed member's ready draft into a
+      rewarded task and SettleReservation writes an award ledger entry for a user with no active membership, where
+      the base app failed with NotAMember. The PR's stated tradeoff covers the hold lingering until the nightly job,
+      not the send going through.
+  - title: "If settlement fails, task creation has already persisted a task, notified assignees and dispatched task.created, while t"
+    file: app/lib/draft_tasks/commands/send_draft.rb
+    label: real
+    push: both
+    note: >-
+      SendDraft creates the task (assignee notifications, task.created webhook) and only then settles and
+      mark_sent!s; a raise from SettleReservation (write_entry re-raises) or TaskEvent.track! leaves the task
+      persisted and the draft ready, and nothing checks Task.where(draft_task_id:) first, so a retry of
+      SendScheduledDraftsJob (retry: 3) creates a second task and, when the ledger write had succeeded, a second
+      award. The base app already had create-then-mark_sent; the PR adds the settlement step between them.
+  - title: "These sent drafts reach SharePage.tsx, which still renders every draft under “Coming up” and ignores state and taskid. A"
+    file: app/lib/sharing/queries/public_list.rb
+    label: nit
+    push: both
+    note: >-
+      PublicList now returns sent drafts (7-day window) with state and task_id from DraftPublicView, but
+      app/javascript/pages/SharePage.tsx is untouched and lists every draft under 'Coming up' without reading state
+      or task_id; the API carries what the PR promises and the fixture's JS is not built, so this is a client
+      follow-up.
+  - title: "This validation also runs during marksent!. If the author's budget is reduced below an existing reservation, sending cre"
+    file: app/models/draft_task.rb
+    label: nit
+    push: both
+    note: >-
+      validate :points_within_budget has no on: or state guard, so the AASM saves behind mark_sent! and
+      resume_drafting! re-run it; if an admin lowers the author's points_budget_override below an already-held
+      reservation the send fails after Create and SettleReservation ran, leaving the draft ready with a task and
+      ledger entry; needs that unrelated budget cut first.
+  - title: "This creates a dirty note change, not a stale snapshot: find reads \"set elsewhere\", then assigning nil records the note "
+    file: spec/lib/draft_tasks/commands/update_spec.rb
+    label: nit
+    push: both
+    note: >-
+      'writes only the fields that changed' does DraftTask.find after draft.set(note: 'set elsewhere') and then
+      assigns note = nil, so note is a dirty change on the stale instance and Update writes nil; the assertion note:
+      'set elsewhere' fails for a reason in the example, the command's changes-only write is right.
+  - title: "Adding options makes existing calls such as call(title: \"Tag the build\", points: 15) supply only keyword arguments, leav"
+    file: spec/lib/tasks/commands/create_spec.rb
+    label: nit
+    push: both
+    note: >-
+      def call(attrs, **options) turns call(title: 'Tag the build', points: 15) into keywords with no positional
+      attrs, so four examples raise ArgumentError before reaching the command; the escrowed: option on
+      Tasks::Commands::Create itself is fine.
+  - title: "This fixture cannot be created: DraftTask caps points at Task::MAXPOINTS, which is 50. The example fails validation befo"
+    file: spec/lib/tasks/commands/create_spec.rb
+    label: nit
+    push: both
+    note: >-
+      DraftTask validates points <= Task::MAX_POINTS (50) and points_within_budget, so create(:draft_task, :ready,
+      points: 95) raises Mongoid::Errors::Validations in setup; the escrowed branch of Create is right.

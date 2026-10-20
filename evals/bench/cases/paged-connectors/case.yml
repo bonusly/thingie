@@ -99,3 +99,36 @@ labels:
     kind: documentation
     push: both
     note: "one sentence in the connected search section reads awkwardly; the behaviour it describes is right"
+
+  # Found by Copilot on the bench (2026-10-20), labelled against the fixture
+  - title: "Passing nextcursors back with the same providers restarts providers that have already finished. For example, if GitHub i"
+    file: app/lib/search/queries/connected_search.rb
+    label: real
+    push: final
+    note: >-
+      ConnectedSearch#call runs every tool in Registry.for(providers) with cursors[tool.provider], and next_cursors
+      omits providers that finished; the README says to pass next_cursors back under cursors[provider], so on the
+      next request an exhausted GitHub gets cursor nil, re-fetches page 1 (duplicating its items in the merged list)
+      and advertises page 2 again, so truncated flips back to true and a client following the documented flow ping-
+      pongs between providers and never reaches the end. At the first push the single shared cursor is the separate
+      labelled defect.
+  - title: "Discover recent replies independently of the parent's timestamp. Replies are fetched only for parents returned by conver"
+    file: app/lib/connectors/slack/queries/list_messages.rb
+    label: nit
+    push: both
+    note: >-
+      replies_for only runs for parents that conversations.history(oldest: since) returned, so a reply inside the
+      window on a thread whose parent is older than the window is never imported; true, but Slack's history API has
+      no cheap way to discover such replies, the base app imported no replies at all, and the PR body only promises
+      replies for the threaded messages it lists.
+  - title: "Default searches to an explicit 14-day window. When sincedays is omitted, the connector queries fall back to lastsynceda"
+    file: app/lib/search/tools/base.rb
+    label: real
+    push: both
+    note: >-
+      Search::Tools::Base#query_params passes since_days only when the caller gave one, and the connector queries
+      then call LookBack with since_days nil, which returns [last_synced_at - 5.minutes, floor].max;
+      config/locales/en/search.yml ('Defaults to 14', 'last 14 days of activity') and the README promise 14 days, so
+      GET /api/v1/search/connected without since_days on an account SyncAccountJob synced a minute ago searches
+      about six minutes of history and misses older matches. The search tool needs to pass the 14-day default
+      explicitly.

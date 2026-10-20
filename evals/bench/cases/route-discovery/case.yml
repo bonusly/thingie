@@ -118,3 +118,48 @@ labels:
     push: both
     note: >-
       ConstantResolver#resolve looks aliases up by exact key, and tsconfig.json has only exact keys (@app/flags, @app/permissions), which are the only aliases the router imports; nothing is unresolved today.
+
+  # Found by Copilot on the bench (2026-10-20), labelled against the fixture
+  - title: "The two new requireAdmin(...) routes return regular ComponentType<P> values, but this property accepts only LazyExoticCo"
+    file: app/javascript/app-router.tsx
+    label: nit
+    push: both
+    note: >-
+      RouteDefinition.component is typed LazyExoticComponent<ComponentType<unknown>> and requireAdmin returns a
+      plain ComponentType<P>, so the two admin-companies entries would fail tsc; the fixture has no JS build or
+      package.json, nothing reads the type at runtime, and RouteParser::LAZY explicitly accepts the
+      requireAdmin(lazy(...)) shape, so behaviour is unchanged.
+  - title: "Flattening parents before children makes findRoute(\"/admin\") select AdminLayout instead of the AdminRoutesPage index chi"
+    file: app/javascript/app-router.tsx
+    label: nit
+    push: both
+    note: >-
+      flatten emits a layout before its children and findRoute takes the first match, so findRoute('/admin') returns
+      the ungated admin.layout entry rather than the admin.index child; true, but findRoute has no caller anywhere
+      in app/javascript, and the server-side index (UpsertRouteIndex#one_per_route_path, last definition wins) is
+      what search and gating actually use.
+  - title: "The get/post helpers prepend /api/v1 (utils/api.ts:18), but config/routes.rb:70–78 mounts this endpoint at /admin/routei"
+    file: app/javascript/pages/AdminRoutesPage.tsx
+    label: nit
+    push: both
+    note: >-
+      get/post do prepend /api/v1 and admin/route_index is mounted at the root, so the page's three requests would
+      404; the base app's AdminCompaniesPage calls get('/admin/companies') the same way against the same root-
+      mounted Admin namespace, so this is the fixture's existing convention, not something this PR introduced.
+  - title: "Mongoid's Criteria#updateall returns a count, not a driver result exposing matchedcount. Calling this method for an unre"
+    file: app/lib/search/commands/upsert_route_index.rb
+    label: wrong
+    push: both
+    note: >-
+      Mongoid 9's Criteria#update_all delegates to Contextual::Mongo#update_documents, which returns the driver's
+      Mongo::Operation::Update::Result from view.update_many, and that result responds to matched_count (0 when no
+      entry exists); no NoMethodError and the readable entries are not left half-written.
+  - title: "6 open issues\n\n-  [Traverse pathless route groups and referenced child arrays](https://github.com/bonusly/thingie/pull/1"
+    file: app/javascript/app-router.tsx
+    label: nit
+    push: both
+    note: >-
+      flatten copies connectorRoutes without the group's FLAGS.CONNECTORS, so findRoute('/connectors').flag is
+      undefined and flagEnabled would treat it as open; but neither findRoute nor flagEnabled has a caller in the
+      app, and the server-side RouteParser carries inherited[:flag] into the index that actually gates search
+      results.
