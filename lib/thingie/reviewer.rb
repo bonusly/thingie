@@ -65,10 +65,10 @@ module Thingie
       @warnings.concat(@verifier.warnings)
       verified, held_back = @post_processor.split_confidence(kept)
       obfuscated = ObfuscationDetector.new(@changeset).call
-      sorted = (verified + obfuscated).sort_by { |issue| issue.severity || Float::INFINITY }
+      sorted = (verified + obfuscated).sort_by { |issue| severity_rank(issue) }
       sorted.each_with_index { |issue, index| issue.id = index + 1 }
       @debug_output.warnings(@warnings)
-      build_report(sorted, held_back.sort_by { |issue| issue.severity || Float::INFINITY })
+      build_report(sorted, held_back.sort_by { |issue| severity_rank(issue) })
     end
 
     # Failures worth asking a file once more: a reply with no JSON (or an empty one), a call that ran past
@@ -83,6 +83,12 @@ module Thingie
     ISSUES_ONLY = 'Reply now with only the JSON object of issues for this file, no other text.'
 
     private
+
+    # Most severe first. A grade that is not a number sorts last rather than raising against the integers,
+    # so one odd reply cannot lose the whole review.
+    def severity_rank(issue)
+      Integer(issue.severity, exception: false) || Float::INFINITY
+    end
 
     def build_report(issues, held_back)
       Report.new(
