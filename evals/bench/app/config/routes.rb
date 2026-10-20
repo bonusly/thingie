@@ -23,6 +23,8 @@ Rails.application.routes.draw do
           post :release
           post :send_now
         end
+        resource :attachment, only: :update, controller: "draft_tasks/attachments"
+        resources :comments, only: :index, controller: "draft_tasks/comments"
       end
 
       resources :lists do

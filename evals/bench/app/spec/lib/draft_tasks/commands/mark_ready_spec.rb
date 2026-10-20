@@ -10,7 +10,17 @@ RSpec.describe DraftTasks::Commands::MarkReady do
 
     expect(result).to be_success
     expect(draft.reload).to be_ready
+    expect(draft.points_reserved_at).to be_present
     expect(Points::Queries::GivingBalance.call(user: member, company: company).reserved).to eq(30)
+  end
+
+  it "applies a final note and schedule" do
+    at = 2.hours.from_now.change(usec: 0)
+    result = described_class.call(draft: draft, actor: member, edits: { note: "final", scheduled_for: at })
+
+    expect(result).to be_success
+    expect(draft.reload.note).to eq("final")
+    expect(draft.scheduled_for).to eq(at)
   end
 
   it "fails when the remaining budget cannot cover the points" do
@@ -41,7 +51,7 @@ RSpec.describe DraftTasks::Commands::MarkReady do
 
     result = described_class.call(draft: draft, actor: member)
 
-    expect(result.error).to be_a(DraftTasks::Services::WithLockedDraft::Lock::Busy)
+    expect(result.error).to be_a(DraftTasks::Commands::SendDraft::Lock::Busy)
     lock.release
   end
 end

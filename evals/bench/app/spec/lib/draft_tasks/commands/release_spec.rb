@@ -8,7 +8,13 @@ RSpec.describe DraftTasks::Commands::Release do
 
     expect(result).to be_success
     expect(draft.reload).to be_drafting
+    expect(draft.points_reserved_at).to be_nil
     expect(Points::Queries::GivingBalance.call(user: member, company: company).reserved).to eq(0)
+  end
+
+  it "keeps a note left on the way back" do
+    described_class.call(draft: draft, actor: admin, edits: { note: "needs a better title" })
+    expect(draft.reload.note).to eq("needs a better title")
   end
 
   it "lets a company admin release someone else's draft" do

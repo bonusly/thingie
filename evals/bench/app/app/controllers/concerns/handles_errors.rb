@@ -8,12 +8,14 @@ module HandlesErrors
 
   UNPROCESSABLE = [
     Mongoid::Errors::Validations, Connectors::InvalidInput, Points::InsufficientBalance, Points::NotAMember,
-    DraftTasks::WrongState, DraftTasks::NotEditable, Tasks::InvalidTransition, Tasks::WrongCompany,
+    DraftTasks::WrongState, DraftTasks::NotEditable, DraftTasks::ReadOnlyKeys, DraftTasks::InvalidAttachment,
+    Tasks::InvalidTransition, Tasks::WrongCompany,
     Lists::Archived, Lists::NotAMember, Sharing::NotShareable, Admin::AlreadySuspended
   ].freeze
 
   FORBIDDEN = [
-    ApplicationPolicy::NotAuthorized, Admin::NotStaff, CurrentCompany::NotAMember, Comments::NotAuthor
+    ApplicationPolicy::NotAuthorized, Admin::NotStaff, CurrentCompany::NotAMember, Comments::NotAuthor,
+    Features::Disabled
   ].freeze
 
   included do
@@ -27,7 +29,7 @@ module HandlesErrors
     rescue_from AuthenticatesRequests::Unauthenticated do |error|
       render_error(:unauthorized, error)
     end
-    rescue_from DraftTasks::Services::WithLockedDraft::Lock::Busy do |error|
+    rescue_from DraftTasks::Commands::SendDraft::Lock::Busy do |error|
       render_error(:conflict, error)
     end
   end

@@ -14,8 +14,28 @@ FactoryBot.define do
       content_type { "image/png" }
     end
 
+    trait :audio do
+      filename { "voice-note.mp3" }
+      content_type { "audio/mpeg" }
+      byte_size { 1_200_000 }
+    end
+
+    trait :video do
+      filename { "walkthrough.mp4" }
+      content_type { "video/mp4" }
+      byte_size { 8_000_000 }
+    end
+
+    trait :unclaimed do
+      task { nil }
+    end
+
     trait :oversized do
       byte_size { Attachment::MAX_BYTES + 1 }
+    end
+
+    trait :oversized_media do
+      byte_size { Attachment::MEDIA_MAX_BYTES + 1 }
     end
   end
 end

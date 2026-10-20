@@ -97,3 +97,18 @@ en:
     deleted: Draft deleted.
     locked: This draft is being updated elsewhere. Try again.
     not_editable: Ready drafts cannot be edited. Move it back to drafting first.
+    attachment:
+      title: Voice or video note
+      replace: Replace recording
+      none: No recording yet.
+    task_comments:
+      title: Comments on the sent task
+      none: Comments appear here once the draft is sent.
+    errors:
+      read_only: "%{keys} cannot be set from the client"
+      disabled: Drafts are not enabled for this workspace.
+      attachment:
+        not_found: recording not found
+        not_media: recording must be an audio or video file
+        claimed: recording is already attached to something else
+        too_large: recording must be under %{max} MB

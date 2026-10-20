@@ -1,7 +1,7 @@
 module Tasks
   module Commands
     class Create
-      PERMITTED = %i[title description due_on points assignee_ids label_ids position external_item_id].freeze
+      PERMITTED = %i[title description due_on points assignee_ids label_ids position external_item_id draft_task_id].freeze
 
       def self.call(**)
         new(**).call
