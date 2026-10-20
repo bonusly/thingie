@@ -139,8 +139,8 @@ module Thingie
       @title = raw_issue.title
       @details = raw_issue.details
       @evidence = raw_issue.evidence
-      @severity = raw_issue.severity
-      @confidence = raw_issue.confidence
+      @severity = self.class.grade(raw_issue.severity)
+      @confidence = self.class.grade(raw_issue.confidence)
       @tags = raw_issue.tags || []
       @affected_lines = affected_lines
       @review_tool_calls = []
@@ -198,8 +198,18 @@ module Thingie
     # @param confidence [Integer, nil] corrected confidence, or nil to leave unchanged
     # @return [void]
     def apply_override(severity: nil, confidence: nil)
-      @severity = severity unless severity.nil?
-      @confidence = confidence unless confidence.nil?
+      @severity = self.class.grade(severity) unless severity.nil?
+      @confidence = self.class.grade(confidence) unless confidence.nil?
+    end
+
+    # The schema asks for an integer grade, but a model can still write "2", and a saved report is read
+    # back through the same path. A grade that names a number becomes that integer; anything else is kept
+    # as it came, so the report shows what the model said and the sort puts it last.
+    #
+    # @param value [Object] a severity or confidence as the model or a report gave it
+    # @return [Integer, Object]
+    def self.grade(value)
+      Integer(value, exception: false) || value
     end
 
     CITED_FILE = %r{([\w./-]+\.(?:rb|rake|erb|tsx?|jsx?|ya?ml|json|md|lock|toml|sql|s?css)):\d+}
