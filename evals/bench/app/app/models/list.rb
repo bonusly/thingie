@@ -47,7 +47,11 @@ class List
   scope :visible_to, ->(user) { any_of({ visibility: "company" }, { visibility: "public" }, { member_ids: user.id }, { owner_id: user.id }) }
 
   def members
-    User.in(id: member_ids)
+    User.in(id: member_ids | attached_author_ids)
+  end
+
+  def attached_author_ids
+    draft_tasks.attached.not_sent.distinct(:author_id)
   end
 
   def member?(user)

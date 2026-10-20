@@ -6,7 +6,7 @@ module Sharing
       fields :title, :author_name, :scheduled_for, :attached_at, :points, :state
 
       field :author do |view|
-        { id: view.draft.author_id.to_s, name: view.draft.author.name }
+        view.author_name && { name: view.author_name }
       end
       field :has_note do |view|
         view.draft.note.present?

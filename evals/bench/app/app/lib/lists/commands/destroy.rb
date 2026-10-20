@@ -13,10 +13,10 @@ module Lists
       def call
         return Result.failure("list #{list.slug} is already deleted") if list.deleted?
 
-        list.comments.from_drafts.delete_all
-        released = Lists::Services::ReleaseDrafts.for_card(list.id)
-        list.share_links.active.each(&:revoke!)
         list.update!(deleted_at: Time.current)
+        released = Lists::Services::ReleaseDrafts.for_card(list.id)
+        list.comments.from_drafts.delete_all
+        list.share_links.active.each(&:revoke!)
         AuditLog.record!(company: list.company, actor: actor, action: "list.deleted", target: list, details: { released: released })
         Result.success(list)
       end

@@ -59,4 +59,14 @@ RSpec.describe DraftTasks::Commands::Attach do
     sent = create(:draft_task, :sent, company: company, list: list, author: member)
     expect(described_class.call(draft: sent, list: list, actor: member).error).to be_a(DraftTasks::WrongState)
   end
+
+  it "reports a busy lock instead of raising" do
+    lock = RedisLock.new("locks:draft_task:#{draft.id}", ttl: 5)
+    lock.acquire
+
+    result = described_class.call(draft: draft, list: list, actor: member)
+
+    expect(result.error).to be_a(DraftTasks::Services::WithLockedDraft::Lock::Busy)
+    lock.release
+  end
 end
