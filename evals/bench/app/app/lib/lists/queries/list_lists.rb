@@ -12,7 +12,7 @@ module Lists
       end
 
       def call
-        scope = List.for_company(company).visible_to(user)
+        scope = List.for_company(company).not_deleted.visible_to(user)
         scope = scope.where(state: "active") unless include_archived
         scope.ordered
       end

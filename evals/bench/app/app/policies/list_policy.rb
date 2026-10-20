@@ -28,7 +28,7 @@ class ListPolicy < ApplicationPolicy
   end
 
   def destroy?
-    same_company? && (owner? || admin?) && record.archived?
+    same_company? && (owner? || admin?) && !record.deleted?
   end
 
   private

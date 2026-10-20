@@ -11,7 +11,7 @@ module Lists
       end
 
       def call
-        list = List.for_company(company).any_of({ id: id }, { slug: id.to_s }).first
+        list = List.for_company(company).not_deleted.any_of({ id: id }, { slug: id.to_s }).first
         raise Lists::NotFound, id if list.nil?
 
         list

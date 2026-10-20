@@ -4,11 +4,19 @@ class DraftTaskPolicy < ApplicationPolicy
   end
 
   def create?
-    member? && record.list.member?(user)
+    member?
   end
 
   def update?
     same_company? && author? && record.editable?
+  end
+
+  def attach?
+    same_company? && author? && !record.sent?
+  end
+
+  def detach?
+    same_company? && (author? || admin?) && !record.sent?
   end
 
   def mark_ready?
@@ -34,6 +42,6 @@ class DraftTaskPolicy < ApplicationPolicy
   end
 
   def shared_with_me?
-    !record.private? && record.list.member?(user)
+    !record.private? && record.attached? && record.list.member?(user)
   end
 end

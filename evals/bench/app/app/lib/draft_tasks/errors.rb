@@ -18,4 +18,10 @@ module DraftTasks
       super("draft #{draft.id} is #{draft.state}, expected #{expected}")
     end
   end
+
+  class NotAttached < Error
+    def initialize(draft)
+      super("draft #{draft.id} is not attached to a list")
+    end
+  end
 end

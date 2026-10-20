@@ -40,6 +40,8 @@ module Lists
         return unless list.draft_tasks.ready.exists?
 
         Lists::Jobs::ConvertDraftTasksJob.perform_async(list.id.to_s, actor.id.to_s)
+      rescue StandardError => e
+        Rails.logger.warn("list #{list.id} delivered but draft conversion could not be enqueued: #{e.message}")
       end
     end
   end

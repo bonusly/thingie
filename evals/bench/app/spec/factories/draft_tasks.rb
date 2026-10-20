@@ -1,11 +1,16 @@
 FactoryBot.define do
   factory :draft_task do
     company
-    list { association :list, company: company }
+    list { nil }
     author { association :user }
     sequence(:title) { |n| "Draft #{n}" }
     points { 0 }
     visibility { "shared" }
+
+    trait :attached do
+      list { association :list, company: company }
+      attached_at { 10.minutes.ago }
+    end
 
     trait :ready do
       state { "ready" }

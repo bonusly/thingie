@@ -16,9 +16,8 @@ module Api
       end
 
       def create
-        list = Lists::Queries::FindList.call(company: current_company, id: params.require(:list_id))
-        authorize!(DraftTask.new(company: current_company, list: list), :create?)
-        result = DraftTasks::Commands::Create.call(company: current_company, author: current_user, list: list, attrs: draft_params)
+        authorize!(DraftTask.new(company: current_company), :create?)
+        result = DraftTasks::Commands::Create.call(company: current_company, author: current_user, attrs: draft_params)
         render_result(result, blueprint: BLUEPRINT, status: :created)
       end
 
@@ -30,6 +29,18 @@ module Api
       def destroy
         authorize!(draft, :destroy?)
         head_result(DraftTasks::Commands::Destroy.call(draft: draft, actor: current_user))
+      end
+
+      def attach
+        list = Lists::Queries::FindList.call(company: current_company, id: params.require(:list_id))
+        authorize!(draft, :attach?)
+        authorize!(list, :show?)
+        render_result(DraftTasks::Commands::Attach.call(draft: draft, list: list, actor: current_user), blueprint: BLUEPRINT)
+      end
+
+      def detach
+        authorize!(draft, :detach?)
+        render_result(DraftTasks::Commands::Detach.call(draft: draft, actor: current_user), blueprint: BLUEPRINT)
       end
 
       def mark_ready

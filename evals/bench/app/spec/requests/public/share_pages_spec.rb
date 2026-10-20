@@ -12,11 +12,24 @@ RSpec.describe "Share pages" do
     expect(response).to have_http_status(:ok)
     expect(json["name"]).to eq(list.name)
     expect(json["tasks"].map { |t| t["title"] }).to eq(["Public task"])
+    expect(json["tasks"].first["author_name"]).to eq(admin.display_name)
     expect(json["drafts"]).to eq([])
     expect(link.reload.view_count).to eq(1)
   end
 
-  it "includes drafts with authors hidden when private" do
+  it "includes attached drafts with the author named" do
+    draft
+    link = create(:share_link, :with_drafts, company: company, list: list, created_by: admin)
+
+    get "/s/#{link.token}"
+
+    expect(json["drafts"].size).to eq(1)
+    expect(json["drafts"].first).to include("title" => draft.title, "state" => "ready", "has_note" => true)
+    expect(json["drafts"].first["author"]["name"]).to eq(member.name)
+    expect(json["drafts"].first["attached_at"]).to be_present
+  end
+
+  it "hides the author name when the draft is private" do
     draft.update!(visibility: "private")
     link = create(:share_link, :with_drafts, company: company, list: list, created_by: admin)
 

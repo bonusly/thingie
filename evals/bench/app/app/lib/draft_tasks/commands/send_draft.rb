@@ -13,6 +13,7 @@ module DraftTasks
       def call
         DraftTasks::Services::WithLockedDraft.call(draft) do |locked|
           return Result.failure(DraftTasks::WrongState.new(locked, "ready")) unless locked.may_mark_sent?
+          return Result.failure(DraftTasks::NotAttached.new(locked)) if locked.list.nil? || locked.list.deleted?
 
           result = create_task(locked)
           return result if result.failure?

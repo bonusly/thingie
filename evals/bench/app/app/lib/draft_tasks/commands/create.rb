@@ -7,18 +7,14 @@ module DraftTasks
         new(**).call
       end
 
-      def initialize(company:, author:, list:, attrs:)
+      def initialize(company:, author:, attrs:)
         @company = company
         @author = author
-        @list = list
         @attrs = attrs.to_h.symbolize_keys.slice(*PERMITTED)
       end
 
       def call
-        return Result.failure("list does not belong to this company") unless list.company_id == company.id
-        return Result.failure("list is archived") if list.archived?
-
-        draft = DraftTask.new(attrs.merge(company: company, author: author, list: list))
+        draft = DraftTask.new(attrs.merge(company: company, author: author))
         return Result.failure(draft.errors.full_messages) unless draft.save
 
         Result.success(draft)
@@ -26,7 +22,7 @@ module DraftTasks
 
       private
 
-      attr_reader :company, :author, :list, :attrs
+      attr_reader :company, :author, :attrs
     end
   end
 end

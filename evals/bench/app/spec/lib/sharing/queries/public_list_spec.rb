@@ -14,14 +14,17 @@ RSpec.describe Sharing::Queries::PublicList do
     expect(view.drafts).to eq([])
   end
 
-  it "includes ready drafts through the public view when enabled" do
+  it "includes attached drafts through the public view when enabled" do
     draft
-    create(:draft_task, :private, :ready, company: company, list: list, author: member)
+    create(:draft_task, :private, company: company, list: list, author: member, attached_at: 5.minutes.ago)
+    create(:draft_task, :sent, company: company, list: list, author: member, attached_at: 1.hour.ago)
+    create(:draft_task, :ready, company: company, author: member)
     link = create(:share_link, :with_drafts, company: company, list: list, created_by: admin)
 
     view = described_class.call(share_link: link)
 
     expect(view.drafts.size).to eq(2)
-    expect(view.drafts.map(&:author_name)).to contain_exactly(member.display_name, nil)
+    expect(view.drafts.map(&:author_name)).to eq([member.display_name, nil])
+    expect(view.drafts.map(&:state)).to eq(%w[ready drafting])
   end
 end

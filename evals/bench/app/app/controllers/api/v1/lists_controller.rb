@@ -27,8 +27,7 @@ module Api
 
       def destroy
         authorize!(list, :destroy?)
-        list.destroy!
-        head :no_content
+        head_result(Lists::Commands::Destroy.call(list: list, actor: current_user))
       end
 
       def deliver

@@ -21,6 +21,8 @@ Rails.application.routes.draw do
         member do
           post :mark_ready
           post :release
+          post :attach
+          post :detach
           post :send_now
         end
       end
