@@ -17,13 +17,13 @@ RSpec.describe Search::Queries::ConnectedSearch do
     allow(Search::Tools::LinearSearch).to receive(:call).and_raise(Search::NotConnected.new("linear"))
   end
 
-  it "merges results newest first, keyed by provider, and returns the cursor to continue from" do
-    result = described_class.call(company: company, user: member, q: "x", cursor: "abc")
+  it "merges results newest first, keyed by provider, and keeps each provider's cursor apart" do
+    result = described_class.call(company: company, user: member, q: "x", cursors: { "github" => "1", slack: "abc" })
 
-    expect(Search::Tools::GithubSearch).to have_received(:call).with(hash_including(cursor: "abc", q: "x"))
+    expect(Search::Tools::GithubSearch).to have_received(:call).with(hash_including(cursor: "1", q: "x"))
     expect(Search::Tools::SlackSearch).to have_received(:call).with(hash_including(cursor: "abc"))
     expect(result.items.map { |i| [i[:provider], i[:external_id]] }).to eq([%w[slack sl], %w[github gh]])
-    expect(result.next_cursor).to eq("dXNlcjpV")
+    expect(result.next_cursors).to eq("github" => "2", "slack" => "dXNlcjpV")
     expect(result).to have_attributes(truncated: true, skipped: ["linear"])
   end
 
