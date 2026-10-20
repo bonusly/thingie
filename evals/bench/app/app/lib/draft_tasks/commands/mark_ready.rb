@@ -1,6 +1,8 @@
 module DraftTasks
   module Commands
     class MarkReady
+      FINAL_EDITS = %i[note scheduled_for].freeze
+
       def self.call(draft:, actor:, edits: {}, now: Time.current)
         new(draft: draft, actor: actor, edits: edits, now: now).call
       end
@@ -8,7 +10,7 @@ module DraftTasks
       def initialize(draft:, actor:, edits:, now:)
         @draft = draft
         @actor = actor
-        @edits = edits.to_h.symbolize_keys
+        @edits = edits.to_h.symbolize_keys.slice(*FINAL_EDITS)
         @now = now
       end
 
@@ -17,13 +19,13 @@ module DraftTasks
           return Result.failure(DraftTasks::WrongState.new(locked, "drafting")) unless locked.may_mark_ready?
           return Result.failure("only the author can mark a draft ready") unless locked.author_id == actor.id
 
-          locked.assign_attributes(edits)
-          return Result.failure(locked.errors.full_messages) unless locked.valid?
-
           balance = Points::Queries::GivingBalance.call(user: locked.author, company: locked.company, now: now)
           unless balance.covers?(locked.points)
             return Result.failure(Points::InsufficientBalance.new(requested: locked.points, remaining: balance.remaining))
           end
+
+          locked.assign_attributes(edits)
+          return Result.failure(locked.errors.full_messages) unless locked.valid?
 
           locked.mark_ready!
           Result.success(locked)

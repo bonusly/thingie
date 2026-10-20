@@ -32,7 +32,7 @@ module DraftTasks
       attr_reader :draft, :actor, :attachment_id
 
       def find_attachment
-        Attachment.where(id: attachment_id).first
+        Attachment.for_company(draft.company).where(id: attachment_id).first
       end
     end
   end

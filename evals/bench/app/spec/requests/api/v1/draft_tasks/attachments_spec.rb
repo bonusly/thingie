@@ -24,6 +24,15 @@ RSpec.describe "Draft task attachments API" do
     expect(Attachment.where(id: old_id)).not_to exist
   end
 
+  it "rejects an upload from another company" do
+    foreign = create(:attachment, :audio, :unclaimed)
+    replace(member, foreign.id.to_s)
+
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(json_error["message"]).to match(/not found/)
+    expect(draft.reload.attachment).to be_present
+  end
+
   it "rejects a non-media upload" do
     replace(member, create(:attachment, :unclaimed, company: company).id.to_s)
     expect(response).to have_http_status(:unprocessable_entity)

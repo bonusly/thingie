@@ -20,6 +20,12 @@ RSpec.describe DraftTasks::Commands::ReplaceAttachment do
     expect(Attachment.where(id: old_id)).not_to exist
   end
 
+  it "refuses uploads that belong to another company" do
+    result = replace(create(:attachment, :audio, :unclaimed))
+    expect(result.error).to be_a(DraftTasks::InvalidAttachment)
+    expect(result.error.message).to match(/not found/)
+  end
+
   it "refuses uploads that are not audio or video" do
     result = replace(create(:attachment, :image, :unclaimed, company: company))
     expect(result.error.message).to match(/audio or video/)

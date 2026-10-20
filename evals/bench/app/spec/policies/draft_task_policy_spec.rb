@@ -6,6 +6,8 @@ RSpec.describe DraftTaskPolicy do
   let(:list) { create(:list, company: company, owner: admin, member_ids: [admin.id, member.id]) }
   let(:draft) { create(:draft_task, company: company, list: list, author: member) }
 
+  before { enable_feature(:draft_tasks) }
+
   def policy(user, record = draft)
     described_class.new(user, record, membership: user.membership_for(company))
   end
@@ -30,6 +32,11 @@ RSpec.describe DraftTaskPolicy do
     draft.mark_ready!
     expect(policy(admin).release?).to be(true)
     expect(policy(admin).send_now?).to be(true)
+  end
+
+  it "does not let anyone reserve points while the feature is off" do
+    enable_feature(:draft_tasks, everyone: false)
+    expect(policy(member).mark_ready?).to be(false)
   end
 
   it "never allows destroying a sent draft" do

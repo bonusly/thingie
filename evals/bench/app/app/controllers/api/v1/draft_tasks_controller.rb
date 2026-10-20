@@ -9,7 +9,7 @@ module Api
       TASK_BLUEPRINT = Tasks::Blueprints::TaskBlueprint
 
       before_action { require_feature!(:draft_tasks) }
-      before_action :guard_draft_keys!, only: %i[create update]
+      before_action :guard_draft_keys!, except: %i[index show]
 
       def index
         drafts = ::DraftTasks::Queries::ListDrafts.call(
@@ -75,7 +75,7 @@ module Api
       end
 
       def final_edits
-        params.fetch(:draft_task, {}).permit!.to_h
+        params.fetch(:draft_task, {}).permit(:note, :scheduled_for)
       end
     end
   end
