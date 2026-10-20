@@ -2,6 +2,7 @@ module Sharing
   module Queries
     class PublicList
       PublicView = Struct.new(:list, :tasks, :drafts, :share_link, keyword_init: true)
+      SENT_WINDOW = 7.days
 
       def self.call(share_link:)
         new(share_link: share_link).call
@@ -30,9 +31,14 @@ module Sharing
       def drafts
         return [] unless share_link.show_drafts
 
-        list.draft_tasks.ready.filter_map do |draft|
+        draft_scope.filter_map do |draft|
           Lists::Services::DraftPublicView.call(draft: draft, share_link: share_link)
         end
+      end
+
+      def draft_scope
+        list.draft_tasks.any_of({ state: "ready" }, { state: "sent", :sent_at.gte => SENT_WINDOW.ago })
+            .order(sent_at: :desc, ready_at: :desc)
       end
     end
   end

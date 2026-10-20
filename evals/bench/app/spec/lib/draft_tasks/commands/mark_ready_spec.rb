@@ -5,7 +5,7 @@ RSpec.describe DraftTasks::Commands::MarkReady do
 
   let(:draft) { create(:draft_task, company: company, author: member, points: 30) }
 
-  it "moves the draft to ready and reserves its points" do
+  it "moves the draft to ready and holds its points in escrow" do
     result = described_class.call(draft: draft, actor: member)
 
     expect(result).to be_success
@@ -23,6 +23,11 @@ RSpec.describe DraftTasks::Commands::MarkReady do
     expect(draft.reload).to be_drafting
   end
 
+  it "counts points already given this week against the budget" do
+    create(:points_ledger_entry, company: company, user: member, amount: 75)
+    expect(described_class.call(draft: draft, actor: member).error).to be_a(Points::InsufficientBalance)
+  end
+
   it "fails when the draft is not drafting" do
     draft.mark_ready!
     result = described_class.call(draft: draft, actor: member)
@@ -35,13 +40,14 @@ RSpec.describe DraftTasks::Commands::MarkReady do
     expect(result.error).to match(/author/)
   end
 
-  it "reports a busy lock instead of raising" do
+  it "reports a busy draft lock as a failure message" do
     lock = RedisLock.new("locks:draft_task:#{draft.id}", ttl: 5)
     lock.acquire
 
     result = described_class.call(draft: draft, actor: member)
 
-    expect(result.error).to be_a(DraftTasks::Services::WithLockedDraft::Lock::Busy)
+    expect(result.error).to match(/held by another process/)
+    expect(draft.reload).to be_drafting
     lock.release
   end
 end

@@ -1,7 +1,7 @@
 module Lists
   module Services
     class DraftPublicView
-      View = Struct.new(:id, :title, :author_name, :scheduled_for, :points, :state, keyword_init: true)
+      View = Struct.new(:id, :title, :author_name, :scheduled_for, :points, :state, :task_id, keyword_init: true)
 
       def self.call(draft:, share_link:)
         new(draft: draft, share_link: share_link).call
@@ -15,14 +15,7 @@ module Lists
       def call
         return nil unless visible?
 
-        View.new(
-          id: draft.id.to_s,
-          title: draft.title,
-          author_name: author_name,
-          scheduled_for: draft.scheduled_for,
-          points: draft.points,
-          state: draft.state
-        )
+        draft.sent? ? sent_view : pending_view
       end
 
       private
@@ -30,13 +23,33 @@ module Lists
       attr_reader :draft, :share_link
 
       def visible?
-        share_link.show_drafts && share_link.list_id == draft.list_id && !draft.sent?
+        return false unless share_link.show_drafts && share_link.list_id == draft.list_id
+
+        draft.ready? || (draft.sent? && draft.sent_task_id.present?)
       end
 
-      def author_name
-        return nil if draft.private?
+      def pending_view
+        View.new(
+          id: draft.id.to_s,
+          title: draft.title,
+          author_name: draft.private? ? nil : draft.author.display_name,
+          scheduled_for: draft.scheduled_for,
+          points: draft.points,
+          state: draft.state,
+          task_id: nil
+        )
+      end
 
-        draft.author.display_name
+      def sent_view
+        View.new(
+          id: draft.id.to_s,
+          title: draft.title,
+          author_name: draft.author.display_name,
+          scheduled_for: draft.sent_at,
+          points: draft.points,
+          state: draft.state,
+          task_id: draft.sent_task_id.to_s
+        )
       end
     end
   end

@@ -5,8 +5,8 @@ RSpec.describe Tasks::Commands::Create do
 
   let(:list) { create(:list, company: company, owner: admin, member_ids: [admin.id, member.id]) }
 
-  def call(attrs)
-    described_class.call(company: company, author: admin, list: list, attrs: attrs)
+  def call(attrs, **options)
+    described_class.call(company: company, author: admin, list: list, attrs: attrs, **options)
   end
 
   it "creates the task and a created event" do
@@ -36,6 +36,16 @@ RSpec.describe Tasks::Commands::Create do
     expect(result).to be_failure
     expect(result.error).to be_a(Points::InsufficientBalance)
     expect(Task.count).to eq(0)
+  end
+
+  it "leaves the ledger alone for an escrowed task" do
+    create(:draft_task, :ready, company: company, author: admin, points: 95)
+
+    result = call({ title: "From a draft", points: 15 }, escrowed: true)
+
+    expect(result).to be_success
+    expect(result.value.points).to eq(15)
+    expect(PointsLedgerEntry.for_user(admin).count).to eq(0)
   end
 
   it "notifies assignees other than the author" do

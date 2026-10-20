@@ -22,9 +22,12 @@ export interface DraftTask {
   note: string | null;
   state: DraftState;
   points: number;
+  reserved_points: number;
   scheduled_for: string | null;
   visibility: "private" | "shared";
   list_id: string;
+  author_name: string;
+  sent_task_id: string | null;
   editable: boolean;
 }
 

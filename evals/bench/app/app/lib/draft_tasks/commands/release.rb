@@ -16,10 +16,10 @@ module DraftTasks
           return Result.failure("only the author can release a draft") unless allowed?(locked)
           return Result.success(locked) if locked.drafting?
 
-          locked.resume_drafting!
+          locked.release_reservation!
           Result.success(locked)
         end
-      rescue DraftTasks::Services::WithLockedDraft::Lock::Busy => e
+      rescue DraftTasks::Services::WithLockedDraft::Lock::Busy, DraftTasks::WrongState => e
         Result.failure(e)
       end
 

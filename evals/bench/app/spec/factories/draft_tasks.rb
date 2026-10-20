@@ -18,6 +18,11 @@ FactoryBot.define do
       sent_at { 30.minutes.ago }
     end
 
+    trait :sent_to_task do
+      sent
+      sent_task_id { association(:task, company: company, list: list, author: author).id }
+    end
+
     trait :private do
       visibility { "private" }
     end

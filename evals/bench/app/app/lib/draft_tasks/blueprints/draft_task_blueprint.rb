@@ -8,6 +8,9 @@ module DraftTasks
 
       field :list_id, &:to_s
       field :author_id, &:to_s
+      field :author_name do |draft|
+        draft.author.display_name
+      end
       field :sent_task_id do |draft|
         draft.sent_task_id&.to_s
       end

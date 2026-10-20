@@ -17,10 +17,7 @@ module DraftTasks
           result = create_task(locked)
           return result if result.failure?
 
-          task = result.value
-          locked.mark_sent!(task)
-          notify(locked, task)
-          Result.success(task)
+          finalize(locked, result.value)
         end
       rescue DraftTasks::Services::WithLockedDraft::Lock::Busy => e
         Result.failure(e)
@@ -32,8 +29,18 @@ module DraftTasks
 
       def create_task(locked)
         Tasks::Commands::Create.call(
-          company: locked.company, author: locked.author, list: locked.list, attrs: locked.task_attributes
+          company: locked.company, author: locked.author, list: locked.list,
+          attrs: locked.task_attributes, escrowed: true
         )
+      end
+
+      def finalize(locked, task)
+        settled = Points::Commands::SettleReservation.call(draft: locked, task: task, amount: locked.points)
+        return settled if settled.failure?
+
+        locked.mark_sent!(task)
+        notify(locked, task)
+        Result.success(task)
       end
 
       def notify(locked, task)

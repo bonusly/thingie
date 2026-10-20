@@ -85,9 +85,14 @@ en:
       at: Sends %{at}
       on_delivery: Sends when the list is delivered
     reservation:
-      held: "%{points} points reserved from this week's budget"
-      released: Reservation released
+      held: "%{points} points held in escrow from this week's budget"
+      released: Escrow released
+      settled: Points moved to the task
       insufficient: You only have %{remaining} points left this week.
+      busy: Your balance is being updated. Try again in a moment.
+    reservations:
+      title: Points in escrow
+      empty: No drafts are holding points right now.
     empty: No drafts. Start one from any list.
     created: Draft saved.
     updated: Draft updated.

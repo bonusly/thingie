@@ -17,6 +17,11 @@ RSpec.describe DraftTasks::Blueprints::DraftTaskBlueprint do
     expect(json[:editable]).to be(false)
   end
 
+  it "includes the author's display name" do
+    draft = create(:draft_task, author: create(:user, name: "Ada Lovelace"))
+    expect(described_class.render_as_hash(draft)[:author_name]).to eq("Ada Lovelace")
+  end
+
   it "stringifies assignee and label ids" do
     draft = build(:draft_task, assignee_ids: [BSON::ObjectId.new], label_ids: [BSON::ObjectId.new])
     json = described_class.render_as_hash(draft)

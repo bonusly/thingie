@@ -18,14 +18,20 @@ module DraftTasks
         return Result.failure("only the author can edit a draft") unless draft.author_id == actor.id
 
         draft.assign_attributes(attrs)
-        return Result.failure(draft.errors.full_messages) unless draft.save
+        return Result.failure(draft.errors.full_messages) unless draft.valid?
+        return Result.success(draft) if changes.empty?
 
-        Result.success(draft)
+        DraftTask.where(_id: draft.id).find_one_and_update({ "$set" => changes.merge(updated_at: Time.current) })
+        Result.success(draft.reload)
       end
 
       private
 
       attr_reader :draft, :actor, :attrs
+
+      def changes
+        @changes ||= draft.changes.transform_values(&:last)
+      end
     end
   end
 end

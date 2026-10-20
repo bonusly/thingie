@@ -23,5 +23,14 @@ RSpec.describe "Points API" do
 
       expect(json.map { |e| e["signed_amount"] }).to contain_exactly(-15, 5)
     end
+
+    it "marks entries that settled a draft" do
+      draft = create(:draft_task, :sent, company: company, author: member, points: 15)
+      create(:points_ledger_entry, :escrow, company: company, user: member, amount: 15, draft_task_id: draft.id)
+
+      api_get "/api/v1/points/ledger", user: member, company: company
+
+      expect(json.first).to include("from_draft" => true, "draft_task_id" => draft.id.to_s)
+    end
   end
 end

@@ -7,11 +7,12 @@ module Tasks
         new(**).call
       end
 
-      def initialize(company:, author:, list:, attrs:)
+      def initialize(company:, author:, list:, attrs:, escrowed: false)
         @company = company
         @author = author
         @list = list
         @attrs = attrs.to_h.symbolize_keys.slice(*PERMITTED)
+        @escrowed = escrowed
       end
 
       def call
@@ -33,10 +34,10 @@ module Tasks
 
       private
 
-      attr_reader :company, :author, :list, :attrs
+      attr_reader :company, :author, :list, :attrs, :escrowed
 
       def balance_shortfall(task)
-        return nil unless task.rewarded?
+        return nil if escrowed || !task.rewarded?
 
         balance = Points::Queries::GivingBalance.call(user: author, company: company)
         return nil if balance.covers?(task.points)
@@ -47,7 +48,7 @@ module Tasks
       end
 
       def award_points(task)
-        return unless task.rewarded?
+        return if escrowed || !task.rewarded?
 
         Points::Commands::Award.call(company: company, user: author, task: task, amount: task.points).value!
       end

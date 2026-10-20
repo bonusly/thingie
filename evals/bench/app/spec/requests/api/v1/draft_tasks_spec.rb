@@ -14,6 +14,25 @@ RSpec.describe "Draft tasks API" do
       api_get "/api/v1/draft_tasks", user: member, company: company, params: { state: "ready" }
 
       expect(json.map { |d| d["id"] }).to eq([ready.id.to_s])
+      expect(json.first["author_name"]).to eq(member.display_name)
+    end
+  end
+
+  describe "GET /api/v1/draft_tasks/reservations" do
+    before do
+      create(:draft_task, :ready, company: company, list: list, author: member, points: 5, ready_at: 2.hours.ago)
+      create(:draft_task, :ready, company: company, list: list, author: member, points: 8, ready_at: 1.hour.ago)
+      create(:draft_task, company: company, list: list, author: member, points: 9)
+    end
+
+    it "lists the drafts holding the caller's points" do
+      api_get "/api/v1/draft_tasks/reservations", user: member, company: company
+      expect(json.map { |d| d["reserved_points"] }).to eq([8, 5])
+    end
+
+    it "caps the list with limit" do
+      api_get "/api/v1/draft_tasks/reservations", user: member, company: company, params: { limit: "1" }
+      expect(json.size).to eq(1)
     end
   end
 
@@ -24,6 +43,13 @@ RSpec.describe "Draft tasks API" do
 
       expect(response).to have_http_status(:created)
       expect(json).to include("state" => "drafting", "points" => 10, "editable" => true)
+    end
+
+    it "rejects points over the weekly budget" do
+      member_membership.update!(points_budget_override: 10)
+      api_post "/api/v1/draft_tasks", user: member, company: company,
+               params: { list_id: list.id.to_s, draft_task: { title: "Plan", points: 20 } }
+      expect(response).to have_http_status(:unprocessable_entity)
     end
   end
 
@@ -42,7 +68,7 @@ RSpec.describe "Draft tasks API" do
   describe "POST /api/v1/draft_tasks/:id/mark_ready" do
     let(:draft) { create(:draft_task, company: company, list: list, author: member, points: 20) }
 
-    it "reserves the points" do
+    it "holds the points in escrow" do
       api_post "/api/v1/draft_tasks/#{draft.id}/mark_ready", user: member, company: company
       expect(response).to have_http_status(:ok)
       expect(json).to include("state" => "ready", "reserved_points" => 20)
@@ -53,10 +79,17 @@ RSpec.describe "Draft tasks API" do
       api_post "/api/v1/draft_tasks/#{draft.id}/mark_ready", user: member, company: company
       expect(response).to have_http_status(:unprocessable_entity)
     end
+  end
 
-    it "forbids non-authors" do
-      api_post "/api/v1/draft_tasks/#{draft.id}/mark_ready", user: admin, company: company
-      expect(response).to have_http_status(:forbidden)
+  describe "POST /api/v1/draft_tasks/:id/send_now" do
+    let(:draft) { create(:draft_task, :ready, company: company, list: list, author: member, points: 20) }
+
+    it "creates the task and settles the escrow" do
+      api_post "/api/v1/draft_tasks/#{draft.id}/send_now", user: member, company: company
+
+      expect(response).to have_http_status(:created)
+      expect(json["points"]).to eq(20)
+      expect(PointsLedgerEntry.for_draft(draft).first.amount).to eq(20)
     end
   end
 
