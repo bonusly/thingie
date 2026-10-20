@@ -5,7 +5,9 @@ module Connectors
         Input = Dry::Schema.Params do
           required(:account_id).filled(:string)
           optional(:since).maybe(:time)
+          optional(:since_days).maybe(:integer, gt?: 0)
           optional(:cursor).maybe(:string)
+          optional(:pages).maybe(:integer, gt?: 0, lteq?: Connectors::Services::PageLimit::MAX_PAGES)
           optional(:first).filled(:integer, gt?: 0, lteq?: 250)
           optional(:team_key).maybe(:string)
         end
@@ -23,13 +25,13 @@ module Connectors
         def call
           raise Connectors::InvalidInput, input.errors.to_h unless input.success?
 
-          since = Connectors::Services::LookBack.call(account: account, override: input[:since])
+          since = Connectors::Services::LookBack.call(account: account, override: input[:since], since_days: input[:since_days])
           cursor = input[:cursor]
           items = []
 
-          pages = Connectors::Services::PageLimit.call do
-            page = client.issues(updated_after: since, after: cursor, first: first)
-            items.concat(page.items.select { |raw| team_matches?(raw) }.map { |raw| normalize(raw) })
+          pages = Connectors::Services::PageLimit.call(max: max_pages) do
+            page = client.issues(updated_after: since, after: cursor, first: first, team_key: input[:team_key])
+            items.concat(page.items.map { |raw| normalize(raw) })
             cursor = page.next_cursor
             cursor.present?
           end
@@ -53,8 +55,8 @@ module Connectors
           input[:first] || Connectors::Linear::Client::FIRST
         end
 
-        def team_matches?(raw)
-          input[:team_key].blank? || raw.dig("team", "key") == input[:team_key]
+        def max_pages
+          input[:pages] || Connectors::Services::PageLimit.max_pages
         end
 
         def normalize(raw)

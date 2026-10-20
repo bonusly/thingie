@@ -1,18 +1,10 @@
 require "rails_helper"
 
 RSpec.describe Connectors::Slack::Queries::ListMessages do
-  include_context "with a company and members"
+  include_context "with a slack connector account"
 
-  let(:account) { create(:connector_account, :slack, company: company, user: member) }
-  let(:client) { instance_double(Connectors::Slack::Client) }
-
-  before do
-    allow(Connectors::Slack::Client).to receive(:new).with(account).and_return(client)
-    allow(client).to receive(:permalink) { |channel:, ts:| "https://slack.test/#{channel}/#{ts}" }
-  end
-
-  def message(ts, text: "hello", subtype: nil)
-    { "ts" => ts, "text" => text, "user" => "U1", "subtype" => subtype }.compact
+  def message(ts, text: "hello", subtype: nil, reply_count: nil)
+    { "ts" => ts, "text" => text, "user" => "U1", "subtype" => subtype, "reply_count" => reply_count }.compact
   end
 
   it "requires a channel" do
@@ -39,5 +31,27 @@ RSpec.describe Connectors::Slack::Queries::ListMessages do
     expect(result.pages_fetched).to eq(5)
     expect(result.next_cursor).to eq("5")
     expect(client).to have_received(:messages).with(hash_including(limit: 50)).exactly(5).times
+  end
+
+  it "stops early when given a smaller page budget" do
+    allow(client).to receive(:messages) { |cursor:, **| Connectors::Page.new(items: [message("#{cursor.to_i + 1}.0")], next_cursor: (cursor.to_i + 1).to_s) }
+
+    result = described_class.call(account_id: account.id.to_s, channel: "C123", pages: 2)
+
+    expect(result.pages_fetched).to eq(2)
+    expect(result.next_cursor).to eq("2")
+  end
+
+  it "pulls thread replies inside the window and drops the parent copy" do
+    since = Time.zone.at(1_700_000_000)
+    parent = message("1700000100.000100", reply_count: 3)
+    allow(client).to receive(:messages).and_return(Connectors::Page.new(items: [parent], next_cursor: nil))
+    allow(client).to receive(:replies).with(channel: "C123", ts: "1700000100.000100", limit: described_class::REPLY_LIMIT).and_return(
+      [parent, message("1700000200.000100", text: "reply"), message("1699999999.000100", text: "old reply")]
+    )
+
+    result = described_class.call(account_id: account.id.to_s, channel: "C123", since: since)
+
+    expect(result.items.map { |item| item[:title] }).to eq(%w[hello reply])
   end
 end

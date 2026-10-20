@@ -23,4 +23,12 @@ RSpec.describe Connectors::Services::PageLimit do
   it "reads the default from configuration" do
     expect(described_class.max_pages).to eq(Rails.application.config.x.connectors.max_pages_per_call)
   end
+
+  describe ".capped?" do
+    it "is true once the walk used every page it was allowed" do
+      expect(described_class.capped?(5)).to be(true)
+      expect(described_class.capped?(4)).to be(false)
+      expect(described_class.capped?(2, max: 2)).to be(true)
+    end
+  end
 end

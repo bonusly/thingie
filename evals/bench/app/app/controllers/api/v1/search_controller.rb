@@ -13,6 +13,16 @@ module Api
         entries = entries.where(permission: params[:permission]) if params[:permission].present?
         render json: Search::Blueprints::RouteBlueprint.render(entries)
       end
+
+      def connected
+        result = Search::Queries::ConnectedSearch.call(
+          company: current_company, user: current_user, q: params[:q], since_days: params[:since_days].presence,
+          cursor: params[:cursor], providers: params[:providers]
+        )
+        render json: {
+          items: result.items, next_cursor: result.next_cursor, truncated: result.truncated, skipped: result.skipped
+        }
+      end
     end
   end
 end

@@ -64,6 +64,7 @@ Rails.application.routes.draw do
 
         get "search", to: "search#index"
       get "search/routes", to: "search#routes"
+      get "search/connected", to: "search#connected"
     end
   end
 

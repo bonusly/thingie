@@ -4,8 +4,8 @@ module Connectors
       FIRST = 50
 
       ISSUES_QUERY = <<~GRAPHQL
-        query($after: String, $first: Int, $updatedAfter: DateTimeOrDuration) {
-          issues(after: $after, first: $first, filter: { updatedAt: { gte: $updatedAfter } }, orderBy: updatedAt) {
+        query($after: String, $first: Int, $filter: IssueFilter) {
+          issues(after: $after, first: $first, filter: $filter, orderBy: updatedAt) {
             nodes { id identifier title url updatedAt state { name } team { key } }
             pageInfo { hasNextPage endCursor }
           }
@@ -25,8 +25,10 @@ module Connectors
         @account = account
       end
 
-      def issues(updated_after:, after: nil, first: FIRST)
-        connection_page("issues", ISSUES_QUERY, after: after, first: first, updatedAfter: updated_after.iso8601)
+      def issues(updated_after:, after: nil, first: FIRST, team_key: nil)
+        filter = { updatedAt: { gte: updated_after.iso8601 } }
+        filter[:team] = { key: { eq: team_key } } if team_key.present?
+        connection_page("issues", ISSUES_QUERY, after: after, first: first, filter: filter)
       end
 
       def projects(after: nil, first: FIRST)

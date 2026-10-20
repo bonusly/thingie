@@ -33,10 +33,12 @@ RSpec.describe ConnectorAccount do
   end
 
   describe "#touch_synced!" do
-    it "stores the cursor and clears a previous error" do
+    it "records the sync time and clears a previous error" do
       account.record_error!("boom")
-      account.touch_synced!(cursor: "page-2")
-      expect(account.reload.cursor).to eq("page-2")
+      account.update!(cursor: "page-2")
+      account.touch_synced!(synced_at: Time.utc(2026, 10, 16, 9))
+      expect(account.reload.last_synced_at).to eq(Time.utc(2026, 10, 16, 9))
+      expect(account.cursor).to be_nil
       expect(account.last_error).to be_nil
     end
   end

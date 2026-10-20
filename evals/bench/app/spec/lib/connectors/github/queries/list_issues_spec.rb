@@ -29,6 +29,15 @@ RSpec.describe Connectors::Github::Queries::ListIssues do
     expect(result.next_cursor).to eq("11")
   end
 
+  it "honours a smaller page budget" do
+    allow(client).to receive(:issues) { |cursor:, **| Connectors::Page.new(items: [issue(cursor.to_i + 1)], next_cursor: cursor.to_i + 2) }
+
+    result = described_class.call(account_id: account.id.to_s, cursor: "1", pages: 2)
+
+    expect(result.pages_fetched).to eq(2)
+    expect(result.next_cursor).to eq("5")
+  end
+
   it "passes the computed since watermark through" do
     allow(client).to receive(:issues).and_return(Connectors::Page.empty)
     result = described_class.call(account_id: account.id.to_s, since: "2026-10-01T00:00:00Z")
@@ -36,8 +45,26 @@ RSpec.describe Connectors::Github::Queries::ListIssues do
     expect(client).to have_received(:issues).with(hash_including(since: Time.utc(2026, 10, 1)))
   end
 
+  it "accepts a zoned time for since, as the sync job passes" do
+    allow(client).to receive(:issues).and_return(Connectors::Page.empty)
+    since = Time.zone.parse("2026-10-02 09:30")
+    expect(since).to be_a(ActiveSupport::TimeWithZone)
+
+    result = described_class.call(account_id: account.id.to_s, since: since)
+
+    expect(result.since).to eq(since)
+    expect(client).to have_received(:issues).with(hash_including(since: since))
+  end
+
+  it "counts since_days back from now" do
+    allow(client).to receive(:issues).and_return(Connectors::Page.empty)
+    result = described_class.call(account_id: account.id.to_s, since_days: "3")
+    expect(result.since).to be_within(5.seconds).of(3.days.ago)
+  end
+
   it "rejects invalid input" do
     expect { described_class.call(account_id: account.id.to_s, per_page: 500) }.to raise_error(Connectors::InvalidInput)
+    expect { described_class.call(account_id: account.id.to_s, pages: 6) }.to raise_error(Connectors::InvalidInput)
     expect { described_class.call(per_page: 10) }.to raise_error(Connectors::InvalidInput)
   end
 end
