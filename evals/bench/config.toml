@@ -24,6 +24,7 @@ exclude_files = [
 [post_process]
 max_confidence = 2
 max_severity = 3
+require_evidence = true
 
 [verify]
 enabled = true
