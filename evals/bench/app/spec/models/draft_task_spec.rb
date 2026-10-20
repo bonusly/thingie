@@ -36,8 +36,13 @@ RSpec.describe DraftTask do
       expect(draft.ready_at).to be_nil
     end
 
-    it "refuses a draft that is not ready" do
-      expect { draft.release_reservation! }.to raise_error(DraftTasks::WrongState)
+    it "leaves a draft alone once another process has sent it" do
+      draft.mark_ready!
+      stale = described_class.find(draft.id)
+      draft.mark_sent!(create(:task, company: company, list: list))
+
+      expect { stale.release_reservation! }.to raise_error(DraftTasks::WrongState)
+      expect(draft.reload).to be_sent
     end
   end
 

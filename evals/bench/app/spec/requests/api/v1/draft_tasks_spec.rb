@@ -79,6 +79,14 @@ RSpec.describe "Draft tasks API" do
       api_post "/api/v1/draft_tasks/#{draft.id}/mark_ready", user: member, company: company
       expect(response).to have_http_status(:unprocessable_entity)
     end
+
+    it "returns 422 while the giver's balance is locked" do
+      lock = RedisLock.new("locks:giver:#{company.id}:#{member.id}", ttl: 5)
+      lock.acquire
+      api_post "/api/v1/draft_tasks/#{draft.id}/mark_ready", user: member, company: company
+      expect(response).to have_http_status(:unprocessable_entity)
+      lock.release
+    end
   end
 
   describe "POST /api/v1/draft_tasks/:id/send_now" do

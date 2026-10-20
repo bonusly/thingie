@@ -18,7 +18,7 @@ module DraftTasks
 
           reserve(locked)
         end
-      rescue DraftTasks::Services::WithLockedDraft::Lock::Busy => e
+      rescue DraftTasks::Services::WithLockedDraft::Lock::Busy, Points::Services::WithLockedGiver::Busy => e
         Result.failure(e.message)
       end
 
@@ -27,13 +27,15 @@ module DraftTasks
       attr_reader :draft, :actor, :now
 
       def reserve(locked)
-        balance = Points::Queries::GivingBalance.call(user: locked.author, company: locked.company, now: now)
-        unless balance.covers?(locked.points)
-          return Result.failure(Points::InsufficientBalance.new(requested: locked.points, remaining: balance.remaining))
-        end
+        Points::Services::WithLockedGiver.call(user: locked.author, company: locked.company) do
+          balance = Points::Queries::GivingBalance.call(user: locked.author, company: locked.company, now: now)
+          unless balance.covers?(locked.points)
+            return Result.failure(Points::InsufficientBalance.new(requested: locked.points, remaining: balance.remaining))
+          end
 
-        locked.mark_ready!
-        Result.success(locked)
+          locked.mark_ready!
+          Result.success(locked)
+        end
       end
     end
   end

@@ -52,7 +52,7 @@ module Api
 
       def send_now
         authorize!(draft, :send_now?)
-        result = DraftTasks::Commands::SendDraft.call(draft: draft, actor: current_user)
+        result = DraftTasks::Commands::SendDraft.call(draft: draft, actor: current_user, points: params[:points])
         render_result(result, blueprint: Tasks::Blueprints::TaskBlueprint, status: :created)
       end
 

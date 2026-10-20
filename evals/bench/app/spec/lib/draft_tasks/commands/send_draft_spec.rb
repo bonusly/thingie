@@ -24,6 +24,11 @@ RSpec.describe DraftTasks::Commands::SendDraft do
     expect(balance.reserved).to eq(0)
   end
 
+  it "records the sender's points override in the ledger" do
+    described_class.call(draft: draft, actor: admin, points: "4")
+    expect(PointsLedgerEntry.for_draft(draft).first.amount).to eq(4)
+  end
+
   it "skips the ledger for a draft with no points" do
     free = create(:draft_task, :ready, company: company, list: list, author: member, points: 0)
     described_class.call(draft: free, actor: member)
