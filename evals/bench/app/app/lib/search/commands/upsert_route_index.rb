@@ -11,27 +11,32 @@ module Search
       end
 
       def call
-        readable, dropped = routes.partition { |route| readable?(route) }
-        upserted = one_per_route_path(readable).each { |route| upsert(route) }
-        prune(upserted.map(&:path))
-        Result.success(upserted: upserted.size, dropped: dropped.size)
+        readable, unreadable = routes.partition(&:readable?)
+        kept = one_per_route_path(readable).each { |route| upsert(route) }
+        kept_paths = kept.map(&:path)
+        marked = (unreadable.map(&:path).compact.uniq - kept_paths).select { |path| mark_unreadable(path) }
+        pruned = prune(kept_paths + marked)
+        Result.success(upserted: kept.size, unreadable: marked.size, pruned: pruned)
       end
 
       private
 
       attr_reader :routes, :now
 
-      def readable?(route)
-        route.path.to_s.start_with?("/") && route.name.present? && route.component.present?
-      end
-
       def one_per_route_path(list)
-        list.each_with_object({}) { |route, by_path| by_path[route.path] ||= route }.values
+        list.each_with_object({}) { |route, by_path| by_path[route.path] = route }.values
       end
 
       def upsert(route)
         entry = RouteIndexEntry.find_or_initialize_by(path: route.path)
-        entry.update!(name: route.name, component: route.component, permission: route.permission, indexed_at: now)
+        entry.update!(
+          name: route.name, component: route.component, permission: route.permission, flag: route.flag,
+          unreadable: false, indexed_at: now
+        )
+      end
+
+      def mark_unreadable(path)
+        RouteIndexEntry.where(path: path).update_all(unreadable: true, indexed_at: now).matched_count.positive?
       end
 
       def prune(paths)

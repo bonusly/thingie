@@ -9,8 +9,9 @@ module Api
       end
 
       def routes
-        entries = RouteIndexEntry.order(path: :asc)
-        entries = entries.where(permission: params[:permission]) if params[:permission].present?
+        entries = Search::Queries::SearchRoutes.call(
+          user: current_user, company: current_company, membership: current_membership, q: params[:q]
+        )
         render json: Search::Blueprints::RouteBlueprint.render(entries)
       end
     end

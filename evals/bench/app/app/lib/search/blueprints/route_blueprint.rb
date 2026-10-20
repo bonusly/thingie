@@ -3,9 +3,10 @@ module Search
     class RouteBlueprint < Blueprinter::Base
       identifier :id, &:to_s
 
-      fields :path, :name, :component, :permission, :indexed_at
+      fields :path, :name, :component, :permission, :flag, :unreadable, :indexed_at
 
       field :gated, &:gated?
+      field :flagged, &:flagged?
       field :permission_label do |entry|
         entry.gated? ? I18n.t("permissions.#{entry.permission}", default: entry.permission) : nil
       end
