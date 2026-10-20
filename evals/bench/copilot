@@ -1,0 +1,265 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# Puts Copilot on the bench: opens a case as a real pull request in this repository so Copilot reviews it,
+# then scores Copilot's inline comments with the same matcher and dimensions as a Thingie run.
+#
+#   evals/bench/copilot open draft-tasks-api            # branch, first push, PR, wait, final push, wait
+#   evals/bench/copilot score 160 161 162 --label copilot-1
+#
+# See evals/bench/README.md.
+
+require 'bundler/setup'
+require 'fileutils'
+require 'json'
+require 'optparse'
+require 'time'
+require 'English'
+require_relative '../../lib/thingie'
+require_relative 'lib/bench'
+
+Encoding.default_external = Encoding::UTF_8
+
+# Opens bench cases as pull requests for Copilot and scores its comments.
+module CopilotBench
+  REPO_ROOT = File.expand_path('../..', __dir__)
+  APP_PREFIX = 'evals/bench/app/'
+  BRANCH = 'bench-copilot'
+  COPILOT = /copilot/i
+  WAIT = 20 * 60
+
+  module_function
+
+  def sh(*cmd, dir: REPO_ROOT)
+    out = IO.popen(cmd, chdir: dir, err: %i[child out], &:read)
+    raise "#{cmd.join(' ')} failed:\n#{out}" unless $CHILD_STATUS.success?
+
+    out
+  end
+
+  def gh_json(*)
+    JSON.parse(sh('gh', *))
+  end
+
+  # Opens the case as a pull request: the fixture's first push as one commit, Copilot's review awaited, then
+  # the final push as a second commit and its review awaited. Prints the pull request number.
+  class Open
+    def initialize(name)
+      @kase = Bench::Case.load(name)
+      @repo = @kase.build
+      @branch = "#{BRANCH}/#{name}-#{Time.now.utc.strftime('%m%d%H%M')}"
+      @tree = File.join(Bench::ROOT, 'tmp', 'copilot', name)
+    end
+
+    def call
+      worktree
+      if @kase.first_push?
+        push('pr-base', 'pr-first-push', 'First push')
+        number = create
+        await(number)
+        push('pr-first-push', 'pr-final-push', 'Final push')
+      else
+        push('pr-base', 'pr-final-push', 'Final push')
+        number = create
+      end
+      await(number)
+      puts number
+    end
+
+    private
+
+    def worktree
+      root = CopilotBench::REPO_ROOT
+      CopilotBench.sh('git', 'worktree', 'remove', '--force', @tree, dir: root) if File.directory?(@tree)
+      CopilotBench.sh('git', 'fetch', '-q', 'origin', 'main', dir: root)
+      CopilotBench.sh('git', 'worktree', 'add', '-q', '-b', @branch, @tree, 'origin/main', dir: root)
+    end
+
+    # The case repo's diff between two of its tags, applied under the fixture's path in this repository.
+    def push(from, to, message)
+      patch = CopilotBench.sh('git', 'diff', '--binary', from, to, dir: @repo)
+      IO.popen(['git', 'apply', '--directory', APP_PREFIX.chomp('/'), '-'], 'w', chdir: @tree) { |io| io.write(patch) }
+      raise "git apply failed for #{from}..#{to}" unless $CHILD_STATUS.success?
+
+      sh('git', 'add', '-A', APP_PREFIX, dir: @tree)
+      sh('git', 'commit', '-q', '--no-verify', '-m', "#{message}: #{@kase.title}", dir: @tree)
+      sh('git', 'push', '-q', '-u', 'origin', @branch, dir: @tree)
+    end
+
+    def create
+      body = "#{@kase.body}\n\n---\n\nDO NOT MERGE: bench case `#{@kase.name}`, opened so Copilot reviews it. " \
+             'Scored with `evals/bench/copilot score`. Close without merging when done.'
+      url = sh('gh', 'pr', 'create', '--draft', '--base', 'main', '--head', @branch,
+               '--title', "DO NOT MERGE: Copilot on bench case #{@kase.name}", '--body', body).strip
+      url.split('/').last
+    end
+
+    # Copilot reviews a new pull request on its own, but a later push only when asked. Ask every time: a
+    # request on a head it is already reviewing is harmless. Then wait for a review on this head.
+    def await(number)
+      head = sh('git', 'rev-parse', 'HEAD', dir: @tree).strip
+      CopilotBench.sh('gh', 'api', '-X', 'POST', "repos/{owner}/{repo}/pulls/#{number}/requested_reviewers",
+                      '-f', 'reviewers[]=copilot-pull-request-reviewer[bot]')
+      deadline = Time.now + WAIT
+      until Time.now > deadline
+        reviews = CopilotBench.gh_json('api', "repos/{owner}/{repo}/pulls/#{number}/reviews")
+        return if reviews.any? { |r| r['user']['login'].match?(COPILOT) && r['commit_id'] == head }
+
+        sleep 30
+      end
+      warn "no Copilot review on #{head[0, 7]} within #{WAIT / 60} minutes; scoring will find none for it"
+    end
+
+    def sh(*cmd, dir: @tree)
+      CopilotBench.sh(*cmd, dir: dir)
+    end
+  end
+
+  # Scores the Copilot comments on one or more case pull requests as one run file, and renders it against the
+  # baseline, so Copilot reads like any other candidate.
+  class Score
+    def initialize(numbers, label:)
+      @numbers = numbers
+      @label = label
+      @config = Thingie::Configuration.new(root: Bench::ROOT,
+                                           overrides: Bench.overrides('baseline').merge('models_file' => ''))
+    end
+
+    def call
+      reviews = @numbers.flat_map { |number| reviews_for(number) }
+      run = Bench::RunFile.assemble(reviews, label: @label)
+                          .merge('at' => Time.now.utc.iso8601, 'sha' => Bench.sha, 'variant' => 'copilot',
+                                 'thingie' => 'copilot', 'model' => 'copilot', 'critic_model' => nil)
+      out = File.join(Bench::ROOT, 'results', "#{@label}.json")
+      FileUtils.mkdir_p(File.dirname(out))
+      File.write(out, JSON.pretty_generate(run))
+      puts Bench::Report.render(run, baseline: baseline)
+      puts "results: #{out}"
+    end
+
+    private
+
+    def baseline
+      path = File.join(Bench::ROOT, 'baseline.json')
+      JSON.parse(File.read(path)) if File.exist?(path)
+    end
+
+    def reviews_for(number)
+      pr = CopilotBench.gh_json('pr', 'view', number.to_s, '--json', 'headRefName,commits,createdAt')
+      kase = Bench::Case.load(pr['headRefName'].delete_prefix("#{BRANCH}/").sub(/-\d{8}\z/, ''))
+      commits = pr['commits'].map { |c| c['oid'] }
+      refs = { commits.last => 'final-push' }
+      refs[commits.first] = 'first-push' if kase.first_push?
+      comments = inline_comments(number)
+      reviews = CopilotBench.gh_json('api', "repos/{owner}/{repo}/pulls/#{number}/reviews")
+                            .select { |r| r['user']['login'].match?(COPILOT) }
+      refs.map { |sha, ref| review(kase, ref, sha, comments: comments, reviews: reviews) }
+    end
+
+    def inline_comments(number)
+      CopilotBench.gh_json('api', "repos/{owner}/{repo}/pulls/#{number}/comments", '--paginate')
+                  .select { |c| c['user']['login'].match?(COPILOT) && c['in_reply_to_id'].nil? }
+    end
+
+    def review(kase, ref, sha, comments:, reviews:)
+      findings = findings_at(sha, comments, reviews)
+      labels = kase.labels_at(ref)
+      posted = scored(findings, Bench::Scorer.new(@config, labels))
+      metrics = Bench::Metrics.compute(labels: labels, posted: posted, held_back: [], usage: {},
+                                       seconds: seconds(sha, reviews), changed_lines: changed_lines(kase, ref),
+                                       warnings: [])
+      { 'case' => kase.name, 'ref' => ref, 'model' => 'copilot', 'critic_model' => nil, 'metrics' => metrics,
+        'first_pass' => findings.size, 'posted' => posted, 'held_back' => [], 'warnings' => [] }
+    end
+
+    # What Copilot says about a head: the inline comments it made on that commit, plus, for a re-review, the
+    # earlier threads its summary still lists as open and the findings it writes only in the summary body
+    # ("previously missed", on code the push did not change). A thread the summary lists as resolved is
+    # not carried, which is how the final push gets credit for a fix.
+    def findings_at(sha, comments, reviews)
+      inline = comments.select { |c| c['original_commit_id'] == sha }.map { |c| finding(c) }
+      review = reviews.find { |r| r['commit_id'] == sha }
+      return inline unless review
+
+      body = review['body'].to_s
+      open_section = body.split(/resolved since last review/i).first.to_s
+      open_ids = open_section.scan(/discussion_r(\d+)/).flatten
+      carried = comments.select { |c| open_ids.include?(c['id'].to_s) && c['original_commit_id'] != sha }
+                        .map { |c| finding(c) }
+      inline + carried + body_findings(body)
+    end
+
+    # `<details><summary> Title</summary>` then a backticked `path:line` (with zero-width spaces) and the text.
+    def body_findings(body)
+      body.scan(%r{<summary>(.*?)</summary>\s*`([^`]+)`\s*(.*?)</details>}m).filter_map do |title, where, text|
+        title = title.gsub(/<[^>]+>/, '')
+        path, line = where.delete("\u200B").strip.split(':', 2)
+        next unless path.start_with?(APP_PREFIX)
+
+        { 'file' => path.delete_prefix(APP_PREFIX), 'title' => title.strip[0, 120], 'details' => text.strip,
+          'severity' => nil, 'confidence' => nil, 'unchecked' => false,
+          'affected_lines' => [{ 'start_line' => line.to_i }] }
+      end
+    end
+
+    # Copilot gives no severity or confidence, so calibration reads as empty; the title is the comment's first line.
+    def finding(comment)
+      body = comment['body'].to_s
+      title = body.lines.map(&:strip).find { |l| !l.empty? && !l.start_with?('```') }.to_s
+      title = title.gsub(/[*_`]/, '').sub(/\A\W+/, '')[0, 120]
+      { 'file' => comment['path'].to_s.delete_prefix(APP_PREFIX), 'title' => title, 'details' => body,
+        'severity' => nil, 'confidence' => nil, 'unchecked' => false,
+        'affected_lines' => [{ 'start_line' => comment['original_line'] || comment['line'] }] }
+    end
+
+    def scored(findings, scorer)
+      matches = scorer.match(findings)
+      findings.zip(matches).map do |f, l|
+        f.slice('title', 'file', 'severity', 'confidence', 'unchecked', 'details').merge('label' => l)
+      end
+    end
+
+    # From the push to Copilot's review of it; the push time is the commit's committer date.
+    def seconds(sha, reviews)
+      review = reviews.find { |r| r['commit_id'] == sha }
+      return 0 unless review
+
+      pushed = Time.parse(CopilotBench.sh('git', 'log', '-1', '--format=%cI', sha).strip)
+      [Time.parse(review['submitted_at']) - pushed, 0].max
+    rescue StandardError
+      0
+    end
+
+    def changed_lines(kase, ref)
+      repo = File.join(Bench::ROOT, 'tmp', kase.name)
+      kase.build unless File.directory?(repo)
+      from = ref == 'final-push' && kase.first_push? ? 'pr-first-push' : 'pr-base'
+      CopilotBench.sh('git', 'diff', '--numstat', from, "pr-#{ref}", dir: repo).lines.sum do |line|
+        added, deleted = line.split("\t")
+        added.to_i + deleted.to_i
+      end
+    end
+  end
+
+  # `open CASE` and `score PR...`.
+  class CLI
+    def initialize(argv)
+      @options = { label: "copilot-#{Time.now.utc.strftime('%Y%m%dT%H%M')}" }
+      OptionParser.new do |o|
+        o.banner = 'Usage: evals/bench/copilot open CASE | score PR [PR...] [--label NAME]'
+        o.on('--label NAME', 'name for the run file (score)') { |v| @options[:label] = v }
+      end.parse!(argv)
+      @command, *@args = argv
+    end
+
+    def run
+      case @command
+      when 'open' then Open.new(@args.fetch(0) { abort 'open needs a case name' }).call
+      when 'score' then Score.new(@args.map(&:to_i).reject(&:zero?), label: @options[:label]).call
+      else abort 'Usage: evals/bench/copilot open CASE | score PR [PR...] [--label NAME]'
+      end
+    end
+  end
+end
+
+CopilotBench::CLI.new(ARGV).run if $PROGRAM_NAME == __FILE__
