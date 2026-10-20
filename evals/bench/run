@@ -183,7 +183,7 @@ module Bench
     def scored(findings, scorer)
       matches = scorer.match(findings)
       findings.zip(matches).map do |f, l|
-        f.slice('title', 'file', 'severity', 'confidence', 'unchecked', 'details').merge('label' => l)
+        f.slice('title', 'file', 'severity', 'confidence', 'unchecked', 'details', 'evidence').merge('label' => l)
       end
     end
 
