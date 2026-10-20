@@ -27,7 +27,7 @@ max_severity = 3
 
 [verify]
 enabled = true
-model = "z-ai/glm-5.3-flash"
+model = "google/gemini-4-argon"
 bar = "user_impact"
 timeout = 120
 
