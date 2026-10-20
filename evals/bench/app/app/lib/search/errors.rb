@@ -13,6 +13,12 @@ module Search
     end
   end
 
+  class FetchFailed < Error
+    def initialize(path, cause)
+      super("could not read router at #{path}: #{cause.message}")
+    end
+  end
+
   class ParseError < Error
     def initialize(path, position)
       super("unbalanced brackets in #{path} near offset #{position}")

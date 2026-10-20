@@ -74,11 +74,13 @@ RSpec.describe Search::Queries::DiscoverRoutes do
     end
   end
 
-  it "returns no routes when the router cannot be read" do
-    expect(described_class.call(router_path: "/nowhere/app-router.tsx")).to eq([])
-  end
+  it "raises when the router is missing, unreadable, or has no routes" do
+    expect { described_class.call(router_path: "/nowhere/app-router.tsx") }.to raise_error(Search::RouterMissing)
 
-  it "raises when the router has no routes" do
+    allow(File).to receive(:read).and_call_original
+    allow(File).to receive(:read).with(Rails.root.join(described_class::DEFAULT_ROUTER)).and_raise(Errno::EACCES)
+    expect { described_class.call }.to raise_error(Search::FetchFailed)
+
     Tempfile.create(["router", ".tsx"]) do |file|
       file.write("export const routes = [];\n")
       file.flush
