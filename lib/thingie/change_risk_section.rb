@@ -3,6 +3,10 @@
 module Thingie
   # Renders a report's change-risk summary (see {Thingie::Report#change_risk}) for the CLI and Markdown.
   class ChangeRiskSection
+    # Display name for the `overall` score: the model's own judgment of how closely to review a file,
+    # not an aggregate of the other questions.
+    OVERALL_LABEL = 'review need'
+
     # Wrap the summary for rendering.
     #
     # @param risk [Hash] the string-keyed change-risk summary stored on the report
@@ -39,8 +43,8 @@ module Thingie
 
     def cli_file(risk)
       scores = risk['scores']
-      overall = "overall #{score(scores['overall'])}" if scores['overall']
-      others = scores.except('overall').map { |question, value| "#{question.tr('_', ' ')} #{score(value)}" }
+      overall = "#{OVERALL_LABEL} #{score(scores['overall'])}" if scores['overall']
+      others = scores.except('overall').map { |question, value| "#{label(question)} #{score(value)}" }
       detail = [overall, others.join(', ')].compact.reject(&:empty?).join('; ')
       "#{"#{risk['rating']} " if risk['rating']}(#{detail})"
     end
@@ -50,7 +54,7 @@ module Thingie
 
       keys = rows.first.last['scores'].keys
       questions = (['overall'] & keys) + (keys - ['overall'])
-      header = ['File', 'Rating', *questions.map { |question| question.tr('_', ' ').capitalize }]
+      header = ['File', 'Rating', *questions.map { |question| label(question).capitalize }]
       lines = [header, header.map { '---' }]
       rows.each do |path, risk|
         values = questions.map { |question| risk['scores'][question]&.then { |value| score(value) } }
@@ -61,6 +65,10 @@ module Thingie
 
     def score(value)
       format('%.2f', value)
+    end
+
+    def label(question)
+      question == 'overall' ? OVERALL_LABEL : question.tr('_', ' ')
     end
 
     def escalations
@@ -82,7 +90,8 @@ module Thingie
       overall = @risk['max']['overall']
       parts = []
       if overall
-        parts << (@risk['rating'] ? "#{@risk['rating']} (overall #{score(overall)})" : "overall #{score(overall)}")
+        scored = "#{OVERALL_LABEL} #{score(overall)}"
+        parts << (@risk['rating'] ? "#{@risk['rating']} (#{scored})" : scored)
       end
       parts << "escalated: #{escalation_names.join(', ')}" unless escalations.empty?
       parts.empty? ? 'no files scored' : parts.join(', ')
