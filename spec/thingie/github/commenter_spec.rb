@@ -483,7 +483,7 @@ RSpec.describe Thingie::GitHub::Commenter do # rubocop:disable RSpec/SpecFilePat
     commenter.post_review(summary: 'THE FULL REPORT', report: report)
 
     expect(client).to have_received(:add_comment)
-      .with('o/r', 1, a_string_including('<details><summary>Change risk: risky (overall 0.60)</summary>',
+      .with('o/r', 1, a_string_including('<details><summary>Change risk: risky (review need 0.60)</summary>',
                                          '| `app.rb` | risky | 0.60 |'))
   end
 

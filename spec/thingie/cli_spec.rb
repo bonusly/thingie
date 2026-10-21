@@ -418,7 +418,7 @@ RSpec.describe Thingie::CLI do
     end
 
     it "prints each file's rating and scores" do
-      expect { described_class.start(['risk']) }.to output(/^  - a\.rb: risky \(overall 0\.70; security 0\.10\)$/)
+      expect { described_class.start(['risk']) }.to output(/^  - a\.rb: risky \(review need 0\.70; security 0\.10\)$/)
         .to_stdout
     end
 
