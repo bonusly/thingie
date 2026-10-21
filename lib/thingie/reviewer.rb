@@ -83,7 +83,8 @@ module Thingie
 
     private
 
-    # A grade the parser could not read as a number sorts last rather than raising against the integers.
+    # Most severe first. A grade that is not a number sorts last rather than raising against the integers,
+    # so one odd reply cannot lose the whole review.
     def severity_rank(issue)
       Integer(issue.severity, exception: false) || Float::INFINITY
     end

@@ -51,6 +51,38 @@ RSpec.describe Thingie::Reviewer do
     FileUtils.rm_rf(tmp_dir)
   end
 
+  context 'when the model writes a grade as a string' do
+    let(:fake_llm_client) do
+      issues = [
+        { 'title' => 'Named grade', 'details' => 'd', 'severity' => 'high', 'confidence' => 1, 'tags' => [],
+          'affected_lines' => [{ 'start_line' => 1 }] },
+        { 'title' => 'String grade', 'details' => 'd', 'severity' => '2', 'confidence' => '1', 'tags' => [],
+          'affected_lines' => [{ 'start_line' => 1 }] },
+        { 'title' => 'Integer grade', 'details' => 'd', 'severity' => 3, 'confidence' => 1, 'tags' => [],
+          'affected_lines' => [{ 'start_line' => 1 }] }
+      ]
+      cost_stub = instance_double(RubyLLM::Cost, total: 0.0)
+      response = message_double(content: { 'issues' => issues }, input_tokens: 1, output_tokens: 1, tool_calls: {},
+                                cache_read_tokens: nil, cache_write_tokens: nil, cost: cost_stub, model_info: nil,
+                                thinking: nil, thinking_tokens: nil)
+      verdict = message_double(content: { 'verdict' => 'uphold' }, input_tokens: 1, output_tokens: 1, tool_calls: {},
+                               cache_read_tokens: nil, cache_write_tokens: nil, cost: cost_stub, model_info: nil,
+                               thinking: nil, thinking_tokens: nil)
+      instance_double(Thingie::LlmClient).tap do |client|
+        allow(client).to receive(:complete_with_schema) do |prompt, *|
+          prompt.include?('FINDING TO CHALLENGE') ? verdict : response
+        end
+      end
+    end
+
+    it 'still reports every finding, most severe first, with the unreadable grade last', :aggregate_failures do
+      report = reviewer.review
+
+      expect(report.issues.map(&:title)).to eq(['String grade', 'Integer grade', 'Named grade'])
+      expect(report.issues.map(&:severity)).to eq([2, 3, 'high'])
+    end
+  end
+
   it 'returns a report with parsed issues', :aggregate_failures do
     report = reviewer.review
     expect(report).to be_a(Thingie::Report)
