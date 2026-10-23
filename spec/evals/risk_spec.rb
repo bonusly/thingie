@@ -101,10 +101,12 @@ RSpec.describe 'Bench::Risk' do
 
     it 'records a System One failure as an errored entry with no files', :aggregate_failures do
       allow(classifier).to receive(:classify).and_raise(Thingie::SystemOneError, 'rate limited')
+      # Stubbed, not captured: async's console logger would keep a swapped-in $stderr StringIO and crash later specs.
+      allow(described_class).to receive(:warn)
 
-      result = nil
-      expect { result = score }.to output(/rate limited/).to_stderr
+      result = score
 
+      expect(described_class).to have_received(:warn).with(/rate limited/)
       expect(result['error']).to eq('Thingie::SystemOneError: rate limited')
       expect(result.slice('rating', 'max', 'files')).to eq('rating' => nil, 'max' => {}, 'files' => {})
     end
