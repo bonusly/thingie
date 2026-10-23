@@ -1,0 +1,11 @@
+# Expected System One answers per scored file, by push: true/false for each probability question, a
+# rating for overall. Bootstrapped from a run with `evals/bench/risk --write-expectations <run file>`,
+# then corrected by hand; the bootstrap never overwrites an entry that is already here.
+final-push:
+  README.md:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial

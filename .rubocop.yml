@@ -12,6 +12,7 @@ AllCops:
     # Fixture app and seeded PRs: reviewed by Thingie, not linted by us (the PRs plant defects on purpose)
     - "evals/bench/app/**/*"
     - "evals/bench/cases/**/*"
+    - "evals/bench/tmp/**/*"
 
 Style/Documentation:
   Enabled: true

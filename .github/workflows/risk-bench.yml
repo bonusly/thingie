@@ -1,0 +1,87 @@
+name: Risk bench
+
+# Scores the seeded cases with System One's change-risk questions alone when the `eval-risk` label is added to a
+# pull request, against the answers expected in each case's risk.yml. Add the label again to re-run. One job:
+# the job summary, a run file artifact, and a "Risk eval results" comment on the pull request. Informational: it
+# never blocks a merge. Its own workflow so it never cancels a running review bench on the same pull request.
+on:
+  pull_request:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Pull request to comment on (optional)"
+        required: false
+      models:
+        description: "Decision models, comma-separated (empty: the config's system_one_model)"
+        required: false
+
+concurrency:
+  group: risk-bench-${{ github.event.pull_request.number || github.event.inputs.pr_number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  risk:
+    name: Risk eval
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'eval-risk'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SYSTEM_ONE_API_KEY: ${{ secrets.SYSTEM_ONE_API_KEY }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+          bundler-cache: true
+      - name: Score the cases
+        env:
+          MODELS: ${{ github.event.inputs.models }}
+        run: |
+          set -o pipefail
+          mkdir -p tmp/bench
+          bundle exec evals/bench/risk ${MODELS:+--models "$MODELS"} --label "${GITHUB_SHA::7}" --out tmp/bench/risk.json | tee tmp/bench/risk-report.md
+          cat tmp/bench/risk-report.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Keep the run file
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: risk-run-${{ github.sha }}
+          path: tmp/bench/risk.json
+          if-no-files-found: ignore
+      - name: Comment on the pull request
+        if: always()
+        env:
+          MODELS: ${{ github.event.inputs.models }}
+          NUMBER: ${{ github.event.pull_request.number || github.event.inputs.pr_number }}
+        run: |
+          [ -f tmp/bench/risk-report.md ] || exit 0
+          [ -n "$NUMBER" ] || { echo "No pull request to comment on; summary only."; exit 0; }
+          sed '/^run file: /d' tmp/bench/risk-report.md > tmp/bench/risk-body.md
+          # GitHub caps a comment at 65,536 characters; the per-file tables stay in the job summary.
+          if [ "$(wc -c < tmp/bench/risk-body.md)" -gt 60000 ]; then
+            sed -i '/^<details><summary>Files<\/summary>/,/^<\/details>/d' tmp/bench/risk-body.md
+            echo "Per-file answers are in the job summary." >> tmp/bench/risk-body.md
+          fi
+          {
+            cat tmp/bench/risk-body.md
+            echo
+            echo '<details><summary>Run</summary>'
+            echo
+            echo "- Models: ${MODELS:-system_one_model from the config}"
+            echo "- Logs and run file: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo "- Re-run: remove and add the \`eval-risk\` label"
+            echo
+            echo '</details>'
+          } > tmp/bench/risk-comment.md
+          existing=$(gh api "repos/$GITHUB_REPOSITORY/issues/$NUMBER/comments" --paginate --jq '.[] | select(.body | startswith("## Risk eval results")) | .id' | head -1)
+          if [ -n "$existing" ]; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$existing" -F body=@tmp/bench/risk-comment.md >/dev/null
+          else
+            gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$NUMBER/comments" -F body=@tmp/bench/risk-comment.md >/dev/null
+          fi
