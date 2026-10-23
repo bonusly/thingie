@@ -1,5 +1,7 @@
 models_file = ".thingie/models.json"
 
+model = "openai/gpt-6-sol"
+
 skill_directories = [
   ".thingie/skills"
 ]
@@ -30,7 +32,7 @@ max_severity = 3
 # model. Same provider/key (OpenRouter), so the slug is provider-prefixed.
 [verify]
 enabled = true
-model = "deepseek/deepseek-v4-pro"
+model = "openai/gpt-6-sol"
 
 # Auto-Approving PRs
 #
