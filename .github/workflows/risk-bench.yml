@@ -66,7 +66,7 @@ jobs:
             echo
             echo '<details><summary>Run</summary>'
             echo
-            echo "- Models: ${MODELS:-the config's system_one_model}"
+            echo "- Models: ${MODELS:-system_one_model from the config}"
             echo "- Logs and run file: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
             echo "- Re-run: remove and add the \`eval-risk\` label"
             echo
