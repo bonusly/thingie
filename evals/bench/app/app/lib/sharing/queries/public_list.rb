@@ -30,7 +30,7 @@ module Sharing
       def drafts
         return [] unless share_link.show_drafts
 
-        list.draft_tasks.ready.filter_map do |draft|
+        list.draft_tasks.attached.not_sent.order(attached_at: :asc).filter_map do |draft|
           Lists::Services::DraftPublicView.call(draft: draft, share_link: share_link)
         end
       end

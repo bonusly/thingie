@@ -17,6 +17,12 @@ module Lists
         field :ready_draft_count do |list|
           list.draft_tasks.ready.count
         end
+        field :attached_draft_count do |list|
+          list.draft_tasks.attached.not_sent.count
+        end
+        field :member_count do |list|
+          list.members.count
+        end
       end
     end
   end

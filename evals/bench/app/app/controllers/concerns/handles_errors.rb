@@ -8,8 +8,8 @@ module HandlesErrors
 
   UNPROCESSABLE = [
     Mongoid::Errors::Validations, Connectors::InvalidInput, Points::InsufficientBalance, Points::NotAMember,
-    DraftTasks::WrongState, DraftTasks::NotEditable, Tasks::InvalidTransition, Tasks::WrongCompany,
-    Lists::Archived, Lists::NotAMember, Sharing::NotShareable, Admin::AlreadySuspended
+    DraftTasks::WrongState, DraftTasks::NotEditable, DraftTasks::NotAttached, Tasks::InvalidTransition,
+    Tasks::WrongCompany, Lists::Archived, Lists::NotAMember, Sharing::NotShareable, Admin::AlreadySuspended
   ].freeze
 
   FORBIDDEN = [

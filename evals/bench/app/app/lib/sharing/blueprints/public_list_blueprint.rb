@@ -11,7 +11,7 @@ module Sharing
         Tasks::Blueprints::TaskSummaryBlueprint.render_as_hash(view.tasks)
       end
       field :drafts do |view|
-        view.drafts.map(&:to_h)
+        Sharing::Blueprints::PublicDraftBlueprint.render_as_hash(view.drafts)
       end
       field :expires_at do |view|
         view.share_link.expires_at

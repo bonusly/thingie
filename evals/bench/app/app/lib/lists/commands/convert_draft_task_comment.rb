@@ -32,6 +32,9 @@ module Lists
           company: draft.company, author: draft.author, commentable: task,
           attrs: { body: draft.note, draft_task_id: draft.id }
         ).value!
+      rescue StandardError => e
+        Rails.logger.warn("draft #{draft.id} sent as task #{task.id} without its note: #{e.message}")
+        nil
       end
     end
   end

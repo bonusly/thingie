@@ -15,6 +15,7 @@ module DraftTasks
         DraftTasks::Services::WithLockedDraft.call(draft) do |locked|
           return Result.failure(DraftTasks::WrongState.new(locked, "drafting")) unless locked.may_mark_ready?
           return Result.failure("only the author can mark a draft ready") unless locked.author_id == actor.id
+          return Result.failure(DraftTasks::NotAttached.new(locked)) unless locked.attached?
 
           balance = Points::Queries::GivingBalance.call(user: locked.author, company: locked.company, now: now)
           unless balance.covers?(locked.points)

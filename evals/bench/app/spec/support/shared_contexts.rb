@@ -11,7 +11,10 @@ RSpec.shared_context "with a list and a ready draft" do
   include_context "with a company and members"
 
   let(:list) { create(:list, company: company, owner: admin, member_ids: [admin.id, member.id]) }
-  let(:draft) { create(:draft_task, :ready, company: company, list: list, author: member, points: 10, note: "ship it") }
+  let(:draft) do
+    create(:draft_task, :ready, company: company, list: list, author: member, points: 10, note: "ship it",
+                                attached_at: 10.minutes.ago)
+  end
 end
 
 RSpec.shared_context "with a github connector account" do

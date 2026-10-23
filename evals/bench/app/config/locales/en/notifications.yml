@@ -15,6 +15,7 @@ en:
       mentioned: "%{by} mentioned you: %{excerpt}"
       list_delivered: '%{delivered_by} delivered "%{name}"'
       draft_sent: '%{sent_by} sent your draft "%{title}"'
+      draft_conversion_failed: 'Your draft "%{title}" could not be sent with "%{name}": %{reason}'
       points_awarded: You received %{amount} points
       invitation: Invitation sent to %{email}
   mailers:

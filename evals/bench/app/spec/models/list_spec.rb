@@ -33,6 +33,15 @@ RSpec.describe List do
     end
   end
 
+  describe ".not_deleted and #deleted?" do
+    it "hides deleted lists" do
+      live = create(:list, company: company)
+      gone = create(:list, :deleted, company: company)
+      expect(described_class.not_deleted.to_a).to eq([live])
+      expect(gone).to be_deleted
+    end
+  end
+
   describe "#add_member and #remove_member" do
     it "keeps member_ids unique" do
       list = create(:list, company: company)
@@ -43,6 +52,13 @@ RSpec.describe List do
       list.remove_member(user)
       expect(list.reload).not_to be_member(user)
     end
+  end
+
+  it "keeps drafts when the list document goes away" do
+    list = create(:list, company: company)
+    draft = create(:draft_task, company: company, list: list)
+    list.destroy!
+    expect(draft.reload.list_id).to be_nil
   end
 
   it "scopes slugs to the company" do
