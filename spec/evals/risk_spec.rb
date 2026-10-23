@@ -54,6 +54,11 @@ RSpec.describe 'Bench::Risk' do
       expect { described_class.load(kase) }.to raise_error(ArgumentError, /escrow: .*no first-push/)
     end
 
+    it 'rejects a risk.yml that is not a map of pushes' do
+      File.write(risk_file, "false\n")
+      expect { described_class.load(kase) }.to raise_error(ArgumentError, /must map pushes to files/)
+    end
+
     it 'adds a guess for each missing file, keeps existing ones as written, and round-trips', :aggregate_failures do
       described_class.write(kase, 'final-push' => { 'keep.rb' => { 'security' => true } })
       run_entry = entry({ 'keep.rb' => scored(0.1, 0.9, 'critical'), 'new.rb' => scored(0.5, 0.2, 'routine') })
@@ -138,13 +143,16 @@ RSpec.describe 'Bench::Risk' do
       expect(overall.dig('by_expected', 'routine')).to eq('mean' => nil, 'n' => 0)
     end
 
-    it 'reports the mean range of a file across repeats, and no spread for one repeat', :aggregate_failures do
-      first = entry({ 'a' => scored(0.2, 0.1, 'trivial'), 'b' => scored(0.5, 0.1, 'trivial') })
-      second = entry({ 'a' => scored(0.6, 0.1, 'trivial'), 'b' => scored(0.5, 0.1, 'trivial') }, repeat: 1)
+    it 'counts each file once at its first answer, and reports its mean range across repeats', :aggregate_failures do
+      quiet = { 'security' => false }
+      first = entry({ 'a' => scored(0.2, 0.1, 'trivial', quiet), 'b' => scored(0.5, 0.1, 'trivial') })
+      second = entry({ 'a' => scored(0.6, 0.1, 'trivial', quiet), 'b' => scored(0.5, 0.1, 'trivial') }, repeat: 1)
 
       expect(summary(first).dig('questions', 'security', 'spread')).to be_nil
-      expect(summary(first, second).dig('questions', 'security', 'spread')).to eq(0.2)
-      expect(summary(first, second)['files']).to eq(2)
+      both = summary(first, second)
+      expect(both.dig('questions', 'security', 'spread')).to eq(0.2)
+      expect(both['files']).to eq(2)
+      expect(both.dig('questions', 'security', 'hits')).to eq('found' => 1, 'total' => 1)
     end
   end
 
@@ -166,6 +174,12 @@ RSpec.describe 'Bench::Risk' do
       expect(report).not_to include('Spread')
       expect(report).to include('| broken | final-push | m | Error: Thingie::SystemOneError: down |')
       expect(report).to include('| a.rb | risky | risky | 0.90 yes |')
+    end
+
+    it 'escapes pipes and newlines so a value cannot break its table' do
+      report = render(entry({}, kase: 'broken', error: "Thingie::SystemOneError: a | b\nc"))
+
+      expect(report).to include('| Error: Thingie::SystemOneError: a \| b c |')
     end
   end
 end

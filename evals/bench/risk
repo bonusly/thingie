@@ -49,6 +49,7 @@ module Bench
             @options[:variant] = v
           end
           o.on('--repeat N', Integer, 'score each case N times; the report adds the spread') do |v|
+            abort '--repeat must be at least 1' if v < 1
             @options[:repeat] = v
           end
           o.on('--label TEXT', 'name for this run (default: <sha>-<variant>)') { |v| @options[:label] = v }

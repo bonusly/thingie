@@ -105,5 +105,7 @@ files are such a bootstrap and still need correcting by hand.
 The report gives, per model: rating hits against the expected `overall` and the confusion table; per
 probability question the mean score, the mean for files expected yes and no, AUC (does an expected-yes file
 outscore an expected-no one), Brier score and hits at 0.5; and with `--repeat`, the spread (a file's score range
-across repeats). `.github/workflows/risk-bench.yml` runs it when the `eval-risk` label is added (or on demand,
-with a `models` input) and posts a "Risk eval results" comment. It needs the `SYSTEM_ONE_API_KEY` secret.
+across repeats; every other number counts a file once, at its first answer). `.github/workflows/risk-bench.yml`
+runs it when the `eval-risk` label is added (or on demand, with a `models` input) and posts a "Risk eval results"
+comment, without the per-file tables when they would pass GitHub's comment size limit. It needs the
+`SYSTEM_ONE_API_KEY` secret.

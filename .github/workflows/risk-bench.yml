@@ -17,7 +17,7 @@ on:
         required: false
 
 concurrency:
-  group: risk-bench-${{ github.event.pull_request.number || github.ref }}
+  group: risk-bench-${{ github.event.pull_request.number || github.event.inputs.pr_number || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -43,6 +43,7 @@ jobs:
         env:
           MODELS: ${{ github.event.inputs.models }}
         run: |
+          set -o pipefail
           mkdir -p tmp/bench
           bundle exec evals/bench/risk ${MODELS:+--models "$MODELS"} --label "${GITHUB_SHA::7}" --out tmp/bench/risk.json | tee tmp/bench/risk-report.md
           cat tmp/bench/risk-report.md >> "$GITHUB_STEP_SUMMARY"
@@ -57,12 +58,18 @@ jobs:
         if: always()
         env:
           MODELS: ${{ github.event.inputs.models }}
+          NUMBER: ${{ github.event.pull_request.number || github.event.inputs.pr_number }}
         run: |
           [ -f tmp/bench/risk-report.md ] || exit 0
-          number="${{ github.event.pull_request.number || github.event.inputs.pr_number }}"
-          [ -n "$number" ] || { echo "No pull request to comment on; summary only."; exit 0; }
+          [ -n "$NUMBER" ] || { echo "No pull request to comment on; summary only."; exit 0; }
+          sed '/^run file: /d' tmp/bench/risk-report.md > tmp/bench/risk-body.md
+          # GitHub caps a comment at 65,536 characters; the per-file tables stay in the job summary.
+          if [ "$(wc -c < tmp/bench/risk-body.md)" -gt 60000 ]; then
+            sed -i '/^<details><summary>Files<\/summary>/,/^<\/details>/d' tmp/bench/risk-body.md
+            echo "Per-file answers are in the job summary." >> tmp/bench/risk-body.md
+          fi
           {
-            sed '/^run file: /d' tmp/bench/risk-report.md
+            cat tmp/bench/risk-body.md
             echo
             echo '<details><summary>Run</summary>'
             echo
@@ -72,9 +79,9 @@ jobs:
             echo
             echo '</details>'
           } > tmp/bench/risk-comment.md
-          existing=$(gh api "repos/$GITHUB_REPOSITORY/issues/$number/comments" --paginate --jq '.[] | select(.body | startswith("## Risk eval results")) | .id' | head -1)
+          existing=$(gh api "repos/$GITHUB_REPOSITORY/issues/$NUMBER/comments" --paginate --jq '.[] | select(.body | startswith("## Risk eval results")) | .id' | head -1)
           if [ -n "$existing" ]; then
             gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$existing" -F body=@tmp/bench/risk-comment.md >/dev/null
           else
-            gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$number/comments" -F body=@tmp/bench/risk-comment.md >/dev/null
+            gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$NUMBER/comments" -F body=@tmp/bench/risk-comment.md >/dev/null
           fi

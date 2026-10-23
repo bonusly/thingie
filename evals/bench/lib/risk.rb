@@ -31,7 +31,9 @@ module Bench
         file = path(kase)
         return {} unless File.exist?(file)
 
-        data = YAML.safe_load_file(file) || {}
+        data = YAML.safe_load_file(file)
+        return {} if data.nil?
+
         check(kase, data)
         data
       end
@@ -155,21 +157,22 @@ module Bench
         entries.group_by { |entry| entry['model'] }.transform_values { |mine| for_model(mine) }
       end
 
+      # Hits, means, AUC and Brier count each (case, ref, path) once, at its first answer; spread uses every repeat.
       def for_model(entries)
-        files = entries.flat_map do |entry|
+        every = entries.flat_map do |entry|
           entry['files'].map { |path, risk| risk.merge('key' => [entry['case'], entry['ref'], path]) }
         end
+        files = every.uniq { |file| file['key'] }
         repeats = entries.map { |entry| entry['repeat'] }.uniq.size
-        questions = PROBABILITIES.to_h { |q| [q, probability(files, q, repeats)] }
-                                 .merge('overall' => overall(files, repeats))
-        distinct = files.uniq { |file| file['key'] }
-        { 'entries' => entries.size, 'errors' => entries.count { |entry| entry['error'] }, 'files' => distinct.size,
-          'expected' => distinct.count { |file| file['expected'] }, 'questions' => questions,
+        questions = PROBABILITIES.to_h { |q| [q, probability(files, q, spread(every, q, repeats))] }
+                                 .merge('overall' => overall(files, spread(every, 'overall', repeats)))
+        { 'entries' => entries.size, 'errors' => entries.count { |entry| entry['error'] }, 'files' => files.size,
+          'expected' => files.count { |file| file['expected'] }, 'questions' => questions,
           'brier' => mean(PROBABILITIES.filter_map { |q| questions.dig(q, 'brier') }, digits: 3),
           'seconds' => (entries.sum { |entry| entry['seconds'].to_f } / repeats).round(1) }
       end
 
-      def probability(files, question, repeats)
+      def probability(files, question, spread)
         scored = files.filter_map { |f| [f['scores'][question], f.dig('expected', question)] if f['scores'][question] }
         return nil if scored.empty?
 
@@ -179,10 +182,10 @@ module Bench
         { 'mean' => mean(scored.map(&:first)), 'yes_mean' => mean(yes), 'no_mean' => mean(no), 'auc' => auc(yes, no),
           'brier' => mean(judged.map { |score, want| (score - (want ? 1 : 0))**2 }, digits: 3),
           'hits' => { 'found' => judged.count { |score, want| (score >= 0.5) == want }, 'total' => judged.size },
-          'spread' => spread(files, question, repeats) }
+          'spread' => spread }
       end
 
-      def overall(files, repeats)
+      def overall(files, spread)
         scored = files.select { |f| f['scores']['overall'] }
         return nil if scored.empty?
 
@@ -190,7 +193,7 @@ module Bench
         { 'mean' => mean(scored.map { |f| f['scores']['overall'] }),
           'hits' => { 'found' => judged.count { |f| f['rating'] == f['expected']['overall'] }, 'total' => judged.size },
           'by_expected' => by_expected(judged), 'confusion' => confusion(judged),
-          'spread' => spread(files, 'overall', repeats) }
+          'spread' => spread }
       end
 
       def by_expected(judged)
@@ -324,7 +327,7 @@ module Bench
       end
 
       def rating(entry)
-        entry['error'] ? "Error: #{entry['error'].tr("|\n", '/ ')}" : entry['rating']
+        entry['error'] ? "Error: #{entry['error']}" : entry['rating']
       end
 
       def files(entries)
@@ -358,8 +361,9 @@ module Bench
         [Bench::Report.row(names), Bench::Report.row(names.map { '---' })]
       end
 
+      # Pipes and newlines in a value would break the table.
       def row(cells)
-        Bench::Report.row(cells.map { |c| Bench::Report.cell(c) })
+        Bench::Report.row(cells.map { |c| Bench::Report.cell(c).gsub('|', '\|').tr("\n", ' ') })
       end
     end
   end
