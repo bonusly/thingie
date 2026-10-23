@@ -24,6 +24,16 @@ RSpec.describe Lists::Commands::Deliver do
       .not_to change(Lists::Jobs::ConvertDraftTasksJob.jobs, :size)
   end
 
+  it "still delivers when the conversion job cannot be enqueued" do
+    draft
+    allow(Lists::Jobs::ConvertDraftTasksJob).to receive(:perform_async).and_raise(Redis::CannotConnectError)
+
+    result = described_class.call(list: list, actor: admin)
+
+    expect(result).to be_success
+    expect(list.reload).to be_delivered
+  end
+
   it "dispatches the list.delivered webhook" do
     create(:webhook, company: company, events: %w[list.delivered])
     described_class.call(list: list, actor: admin)

@@ -18,6 +18,10 @@ FactoryBot.define do
       state { "archived" }
     end
 
+    trait :deleted do
+      deleted_at { 1.hour.ago }
+    end
+
     trait :delivered do
       delivered_at { 1.hour.ago }
     end

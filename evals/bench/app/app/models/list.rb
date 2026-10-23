@@ -13,11 +13,12 @@ class List
   field :visibility, type: String, default: "company"
   field :state, type: String, default: "active"
   field :delivered_at, type: Time
+  field :deleted_at, type: Time
   field :member_ids, type: Array, default: []
 
   belongs_to :owner, class_name: "User", inverse_of: nil
   has_many :tasks, dependent: :destroy
-  has_many :draft_tasks, dependent: :destroy
+  has_many :draft_tasks, dependent: :nullify
   has_many :share_links, dependent: :destroy
   has_many :comments, as: :commentable, dependent: :destroy
 
@@ -42,6 +43,7 @@ class List
   end
 
   scope :ordered, -> { order(position: :asc, name: :asc) }
+  scope :not_deleted, -> { where(deleted_at: nil) }
   scope :visible_to, ->(user) { any_of({ visibility: "company" }, { visibility: "public" }, { member_ids: user.id }, { owner_id: user.id }) }
 
   def members
@@ -66,5 +68,9 @@ class List
 
   def delivered?
     delivered_at.present?
+  end
+
+  def deleted?
+    deleted_at.present?
   end
 end

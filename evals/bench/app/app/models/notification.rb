@@ -5,7 +5,7 @@ class Notification
 
   KINDS = %w[
     task_assigned task_completed task_due_soon comment_added mentioned
-    list_delivered draft_sent points_awarded invitation
+    list_delivered draft_sent draft_conversion_failed points_awarded invitation
   ].freeze
 
   field :kind, type: String

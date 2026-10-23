@@ -19,8 +19,9 @@ class DraftTask
   field :sent_task_id, type: BSON::ObjectId
   field :ready_at, type: Time
   field :sent_at, type: Time
+  field :attached_at, type: Time
 
-  belongs_to :list
+  belongs_to :list, optional: true
   belongs_to :author, class_name: "User", inverse_of: :draft_tasks
 
   index({ company_id: 1, author_id: 1, state: 1 })
@@ -52,11 +53,18 @@ class DraftTask
   scope :drafting, -> { where(state: "drafting") }
   scope :ready, -> { where(state: "ready") }
   scope :sent, -> { where(state: "sent") }
+  scope :not_sent, -> { where(:state.ne => "sent") }
+  scope :attached, -> { where(:list_id.ne => nil) }
+  scope :unattached, -> { where(list_id: nil) }
   scope :by_author, ->(user) { where(author_id: user.id) }
   scope :scheduled_before, ->(time) { where(:scheduled_for.lte => time) }
 
   def private?
     visibility == "private"
+  end
+
+  def attached?
+    list_id.present?
   end
 
   def reserved_points

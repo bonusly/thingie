@@ -1,7 +1,7 @@
 module Lists
   module Services
     class DraftPublicView
-      View = Struct.new(:id, :title, :author_name, :scheduled_for, :points, :state, keyword_init: true)
+      View = Struct.new(:id, :title, :author_name, :scheduled_for, :attached_at, :points, :state, :draft, keyword_init: true)
 
       def self.call(draft:, share_link:)
         new(draft: draft, share_link: share_link).call
@@ -20,8 +20,10 @@ module Lists
           title: draft.title,
           author_name: author_name,
           scheduled_for: draft.scheduled_for,
+          attached_at: draft.attached_at,
           points: draft.points,
-          state: draft.state
+          state: draft.state,
+          draft: draft
         )
       end
 
