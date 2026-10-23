@@ -1,0 +1,551 @@
+# Expected System One answers per scored file, by push: true/false for each probability question, a
+# rating for overall. Bootstrapped from a run with `evals/bench/risk --write-expectations <run file>`,
+# then corrected by hand; the bootstrap never overwrites an entry that is already here.
+final-push:
+  README.md:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  app/controllers/api/v1/search_controller.rb:
+    security: false
+    user_impact: true
+    performance: true
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/controllers/concerns/handles_errors.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/connectors/github/client.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/lib/connectors/github/queries/list_issues.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/connectors/github/queries/list_pull_requests.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/connectors/jobs/sync_account_job.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/lib/connectors/linear/client.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/connectors/linear/queries/list_issues.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/connectors/linear/queries/list_projects.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/connectors/services/look_back.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/lib/connectors/services/page_limit.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/connectors/slack/client.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/connectors/slack/queries/list_messages.rb:
+    security: false
+    user_impact: true
+    performance: true
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/lib/search/errors.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/search/queries/connected_search.rb:
+    security: false
+    user_impact: true
+    performance: true
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/search/tools/base.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/lib/search/tools/github_search.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/search/tools/linear_search.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/search/tools/registry.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/search/tools/slack_search.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/models/connector_account.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  config/routes.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  spec/factories/connector_accounts.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/connectors/github/queries/list_issues_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/connectors/github/queries/list_pull_requests_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/connectors/jobs/sync_account_job_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/connectors/linear/queries/list_issues_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/connectors/linear/queries/list_projects_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/connectors/services/look_back_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/connectors/services/page_limit_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/connectors/slack/queries/list_messages_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/search/queries/connected_search_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/search/tools/github_search_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/search/tools/linear_search_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/search/tools/slack_search_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/models/connector_account_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/requests/api/v1/search_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/support/shared_contexts.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+first-push:
+  README.md:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  app/controllers/api/v1/search_controller.rb:
+    security: false
+    user_impact: true
+    performance: true
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/controllers/concerns/handles_errors.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/connectors/github/client.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/lib/connectors/github/queries/list_issues.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/connectors/github/queries/list_pull_requests.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/connectors/jobs/sync_account_job.rb:
+    security: false
+    user_impact: true
+    performance: true
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/lib/connectors/linear/client.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/connectors/linear/queries/list_issues.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/connectors/linear/queries/list_projects.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/connectors/services/look_back.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/connectors/services/page_limit.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/connectors/slack/client.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/connectors/slack/queries/list_messages.rb:
+    security: false
+    user_impact: true
+    performance: true
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/lib/search/errors.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/search/queries/connected_search.rb:
+    security: false
+    user_impact: true
+    performance: true
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/search/tools/base.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/lib/search/tools/github_search.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/search/tools/linear_search.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/search/tools/registry.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/search/tools/slack_search.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/models/connector_account.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  config/routes.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  spec/factories/connector_accounts.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/connectors/github/queries/list_issues_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/connectors/github/queries/list_pull_requests_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/connectors/jobs/sync_account_job_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/connectors/linear/queries/list_issues_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/connectors/linear/queries/list_projects_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/connectors/services/look_back_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/connectors/services/page_limit_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/connectors/slack/queries/list_messages_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/search/queries/connected_search_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/search/tools/github_search_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/search/tools/linear_search_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/search/tools/slack_search_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/models/connector_account_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/requests/api/v1/search_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/support/shared_contexts.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine

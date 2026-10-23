@@ -1,0 +1,150 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# Risk eval: the bench cases scored with System One's change-risk questions alone, once per decision model,
+# against the answers expected in cases/<name>/risk.yml. See evals/bench/README.md.
+
+require 'bundler/setup'
+require 'optparse'
+require_relative '../../lib/thingie'
+require_relative 'lib/risk'
+
+Encoding.default_external = Encoding::UTF_8
+
+module Bench
+  module Risk
+    # Scores the cases and writes one run file; or renders one, or bootstraps expectations from one.
+    class CLI
+      def initialize(argv)
+        @options = { variant: 'baseline', repeat: 1, first_push: true }
+        parser.parse!(argv)
+        @names = argv
+      end
+
+      def run
+        return report if @options[:report]
+        return write_expectations if @options[:write_expectations]
+
+        cases = if @names.empty?
+                  @options[:fast] ? Case.fast : Case.all
+                else
+                  @names.map { |name| Case.load(name) }
+                end
+        return puts(cases.map(&:name)) if @options[:list]
+
+        abort 'No cases under evals/bench/cases; nothing to run.' if cases.empty?
+        write(run_cases(cases))
+      end
+
+      private
+
+      def parser
+        @parser ||= OptionParser.new do |o|
+          o.banner = 'Usage: evals/bench/risk [options] [CASE...]'
+          o.on('--models LIST', 'decision models, comma-separated (default: system_one_model from the config)') do |v|
+            @options[:models] = v.split(',').map(&:strip).reject(&:empty?).uniq
+            abort '--models must name at least one model' if @options[:models].empty?
+          end
+          o.on('--variant NAME', 'variants/NAME.toml over config.toml (default: baseline)') do |v|
+            @options[:variant] = v
+          end
+          o.on('--repeat N', Integer, 'score each case N times; the report adds the spread') do |v|
+            @options[:repeat] = v
+          end
+          o.on('--label TEXT', 'name for this run (default: <sha>-<variant>)') { |v| @options[:label] = v }
+          o.on('--out FILE', 'where to write the run file (default: results/risk/<label>.json)') do |v|
+            @options[:out] = v
+          end
+          o.on('--report FILE', 'render a run file instead of running') { |v| @options[:report] = v }
+          o.on('--write-expectations FILE', 'add the run file\'s answers to each case\'s risk.yml where it has ' \
+                                            'none, and stop; nothing is scored') do |v|
+            @options[:write_expectations] = v
+          end
+          o.on('--no-first-push', 'score only the final push of each case') { @options[:first_push] = false }
+          o.on('--fast', 'only the cases marked tier: fast') { @options[:fast] = true }
+          o.on('--list', 'print the case names that would run, and stop') { @options[:list] = true }
+        end
+      end
+
+      def report
+        puts Report.render(JSON.parse(File.read(@options[:report])))
+      end
+
+      # The first model's answers at the first repeat, for every case in the run file.
+      def write_expectations
+        run_file = JSON.parse(File.read(@options[:write_expectations]))
+        model = run_file['models'].first
+        run_file['entries'].group_by { |entry| entry['case'] }.each do |name, entries|
+          usable = entries.select { |e| e['repeat'].zero? && e['model'] == model && !e['error'] }
+          puts "#{name}: added #{Expectations.bootstrap(Case.load(name), usable)}"
+        end
+      end
+
+      def write(run_file)
+        out = save(run_file)
+        puts Report.render(run_file)
+        puts "\nrun file: #{out}"
+      end
+
+      def save(run_file)
+        out = @options[:out] || File.join(ROOT, 'results', 'risk', "#{run_file['label']}.json")
+        FileUtils.mkdir_p(File.dirname(out))
+        File.write(out, JSON.pretty_generate(run_file))
+        out
+      end
+
+      # Rewritten after every entry, so a crash keeps what finished. Every case's risk.yml is checked before
+      # the first model call.
+      def run_cases(cases)
+        expectations = cases.to_h { |kase| [kase.name, Expectations.load(kase)] }
+        entries = []
+        @options[:repeat].times do |repeat|
+          cases.each do |kase|
+            repo = kase.build
+            refs(kase).product(models).each do |ref, model|
+              entry = Dir.chdir(repo) do
+                Scoring.score(kase: kase, repo: repo, ref: ref, overrides: overrides, model: model,
+                              expectations: expectations[kase.name])
+              end
+              entries << entry.merge('repeat' => repeat)
+              save(run_file(entries))
+            end
+          end
+        end
+        run_file(entries)
+      end
+
+      def refs(kase)
+        @options[:first_push] && kase.first_push? ? REFS : REFS.first(1)
+      end
+
+      def run_file(entries)
+        RunFile.assemble(entries, label: label, models: models, variant: @options[:variant], floors: floors)
+      end
+
+      def models
+        @options[:models] ||= [config['system_one_model']]
+      end
+
+      def floors
+        @floors ||= config.dig('change_risk', 'ratings').transform_values { |rating| rating['floor'] }
+      end
+
+      def config
+        @config ||= Thingie::Configuration.new(root: ROOT, overrides: overrides)
+      end
+
+      def overrides
+        @overrides ||= Bench.overrides(@options[:variant])
+      end
+
+      def label
+        value = @options[:label] || "#{Bench.sha}-#{@options[:variant]}"
+        abort "label #{value.inspect} must be letters, digits, . - or _" unless value.match?(/\A[\w.-]+\z/)
+        value
+      end
+    end
+  end
+end
+
+Bench::Risk::CLI.new(ARGV).run if $PROGRAM_NAME == __FILE__

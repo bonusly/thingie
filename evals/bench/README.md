@@ -77,3 +77,33 @@ under it), updated on each run. It is informational and never
 blocks a merge. It needs the `LLM_API_KEY` secret and
 the `LLM_MODEL` and `LLM_PROVIDER` variables the review workflow already uses. Wall time is the slowest case,
 about 15 minutes; the model spend is about ten dollars per run at the pinned model.
+
+## Risk eval
+
+`evals/bench/risk` scores the same cases with System One's change-risk questions alone (no review, no critic),
+once per decision model, against the answers expected in each case's `risk.yml`:
+
+```sh
+bundle exec evals/bench/risk                                  # every case, both pushes, the config's model
+bundle exec evals/bench/risk readme-typo --models jev-latest,other-model
+bundle exec evals/bench/risk --report evals/bench/results/risk/<label>.json
+bundle exec evals/bench/risk --write-expectations evals/bench/results/risk/<label>.json
+```
+
+It needs `SYSTEM_ONE_API_KEY` in `~/.thingie/.env` or the environment; System One is switched on for the run.
+`--models` defaults to `system_one_model` from `config.toml`, the variant or `SYSTEM_ONE_MODEL`. A model on another
+endpoint needs a variant setting `system_one_api_base`. The run file goes to `results/risk/<label>.json`.
+`--repeat`, `--variant`, `--label`, `--out`, `--no-first-push`, `--fast` and `--list` work as in `run`.
+
+`cases/<name>/risk.yml` holds, per push and scored file (repo-relative path), `true`/`false` for each
+probability question (is the file load-bearing for security, user impact, performance, new dependencies,
+maintainability; not whether it has a bug) and a rating for `overall`. Every key is optional; an absent one is
+unscored. `--write-expectations` adds the run's answers (the first model's, first repeat: yes at 0.5 and over,
+and the rating it got) for every file that has no entry yet, and never changes an existing one. The committed
+files are such a bootstrap and still need correcting by hand.
+
+The report gives, per model: rating hits against the expected `overall` and the confusion table; per
+probability question the mean score, the mean for files expected yes and no, AUC (does an expected-yes file
+outscore an expected-no one), Brier score and hits at 0.5; and with `--repeat`, the spread (a file's score range
+across repeats). `.github/workflows/risk-bench.yml` runs it when the `eval-risk` label is added (or on demand,
+with a `models` input) and posts a "Risk eval results" comment. It needs the `SYSTEM_ONE_API_KEY` secret.

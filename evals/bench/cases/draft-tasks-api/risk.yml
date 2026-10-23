@@ -1,0 +1,677 @@
+# Expected System One answers per scored file, by push: true/false for each probability question, a
+# rating for overall. Bootstrapped from a run with `evals/bench/risk --write-expectations <run file>`,
+# then corrected by hand; the bootstrap never overwrites an entry that is already here.
+final-push:
+  app/controllers/api/v1/draft_tasks/attachments_controller.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/controllers/api/v1/draft_tasks/comments_controller.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/controllers/api/v1/draft_tasks_controller.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/controllers/concerns/draft_task_scoped.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/controllers/concerns/guards_writable_keys.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/controllers/concerns/handles_errors.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/controllers/concerns/requires_feature.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/draft_tasks/blueprints/attachment_blueprint.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/draft_tasks/blueprints/comment_blueprint.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/draft_tasks/blueprints/draft_task_blueprint.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/draft_tasks/commands/destroy.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/lib/draft_tasks/commands/mark_ready.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/lib/draft_tasks/commands/release.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/lib/draft_tasks/commands/replace_attachment.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/lib/draft_tasks/commands/send_draft.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/lib/draft_tasks/commands/update.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/lib/draft_tasks/errors.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/draft_tasks/jobs/send_scheduled_drafts_job.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/draft_tasks/queries/list_draft_comments.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/draft_tasks/services/with_locked_draft.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/lists/commands/convert_draft_task_comment.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/lib/tasks/commands/create.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/models/attachment.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/models/draft_task.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/models/task.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/policies/draft_task_policy.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/services/features.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  config/features.yml:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  config/initializers/features.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  config/routes.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  spec/factories/attachments.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/factories/draft_tasks.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/draft_tasks/blueprints/comment_blueprint_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/draft_tasks/commands/mark_ready_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/draft_tasks/commands/release_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/draft_tasks/commands/replace_attachment_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/draft_tasks/commands/send_draft_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/draft_tasks/commands/update_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/draft_tasks/queries/list_draft_comments_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/draft_tasks/services/with_locked_draft_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/lists/commands/convert_draft_task_comment_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/models/attachment_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/models/draft_task_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/policies/draft_task_policy_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/requests/api/v1/draft_tasks/attachments_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/requests/api/v1/draft_tasks/comments_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/requests/api/v1/draft_tasks_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/services/features_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/support/feature_helpers.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+first-push:
+  app/controllers/api/v1/draft_tasks/attachments_controller.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/controllers/api/v1/draft_tasks/comments_controller.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/controllers/api/v1/draft_tasks_controller.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/controllers/concerns/draft_task_scoped.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/controllers/concerns/guards_writable_keys.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/controllers/concerns/handles_errors.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/controllers/concerns/requires_feature.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/draft_tasks/blueprints/attachment_blueprint.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/draft_tasks/blueprints/comment_blueprint.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/draft_tasks/blueprints/draft_task_blueprint.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/draft_tasks/commands/destroy.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/lib/draft_tasks/commands/mark_ready.rb:
+    security: true
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/lib/draft_tasks/commands/release.rb:
+    security: true
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/lib/draft_tasks/commands/replace_attachment.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/lib/draft_tasks/commands/send_draft.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/lib/draft_tasks/commands/update.rb:
+    security: true
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/lib/draft_tasks/errors.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/draft_tasks/jobs/send_scheduled_drafts_job.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/draft_tasks/queries/list_draft_comments.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/draft_tasks/services/with_locked_draft.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/lists/commands/convert_draft_task_comment.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/lib/tasks/commands/create.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/models/attachment.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/models/draft_task.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/models/task.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/services/features.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  config/features.yml:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  config/initializers/features.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  config/routes.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  spec/factories/attachments.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/factories/draft_tasks.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/draft_tasks/blueprints/comment_blueprint_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/draft_tasks/commands/mark_ready_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/draft_tasks/commands/release_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/draft_tasks/commands/replace_attachment_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/draft_tasks/commands/send_draft_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/draft_tasks/commands/update_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/draft_tasks/queries/list_draft_comments_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/draft_tasks/services/with_locked_draft_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/lists/commands/convert_draft_task_comment_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/models/attachment_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/models/draft_task_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/requests/api/v1/draft_tasks/attachments_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/requests/api/v1/draft_tasks/comments_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/requests/api/v1/draft_tasks_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/services/features_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/support/feature_helpers.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine

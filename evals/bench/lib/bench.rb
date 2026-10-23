@@ -160,8 +160,9 @@ module Bench
       git(repo, 'tag', tag)
     end
 
+    # Unsigned: a developer's tag.gpgsign would otherwise make `git tag` demand a message.
     def git(repo, *)
-      system('git', '-C', repo, *, exception: true)
+      system('git', '-C', repo, '-c', 'tag.gpgsign=false', '-c', 'commit.gpgsign=false', *, exception: true)
     end
   end
 

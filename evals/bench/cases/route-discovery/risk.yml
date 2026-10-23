@@ -1,0 +1,341 @@
+# Expected System One answers per scored file, by push: true/false for each probability question, a
+# rating for overall. Bootstrapped from a run with `evals/bench/risk --write-expectations <run file>`,
+# then corrected by hand; the bootstrap never overwrites an entry that is already here.
+final-push:
+  app/controllers/api/v1/search_controller.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/javascript/app-router.tsx:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: critical
+  app/javascript/components/RequireAdmin.tsx:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: critical
+  app/javascript/flags.ts:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/javascript/pages/AdminLayout.tsx:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/javascript/pages/AdminRoutesPage.tsx:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/javascript/permissions.ts:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/search/blueprints/route_blueprint.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/search/commands/upsert_route_index.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/lib/search/errors.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/search/queries/discover_routes.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/lib/search/queries/search_routes.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: critical
+  app/lib/search/services/constant_resolver.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/search/services/route_parser.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/lib/search/services/source_mask.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/models/company.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/models/route_index_entry.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  lib/tasks/search.rake:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  spec/factories/route_index_entries.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/search/commands/upsert_route_index_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/search/queries/discover_routes_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/search/queries/search_routes_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/search/services/constant_resolver_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  tsconfig.json:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+first-push:
+  app/controllers/api/v1/search_controller.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/javascript/app-router.tsx:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: critical
+  app/javascript/components/RequireAdmin.tsx:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: critical
+  app/javascript/flags.ts:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/javascript/pages/AdminLayout.tsx:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/javascript/pages/AdminRoutesPage.tsx:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/javascript/permissions.ts:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/lib/search/blueprints/route_blueprint.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/search/commands/upsert_route_index.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/lib/search/errors.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/search/queries/discover_routes.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/lib/search/queries/search_routes.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: critical
+  app/lib/search/services/constant_resolver.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/search/services/route_parser.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/lib/search/services/source_mask.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/models/company.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/models/route_index_entry.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  lib/tasks/search.rake:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  spec/factories/route_index_entries.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/search/commands/upsert_route_index_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/search/queries/discover_routes_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/search/queries/search_routes_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/search/services/constant_resolver_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  tsconfig.json:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
