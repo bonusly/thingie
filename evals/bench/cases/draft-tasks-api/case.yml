@@ -167,3 +167,90 @@ labels:
     kind: test gap
     push: both
     note: "the oversized-audio example calls include(a_string_matching(/Byte size/)) on result.error, an error object, where the sibling examples use result.error.message; the example would fail for the wrong reason, the code under test is right"
+
+  # Found by Copilot on the bench (2026-10-20), labelled against the fixture
+  - title: "findoneandupdate bypasses Mongoid::Timestamps callbacks, so marksent! and resumedrafting! no longer advance updatedat th"
+    file: app/models/draft_task.rb
+    label: nit
+    push: both
+    note: >-
+      claim! $sets only the state fields, so mark_sent! and resume_drafting! leave updated_at untouched (Update's
+      set also skips Mongoid::Timestamps); the API's updated_at is stale after a transition while state and sent_at
+      are right.
+  - title: "Permission to view the draft does not imply permission to view its sent task. DraftTaskPolicy#show? still allows an auth"
+    file: app/controllers/api/v1/draft_tasks/comments_controller.rb
+    label: real
+    push: both
+    note: >-
+      Api::V1::DraftTasks::CommentsController#index authorizes DraftTaskPolicy#show? (author? alone suffices) and
+      then lists Comment.where(commentable: sent_task) with no TaskPolicy check, while GET /tasks/:id/comments
+      requires TaskPolicy#show? (list public, company-visible or member); a draft author removed from a private list
+      keeps reading the task's comment thread through /draft_tasks/:id/comments.
+  - title: "Tasks resolves to the existing Api::V1::Tasks controller namespace, not the top-level domain module. Resolving this cons"
+    file: app/controllers/api/v1/draft_tasks_controller.rb
+    label: nit
+    push: both
+    note: >-
+      Zeitwerk autovivifies Api::V1::Tasks from app/controllers/api/v1/tasks/, so TASK_BLUEPRINT =
+      Tasks::Blueprints::TaskBlueprint inside Api::V1::DraftTasksController resolves against it and would raise
+      NameError on load; but the base app's draft_tasks, external_items and search controllers reference
+      Tasks::Blueprints exactly this way, so it is the fixture's existing convention (the PR root-qualified
+      ::DraftTasks where its own new sub-namespace made it bite).
+  - title: "Deletion is not synchronized with SendDraft. If this draft was loaded as ready and is sent before this line runs, its at"
+    file: app/lib/draft_tasks/commands/destroy.rb
+    label: real
+    push: both
+    note: >-
+      Destroy checks draft.sent? on the controller's copy and runs draft.attachment&.destroy then draft.destroy!
+      with no WithLockedDraft; SendDraft moves the recording with attachment.update!(task_id:, draft_task_id: nil)
+      but leaves draft.attachment_id set, so a delete that loaded a ready draft just before SendScheduledDraftsJob
+      or an admin send_now sent it deletes the live task's recording and the sent draft document. The base app's
+      Destroy had no attachment step.
+  - title: "Replacement has two race windows. Different drafts can both observe one upload as unclaimed and then both attach it, so "
+    file: app/lib/draft_tasks/commands/replace_attachment.rb
+    label: nit
+    push: both
+    note: >-
+      both windows exist but are narrow: two drafts claiming one unclaimed upload needs two concurrent PATCHes with
+      the same attachment_id from one company, and the stale-editability path needs mark_ready and a send to both
+      land between the editable? check and draft.attachment&.destroy on a draft that was drafting; the per-draft
+      lock the finding asks for would not cover the first anyway.
+  - title: "Two edits loaded at revision 1 both write revision 2 here, so different edit results can share a revision and hide an in"
+    file: app/lib/draft_tasks/commands/update.rb
+    label: real
+    push: both
+    note: >-
+      Update sets revision: draft.revision + 1 from the in-memory copy instead of $inc, so two edits loaded at
+      revision 1 both persist revision 2 and the stale-edit detection the PR adds revision for cannot see the lost
+      update; set also skips Mongoid::Timestamps, so updated_at does not move on edit.
+  - title: "create runs model validation, and the new media-size validator rejects this oversized audio attachment immediately. The "
+    file: spec/lib/draft_tasks/commands/replace_attachment_spec.rb
+    label: nit
+    push: both
+    note: >-
+      the :oversized_media trait sets byte_size to MEDIA_MAX_BYTES + 1 and :audio makes media? true, so create(...)
+      raises Mongoid::Errors::Validations before replace is called and the example never reaches the command; the
+      sibling label on this example covers its matcher.
+  - title: "12 open issues\n\n-  [Atomic state updates omit updated_at](https://github.com/bonusly/thingie/pull/160#discussion_r432812"
+    file: app/controllers/api/v1/draft_tasks/attachments_controller.rb
+    label: nit
+    push: both
+    note: >-
+      Api::V1::DraftTasks::AttachmentsController does not include GuardsWritableKeys, so draft_task: { state: 'sent'
+      } beside a valid attachment_id is ignored rather than answered with 422 as the PR body promises for every
+      mutating action; the body is never read on this endpoint, so nothing is written from it.
+  - title: "Attachment blueprint returns incorrect identifiers"
+    file: app/lib/draft_tasks/blueprints/attachment_blueprint.rb
+    label: nit
+    push: both
+    note: >-
+      Blueprinter yields the object (and options) to a field block, so identifier :id, &:to_s and field
+      :uploader_id, &:to_s stringify the Attachment document itself; true, but every blueprint in the fixture
+      (Comments, Lists, Connectors) uses the same &:to_s idiom, so it is not something this PR introduced.
+  - title: "Comment blueprint returns incorrect identifiers"
+    file: app/lib/draft_tasks/blueprints/comment_blueprint.rb
+    label: nit
+    push: both
+    note: >-
+      same &:to_s idiom as AttachmentBlueprint: identifier :id and field :author_id receive the Comment document;
+      the fixture's existing blueprints all do this.

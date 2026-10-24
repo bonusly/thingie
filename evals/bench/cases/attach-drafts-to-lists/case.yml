@@ -111,3 +111,80 @@ labels:
     label: wrong
     push: both
     note: "replace_attach_comment delete_alls the previous list's attach comment without going through Detach, but the draft is being moved, not released: it stays ready on the new list on purpose and its single reservation is still counted by GivingBalance.reserved_points; there is no second reservation to strand"
+
+  # Found by Copilot on the bench (2026-10-20), labelled against the fixture
+  - title: "Successful conversion leaves the original attachment comment on the list but marks its draft sent. Deleting that comment"
+    file: app/lib/comments/commands/destroy.rb
+    label: real
+    push: both
+    note: >-
+      nothing removes a list's attach comment when its draft is sent (SendDraft, ConvertDraftTaskComment and the job
+      leave it; only Lists::Commands::Destroy delete_alls from_drafts), and Comments::Commands::Destroy routes every
+      comment with attaches_draft? through DraftTasks::Commands::Detach, whose first check is locked.sent? ->
+      WrongState (422), so after delivery the 'Attached a draft' comment answers 422 to its author and to admins and
+      can never be removed.
+  - title: "List#members still selects only memberids (app/models/list.rb:49–50), and Attach never adds the draft author there. A li"
+    file: app/lib/lists/blueprints/list_blueprint.rb
+    label: real
+    push: first
+    note: >-
+      at the first push List#members is User.in(id: member_ids) while the PR body says it now includes the authors
+      of attached drafts, so member_count on the list cards undercounts them; the final push adds
+      attached_author_ids to members (which is what the final-push 'Delivery notification goes to draft authors who
+      are not list members' label is about).
+  - title: "The list remains findable and attachable after the draft sweep, while share links are being revoked. An attachment in th"
+    file: app/lib/lists/commands/destroy.rb
+    label: nit
+    push: both
+    note: >-
+      Attach checks list.deleted? on the controller-loaded instance before taking the draft lock and never rechecks,
+      so an attach that loaded the list just before Destroy stamps deleted_at (final) or during the sweep (first)
+      saves a ready draft and an attach comment on the deleted list; needs the two requests to overlap within one
+      Attach call, and the draft stays visible in the author's index and can be detached or released, so nothing is
+      stranded for good.
+  - title: "This bulk update bypasses the draft lock held by SendDraft. If a worker has created the task but not yet marked the draf"
+    file: app/lib/lists/services/release_drafts.rb
+    label: nit
+    push: both
+    note: >-
+      ReleaseDrafts.for_card is an update_all with no lock, so if it runs between SendDraft's under-lock
+      list.deleted? check and mark_sent! the draft is swept to drafting/list nil in Mongo and the worker's in-memory
+      save then flips state to sent with the task already on the now-deleted list; at head deleted_at is stamped
+      first so the window is one draft's create_task call, and the first-push ordering version is the existing 'List
+      deletion sweeps comments and drafts before marking the list deleted' label.
+  - title: "Concurrent attachments can exceed author budget"
+    file: app/lib/draft_tasks/commands/attach.rb
+    label: nit
+    push: both
+    note: >-
+      true: Attach reads GivingBalance under only the per-draft lock, so two attaches of different drafting drafts
+      by one author can both pass covers? and hold more than the budget; but the base app's MarkReady does the
+      identical check under the same per-draft lock and the app has no giver-level lock, so Attach mirrors the
+      existing escrow path rather than weakening it.
+  - title: "Conversion can deliver a draft moved to another list"
+    file: app/lib/draft_tasks/commands/attach.rb
+    label: nit
+    push: both
+    note: >-
+      ConvertDraftTasksJob loads list.draft_tasks.ready for the delivered list and SendDraft reloads under the lock
+      but checks only locked.list.deleted?, so a draft the author moves to another list while the job is running is
+      converted onto the new list before that list is delivered; needs an attach during the job's loop, the task
+      lands on the list the author chose and the points were already held, so nothing is lost or duplicated.
+  - title: "Deleted lists still expose and authorize task access"
+    file: app/lib/lists/commands/destroy.rb
+    label: real
+    push: both
+    note: >-
+      Destroy only stamps deleted_at and the PR hides the list from FindList and ListLists, but
+      Tasks::Queries::ListTasks#base_scope builds visible_list_ids from List.visible_to(user) with no not_deleted,
+      FindTask looks tasks up by company only and TaskPolicy#list_visible? never reads deleted_at, so after DELETE
+      /lists/:id returns 204 the list's tasks still appear in GET /api/v1/tasks and remain editable and completable
+      through /tasks/:id.
+  - title: "Update list deletion policy specs for active and deleted lists"
+    file: app/policies/list_policy.rb
+    label: nit
+    push: both
+    note: >-
+      spec/policies/list_policy_spec.rb is not in the overlay and its 'only archived lists be destroyed' example
+      expects policy(member, active list).destroy? to be false, which the new destroy? (owner or admin, not deleted)
+      now returns true for; the policy is what the PR intends, only the stale example needs updating.
