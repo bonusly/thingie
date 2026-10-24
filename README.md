@@ -279,7 +279,7 @@ Key settings:
 | Setting | Default | Config key | Environment variable | CLI flag |
 |---|---|---|---|---|
 | LLM provider | `openai` | `provider` | `LLM_PROVIDER` | `-p`, `--provider` |
-| LLM model | `gpt-4o` | `model` | `LLM_MODEL` | `-m`, `--model` |
+| LLM model | `gpt-5.4-nano` | `model` | `LLM_MODEL` | `-m`, `--model` |
 | API key | — | `llm_api_key` | `LLM_API_KEY` | — |
 | API base URL | provider default | `llm_api_base` | `LLM_API_BASE` | — |
 | Request timeout (seconds) | `120` | `request_timeout` | `LLM_REQUEST_TIMEOUT` | — |
@@ -295,7 +295,7 @@ Key settings:
 | Confidence threshold (keep if ≤, applied after the critic) | `2` | `post_process.max_confidence` | — | — |
 | Severity threshold (keep if ≤) | `3` | `post_process.max_severity` | — | — |
 | Critic pass enabled | `true` | `verify.enabled` | — | — |
-| Critic pass model | review model | `verify.model` | — | — |
+| Critic pass model | review model | `verify.model` | `VERIFY_MODEL` | — |
 | Auto-approve PRs | `false` | `approve.enabled` | — | — |
 | Auto-approve change limit | `500` | `approve.max_changes` | — | — |
 | Auto-approve severity gate | `3` | `approve.max_severity` | — | — |
@@ -327,7 +327,10 @@ floor = 0.81
 description = "changes authentication or authorization, moves money, changes account balances or ledger entries, or could cause an outage, data loss, or a security incident if wrong; needs the strongest review available"
 ```
 
-Supported providers match whatever RubyLLM supports, including `openai`, `anthropic`, `gemini`, `ollama`, `deepseek`, `openrouter`, `mistral`, `perplexity`, `xai`, `azure`, `bedrock`, `vertexai`, and `gpustack`. Thingie requires ruby_llm 2.1 or later.
+Supported providers match whatever RubyLLM supports, including `openai`, `anthropic`, `gemini`, `ollama`, `deepseek`, `openrouter`, `mistral`, `perplexity`, `xai`, `azure`, `bedrock`, `vertexai`, and `gpustack`. Thingie requires ruby_llm 2.1 or later. Two more providers run the review through an installed agent CLI instead of an API (see [Local pre-PR review](#local-pre-pr-review-on-your-own-subscription)):
+
+- `claude-code` — runs each call through the installed `claude` CLI on your own Claude subscription; needs no API key.
+- `codex` — runs each call through the installed `codex` CLI on your own ChatGPT subscription; needs no API key.
 
 Example `.thingie/config.toml`:
 
@@ -363,6 +366,46 @@ enabled = true
 type = "jsonl"
 path = "log/thingie-stats.jsonl"
 ```
+
+### Local pre-PR review on your own subscription
+
+Review your branch before opening a PR, on your own Claude or ChatGPT plan, and hand the findings to your coding agent to fix.
+
+**Prerequisites.** Claude Code 2.1.x signed in (`claude auth login`) or Codex signed in (`codex login`), and Thingie installed (`bundle exec thingie` from this repo, or the gem).
+
+**Configure it once** in `~/.thingie/.env` (per developer, layer 3):
+
+```
+LLM_PROVIDER=claude-code      # or codex
+LLM_MODEL=sonnet              # claude-code: alias or full model id; codex: a model Codex offers your plan, e.g. gpt-6-luna
+VERIFY_MODEL=opus             # critic pass; set it to LLM_MODEL to use one model
+MAX_CONCURRENT_TASKS=3        # each call is one CLI process; 10 of them at once is a lot of RAM
+```
+
+Config files (bundled defaults and `.thingie/config.toml`) name models of the project's API provider, so with `claude-code` or `codex` Thingie ignores every model set there (`model`, `[verify] model`, `[dedupe] model`, `[open_findings] model`). It passes a model only when you set it on your machine, with `LLM_MODEL` / `VERIFY_MODEL` (environment or `~/.thingie/.env`) or `--model`. With none set, the CLI runs on its own default model, and the critic reuses the review model. The GitHub Action is untouched. Note that `~/.thingie/.env` is shared by every Thingie run on your machine: if it also sets `LLM_MODEL` for an API provider, override it for local runs (e.g. `LLM_MODEL=sonnet bundle exec thingie review …`).
+
+**Run it:**
+
+```bash
+bundle exec thingie review --against main --output tmp/thingie-review
+```
+
+It prints the report and writes `tmp/thingie-review/code-review-report.md` and `.json` (`tmp/` is git-ignored and excluded from review by default).
+
+**Hand it to your agent** (omp, Claude Code, Codex, …) with this prompt:
+
+```
+Read tmp/thingie-review/code-review-report.md. For each finding, open the file and lines it cites,
+confirm the problem is real, and fix it in the smallest change that resolves it. Skip a finding you
+can show is wrong, and say why. Run the test suite when done and summarize what you changed per finding.
+```
+
+**What differs from an API-key run:**
+
+- The CLI brings its own read-only tools: Read, Grep and Glob for Claude Code (run with `--safe-mode`, so your hooks, plugins, MCP servers and CLAUDE.md are not loaded), and Codex's read-only sandbox (run with `--ignore-user-config`). Thingie's LSP, file, search, skill and MCP tools and `tool_budget` are not used.
+- Each call is bounded by `call_timeout` (and `[verify] timeout` for the critic); a call that runs out is killed.
+- Usage is billed to your plan. Claude Code reports a cost per call in `--debug` output; Codex reports tokens only.
+- Thingie never sees your login. It runs the unmodified vendor CLIs in their documented headless modes (`claude -p`, `codex exec`), which is what the vendors permit; it is not a third-party OAuth client.
 
 ### Skills
 

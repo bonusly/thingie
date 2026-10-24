@@ -45,6 +45,20 @@ RSpec.describe Thingie::LlmClient do
     expect { described_class.new(config_with_key) }.not_to raise_error
   end
 
+  describe '.build' do
+    it 'returns an agent CLI client for claude-code and codex, without an API key', :aggregate_failures do
+      %w[claude-code codex].each do |name|
+        agent_config = Thingie::Configuration.new(root: tmp_dir, overrides: { 'llm_api_key' => nil, provider: name })
+        expect(described_class.build(agent_config)).to be_a(Thingie::AgentCli::Client)
+      end
+    end
+
+    it 'returns an LlmClient for an API provider' do
+      api_config = Thingie::Configuration.new(root: tmp_dir, overrides: { 'llm_api_key' => 'sk', provider: 'openai' })
+      expect(described_class.build(api_config)).to be_a(described_class)
+    end
+  end
+
   context 'with an unsupported provider' do
     let(:provider) { 'unknown' }
 

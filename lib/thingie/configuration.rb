@@ -32,9 +32,20 @@ module Thingie
 
     private
 
+    # Records each key it sets in `@local_paths`, the host's list of settings made on this machine.
     def apply_env_overrides(config)
-      merged = config.merge(string_env_overrides).merge(integer_env_overrides).merge(boolean_env_overrides)
-      validate_booleans(merged)
+      env = string_env_overrides.merge(integer_env_overrides).merge(boolean_env_overrides)
+      @local_paths.concat(env.keys.map { |key| [key] })
+      validate_booleans(apply_verify_model_env(config.merge(env)))
+    end
+
+    # `VERIFY_MODEL` sets `[verify] model`, keeping the rest of the `[verify]` table.
+    def apply_verify_model_env(config)
+      model = Env.fetch('VERIFY_MODEL', nil)&.strip
+      return config if model.to_s.empty?
+
+      @local_paths << %w[verify model]
+      config.merge('verify' => config['verify'].to_h.merge('model' => model))
     end
 
     def validate_booleans(config)
@@ -143,6 +154,16 @@ module Thingie
       @data.dig(*keys.map(&:to_s))
     end
 
+    # Whether the value at `keys` was set on this machine (an environment variable, `~/.thingie/.env`, a CLI
+    # flag or an explicit override) rather than by a config file.
+    #
+    # @param keys [Array<String, Symbol>] path of keys, e.g. `` `verify`, `model` ``
+    # @return [Boolean] true when an env var or override set the value or a table containing it
+    def set_locally?(*keys)
+      path = keys.map(&:to_s)
+      @local_paths.any? { |local| path.first(local.size) == local }
+    end
+
     # The `` `prompt_vars` `` config section, deep-merged across all layers.
     #
     # @return [Hash] template variables available to the ERB prompt templates
@@ -207,6 +228,7 @@ module Thingie
 
     def build_data
       load_user_env_file
+      @local_paths = @overrides.keys.map { |key| [key] }
       defaults = load_toml(default_config_path)
       project = project_config_path ? load_toml(project_config_path) : {}
 

@@ -3,13 +3,11 @@
 require 'logger'
 require 'ruby_llm'
 require_relative 'errors'
+require_relative 'tool_call_label'
 
 module Thingie
   # Thin wrapper around ruby_llm for code review prompts.
   class LlmClient
-    # The longest a tool call's label gets in a finding's debugging record.
-    LABEL_LIMIT = 100
-
     # Maps Thingie provider names to the RubyLLM config attribute names.
     PROVIDER_CONFIG = {
       'openai' => { key: :openai_api_key, base: :openai_api_base },
@@ -68,7 +66,7 @@ module Thingie
       c = c.with_tools(*tools) unless tools.empty?
       routing = provider_routing(tools)
       c = c.with_provider_options(provider: routing) unless routing.empty?
-      c = c.before_tool_call { |call| tool_log << tool_call_label(call) } if tool_log
+      c = c.before_tool_call { |call| tool_log << ToolCallLabel.for(call.name, call.arguments) } if tool_log
       c = c.with_schema(schema) unless tools.any? && @config['schema_with_tools'] == false
       chats << c if chats
       c.ask(prompt)
@@ -92,6 +90,17 @@ module Thingie
       llm_config.public_send("#{mapping[:base]}=", config['llm_api_base']) if config['llm_api_base']
     end
 
+    # The client for `config['provider']`: an agent CLI run for `claude-code` / `codex`, ruby_llm otherwise.
+    #
+    # @param config [Thingie::Configuration] the resolved run configuration
+    # @param model [String, nil] optional model override
+    # @return [Thingie::LlmClient, Thingie::AgentCli::Client]
+    def self.build(config, model: nil)
+      return AgentCli::Client.new(config, model: model) if AgentCli::Client.provider?(config['provider'])
+
+      new(config, model: model)
+    end
+
     private
 
     # OpenRouter spreads one model over many providers, and some of them drop the tools from a request
@@ -108,13 +117,6 @@ module Thingie
 
     def tool_capable_routing?(tools)
       tools.any? && provider == 'openrouter' && @config.dig('openrouter', 'require_parameters') != false
-    end
-
-    # The tool name and its arguments on one line, trimmed, for the debugging record of a finding.
-    def tool_call_label(call)
-      detail = call.arguments.to_h.values.reject { |value| value.nil? || value == false }.join(' ')
-      detail = "#{detail[0, LABEL_LIMIT - 3]}..." if detail.length > LABEL_LIMIT
-      detail.empty? ? call.name : "#{call.name} #{detail}"
     end
 
     def validate!
