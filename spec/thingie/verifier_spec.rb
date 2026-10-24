@@ -419,4 +419,21 @@ RSpec.describe Thingie::Verifier do
       expect(verifier.warnings).to be_empty
     end
   end
+
+  context 'with an agent CLI provider and a critic model from the project config file' do
+    let(:config) { Thingie::Configuration.new(root: tmp_dir, overrides: { provider: 'claude-code' }) }
+
+    before do
+      FileUtils.mkdir_p(File.join(tmp_dir, '.thingie'))
+      File.write(File.join(tmp_dir, '.thingie', 'config.toml'), "[verify]\nmodel = \"openai/gpt-6-sol\"\n")
+      allow(Thingie::LlmClient).to receive(:build)
+    end
+
+    it 'reuses the review client instead of sending the API model to the CLI', :aggregate_failures do
+      verifier.call([issue('keep-me')])
+
+      expect(Thingie::LlmClient).not_to have_received(:build)
+      expect(fake_llm_client).to have_received(:complete_with_schema)
+    end
+  end
 end

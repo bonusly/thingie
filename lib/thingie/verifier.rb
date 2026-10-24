@@ -99,8 +99,10 @@ module Thingie
     # Use a dedicated client (same provider/keys) when a critic model is set,
     # otherwise reuse the review client.
     def verify_client(config, llm_client)
-      model = settings['model']
-      model && !model.to_s.strip.empty? ? LlmClient.new(config, model: model) : llm_client
+      model = settings['model'].to_s.strip
+      return llm_client if model.empty? || !AgentCli::Client.usable_model?(config, 'verify', 'model')
+
+      LlmClient.build(config, model: model)
     end
 
     # Ordered verdicts via the shared bounded-fiber runner; an issue whose

@@ -118,6 +118,37 @@ RSpec.describe Thingie::Configuration do
     end
   end
 
+  context 'with VERIFY_MODEL' do
+    before do
+      FileUtils.mkdir_p(File.join(tmp_dir, '.thingie'))
+      File.write(File.join(tmp_dir, '.thingie', 'config.toml'), "[verify]\nmodel = \"anthropic/claude-opus\"\n")
+      Thingie::Env['VERIFY_MODEL'] = 'opus'
+    end
+
+    it 'replaces the project [verify] model and keeps the rest of the table', :aggregate_failures do
+      expect(config.dig('verify', 'model')).to eq('opus')
+      expect(config.dig('verify', 'enabled')).to be(true)
+    end
+  end
+
+  describe '#set_locally?' do
+    subject(:config) { described_class.new(root: tmp_dir, overrides: { provider: 'codex' }) }
+
+    before do
+      FileUtils.mkdir_p(File.join(tmp_dir, '.thingie'))
+      File.write(File.join(tmp_dir, '.thingie', 'config.toml'),
+                 "model = \"openai/gpt-6-sol\"\n[verify]\nmodel = \"openai/gpt-6-sol\"\n")
+      Thingie::Env['VERIFY_MODEL'] = 'opus'
+    end
+
+    it 'is true for env vars and overrides, false for config files', :aggregate_failures do
+      expect(config.set_locally?('verify', 'model')).to be(true)
+      expect(config.set_locally?('provider')).to be(true)
+      expect(config.set_locally?('model')).to be(false)
+      expect(config.set_locally?('verify', 'enabled')).to be(false)
+    end
+  end
+
   context 'with blank string environment variables' do
     before do
       Thingie::Env['LLM_MODEL'] = '  '
