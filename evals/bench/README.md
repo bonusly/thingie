@@ -122,7 +122,7 @@ final-push review counts issues still open from the first push as well as new on
 review" is left out. Severity is Copilot's: High is 2, Medium 3, Low 4. Latency is from the review request to
 the review. There is no cost, and nothing is held back.
 
-To rebuild it from those pull requests (they are kept open and are not merged):
+To rebuild it from those pull requests (closed without merging):
 
 ```sh
 bundle exec evals/bench/copilot/fetch                                   # writes copilot/run.json, unscored
