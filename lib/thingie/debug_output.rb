@@ -295,9 +295,27 @@ module Thingie
     # @param budget [Thingie::ToolBudget] the budget of the call
     # @return [void]
     def tool_budget(tag:, label:, budget:)
-      return unless @enabled && budget.refused.positive?
+      return unless @enabled
 
-      warn "[DEBUG][#{tag}] #{label}: tool budget of #{budget.limit} spent, #{budget.refused} more call(s) refused"
+      if budget.refused.positive?
+        warn "[DEBUG][#{tag}] #{label}: tool budget of #{budget.limit} spent, #{budget.refused} more call(s) refused"
+      end
+      return unless budget.failed.positive?
+
+      warn "[DEBUG][#{tag}] #{label}: #{budget.failed} failed tool call(s) not charged to the budget"
+    end
+
+    # Prints a review reply the parser could not read, so the log shows what the model actually said.
+    #
+    # @param file [String] the file under review
+    # @param response [Object, nil] the ruby_llm response object
+    # @param error [JSON::ParserError] why it could not be read
+    # @return [void]
+    def unparsed_reply(file:, response:, error:)
+      return unless @enabled
+
+      warn "[DEBUG][REVIEW] #{file}: could not read the reply (#{error.message})"
+      @detail.content(response, tag: 'REVIEW')
     end
 
     # Called when a file review's LLM response can't be parsed.

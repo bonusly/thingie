@@ -3,6 +3,8 @@
 module Thingie
   # Parses a JSON array of LLM issues into Thingie domain objects.
   class IssueParser
+    REQUIRED = %w[title severity confidence].freeze
+
     # Parse a JSON array (or single object) of raw LLM issue hashes into `Thingie::Issue` objects.
     #
     # @param issues [Array<Hash>, Hash, nil] raw issue hashes from the LLM response
@@ -22,7 +24,14 @@ module Thingie
       value.is_a?(Array) ? value : [value]
     end
 
+    # An issue missing a field the schema requires is a malformed reply, like one with no JSON: the reviewer
+    # asks the same conversation again for the JSON instead of dropping the file's review.
     def raw_issue(issue)
+      raise JSON::ParserError, "an issue is not an object: #{issue.inspect[0, 100]}" unless issue.is_a?(Hash)
+
+      missing = REQUIRED.reject { |key| issue.key?(key) }
+      raise JSON::ParserError, "an issue has no #{missing.join(', ')}" if missing.any?
+
       RawIssue.new(
         title: issue.fetch('title'),
         severity: grade(issue.fetch('severity')),

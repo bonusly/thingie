@@ -48,7 +48,7 @@ module Thingie
         symbols.map { |symbol| render(symbol) }.compact.join("\n\n")
       rescue LspError => e
         # Degrade gracefully: a context lookup failure must not fail the review.
-        "Symbol lookup unavailable for `#{query}`: #{e.message}"
+        ToolBudget::Failure.new("Symbol lookup unavailable for `#{query}`: #{e.message}")
       end
 
       private

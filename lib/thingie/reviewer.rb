@@ -202,6 +202,7 @@ module Thingie
     def parse_or_ask_again(response, file, chat, deadline)
       [parse_response(response, file), response]
     rescue JSON::ParserError => e
+      @debug_output.unparsed_reply(file: file, response: response, error: e)
       issues_only(chat, deadline, file, e) || raise(e)
     end
 

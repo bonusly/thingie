@@ -46,15 +46,17 @@ module Thingie
     # @param ignore_case [Boolean, nil] match case-insensitively
     # @return [String] matching lines, or a status message when nothing matched or the search was refused
     def execute(pattern:, path: nil, ignore_case: false)
-      return 'Pattern is empty.' if pattern.to_s.strip.empty?
-      return "Pattern is longer than #{MAX_PATTERN} characters." if pattern.length > MAX_PATTERN
-      return "Path `#{path}` is outside the repository." unless inside?(path)
+      return ToolBudget::Failure.new('Pattern is empty.') if pattern.to_s.strip.empty?
+      if pattern.length > MAX_PATTERN
+        return ToolBudget::Failure.new("Pattern is longer than #{MAX_PATTERN} characters.")
+      end
+      return ToolBudget::Failure.new("Path `#{path}` is outside the repository.") unless inside?(path)
 
       format_result(pattern, run(pattern, path, ignore_case))
     rescue Timeout::Error
       "Search for `#{pattern}` timed out; narrow it with a path."
     rescue StandardError => e
-      "Search unavailable: #{e.message}"
+      ToolBudget::Failure.new("Search unavailable: #{e.message}")
     end
 
     private
@@ -105,7 +107,9 @@ module Thingie
     end
 
     def format_result(pattern, (lines, stderr, status))
-      return "Search for `#{pattern}` failed: #{stderr.to_s.strip[0, 200]}" if status.exitstatus.to_i > 1
+      if status.exitstatus.to_i > 1
+        return ToolBudget::Failure.new("Search for `#{pattern}` failed: #{stderr.to_s.strip[0, 200]}")
+      end
       return "No matches for `#{pattern}`." if lines.empty?
 
       shown = lines.first(MAX_MATCHES).map { |line| line.chomp[0, MAX_LINE] }

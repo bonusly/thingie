@@ -27,6 +27,10 @@ RSpec.describe Thingie::FileTool do
     expect(result).to include("module Outer\n  def thing\n    42\n  end\nend")
   end
 
+  it 'marks a missing path as a failed call, so the tool budget does not charge it' do
+    expect(tool.execute(path: 'lib/missing.rb')).to be_a(Thingie::ToolBudget::Failure)
+  end
+
   it 'reports when the path does not exist' do
     expect(tool.execute(path: 'lib/missing.rb')).to eq('Path `lib/missing.rb` does not exist.')
   end

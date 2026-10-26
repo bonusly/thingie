@@ -19,6 +19,16 @@ RSpec.describe Thingie::IssueParser do
     expect(issue.confidence).to eq(1)
   end
 
+  it 'reads an issue missing a required field as a malformed reply, naming what is missing' do
+    expect { described_class.new.parse([finding.except('severity', 'confidence')], 'award.rb') }
+      .to raise_error(JSON::ParserError, 'an issue has no severity, confidence')
+  end
+
+  it 'reads an issue that is not an object as a malformed reply' do
+    expect { described_class.new.parse(['Guard skipped'], 'award.rb') }
+      .to raise_error(JSON::ParserError, /an issue is not an object/)
+  end
+
   it 'accepts a finding with no evidence' do
     expect(described_class.new.parse([finding.except('evidence')], 'award.rb').first.evidence).to be_nil
   end
