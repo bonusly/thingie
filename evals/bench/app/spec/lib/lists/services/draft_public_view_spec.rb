@@ -8,6 +8,7 @@ RSpec.describe Lists::Services::DraftPublicView do
   it "shows the author for a shared draft" do
     view = described_class.call(draft: draft, share_link: share_link)
     expect(view).to have_attributes(id: draft.id.to_s, title: draft.title, author_name: member.display_name, points: 10, state: "ready")
+    expect(view.task_id).to be_nil
   end
 
   it "hides the author for a private draft" do
@@ -17,16 +18,26 @@ RSpec.describe Lists::Services::DraftPublicView do
     expect(view.title).to eq(draft.title)
   end
 
+  it "shows a sent draft with the task it became" do
+    task = create(:task, company: company, list: list, author: member)
+    draft.mark_sent!(task)
+
+    view = described_class.call(draft: draft, share_link: share_link)
+
+    expect(view).to have_attributes(state: "sent", task_id: task.id.to_s, author_name: member.display_name)
+    expect(view.scheduled_for).to be_within(1.second).of(draft.reload.sent_at)
+  end
+
   it "returns nothing when the link does not show drafts" do
     link = create(:share_link, company: company, list: list, created_by: admin)
     expect(described_class.call(draft: draft, share_link: link)).to be_nil
   end
 
-  it "returns nothing for a draft on another list or already sent" do
+  it "returns nothing for a draft on another list or a sent draft with no task" do
     other = create(:draft_task, :ready, company: company, author: member)
     expect(described_class.call(draft: other, share_link: share_link)).to be_nil
 
-    draft.mark_sent!(create(:task, company: company, list: list))
-    expect(described_class.call(draft: draft, share_link: share_link)).to be_nil
+    orphan = create(:draft_task, :sent, company: company, list: list, author: member)
+    expect(described_class.call(draft: orphan, share_link: share_link)).to be_nil
   end
 end

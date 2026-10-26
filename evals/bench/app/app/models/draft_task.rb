@@ -26,10 +26,12 @@ class DraftTask
   index({ company_id: 1, author_id: 1, state: 1 })
   index({ list_id: 1, state: 1 })
   index({ state: 1, scheduled_for: 1 })
+  index({ state: 1, ready_at: 1 })
 
   validates :title, presence: true, length: { maximum: 200 }
   validates :points, numericality: { greater_than_or_equal_to: 0, less_than_or_equal_to: Task::MAX_POINTS }
   validates :visibility, inclusion: { in: VISIBILITIES }
+  validate :points_within_budget
 
   aasm column: :state do
     state :drafting, initial: true
@@ -54,6 +56,7 @@ class DraftTask
   scope :sent, -> { where(state: "sent") }
   scope :by_author, ->(user) { where(author_id: user.id) }
   scope :scheduled_before, ->(time) { where(:scheduled_for.lte => time) }
+  scope :reserving, -> { ready.where(:points.gt => 0) }
 
   def private?
     visibility == "private"
@@ -71,6 +74,13 @@ class DraftTask
     drafting?
   end
 
+  def release_reservation!
+    raise DraftTasks::WrongState.new(self, "ready") unless ready?
+
+    set(state: "drafting", ready_at: nil)
+    self
+  end
+
   def task_attributes
     {
       title: title,
@@ -80,5 +90,16 @@ class DraftTask
       assignee_ids: assignee_ids,
       label_ids: label_ids
     }
+  end
+
+  private
+
+  def points_within_budget
+    return if author.nil? || company.nil? || points.to_i.zero?
+
+    membership = author.membership_for(company)
+    return if membership.nil? || points <= membership.points_budget
+
+    errors.add(:points, :over_budget, budget: membership.points_budget)
   end
 end

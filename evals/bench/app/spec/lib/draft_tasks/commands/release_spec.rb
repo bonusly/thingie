@@ -3,11 +3,12 @@ require "rails_helper"
 RSpec.describe DraftTasks::Commands::Release do
   include_context "with a list and a ready draft"
 
-  it "returns a ready draft to drafting and frees the reservation" do
+  it "returns a ready draft to drafting and frees the escrow" do
     result = described_class.call(draft: draft, actor: member)
 
     expect(result).to be_success
     expect(draft.reload).to be_drafting
+    expect(draft.ready_at).to be_nil
     expect(Points::Queries::GivingBalance.call(user: member, company: company).reserved).to eq(0)
   end
 
@@ -22,7 +23,7 @@ RSpec.describe DraftTasks::Commands::Release do
   end
 
   it "is a no-op for a drafting draft" do
-    draft.resume_drafting!
+    draft.release_reservation!
     expect(described_class.call(draft: draft, actor: member)).to be_success
   end
 

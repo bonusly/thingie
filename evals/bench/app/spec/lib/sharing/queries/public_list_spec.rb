@@ -24,4 +24,15 @@ RSpec.describe Sharing::Queries::PublicList do
     expect(view.drafts.size).to eq(2)
     expect(view.drafts.map(&:author_name)).to contain_exactly(member.display_name, nil)
   end
+
+  it "includes drafts sent in the last week but not older ones" do
+    draft
+    recent = create(:draft_task, :sent_to_task, company: company, list: list, author: member, sent_at: 2.days.ago)
+    create(:draft_task, :sent_to_task, company: company, list: list, author: member, sent_at: 9.days.ago)
+    link = create(:share_link, :with_drafts, company: company, list: list, created_by: admin)
+
+    view = described_class.call(share_link: link)
+
+    expect(view.drafts.map(&:id)).to eq([recent.id.to_s, draft.id.to_s])
+  end
 end

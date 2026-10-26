@@ -16,6 +16,11 @@ FactoryBot.define do
       note { "weekly budget" }
     end
 
+    trait :escrow do
+      draft_task_id { BSON::ObjectId.new }
+      note { PointsLedgerEntry::ESCROW_NOTE }
+    end
+
     trait :last_week do
       week_key { Points::Queries::WeeklyWindow.call(company: company, now: 1.week.ago).key }
     end

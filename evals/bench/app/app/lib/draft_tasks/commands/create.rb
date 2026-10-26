@@ -17,6 +17,7 @@ module DraftTasks
       def call
         return Result.failure("list does not belong to this company") unless list.company_id == company.id
         return Result.failure("list is archived") if list.archived?
+        return Result.failure(Points::NotAMember.new(author, company)) unless author.member_of?(company)
 
         draft = DraftTask.new(attrs.merge(company: company, author: author, list: list))
         return Result.failure(draft.errors.full_messages) unless draft.save

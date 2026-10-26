@@ -2,12 +2,20 @@ module Api
   module V1
     class DraftTasksController < BaseController
       BLUEPRINT = DraftTasks::Blueprints::DraftTaskBlueprint
+      MAX_RESERVATIONS = 100
 
       def index
         drafts = DraftTasks::Queries::ListDrafts.call(
           company: current_company, author: current_user, state: params[:state], list_id: params[:list_id]
         )
         render_collection(drafts, BLUEPRINT)
+      end
+
+      def reservations
+        drafts = DraftTasks::Queries::ListReservations.call(
+          company: current_company, author: current_user, limit: reservation_limit
+        )
+        render json: BLUEPRINT.render(drafts)
       end
 
       def show
@@ -52,6 +60,10 @@ module Api
 
       def draft
         @draft ||= DraftTasks::Queries::FindDraft.call(company: current_company, id: params[:id])
+      end
+
+      def reservation_limit
+        (params[:limit].presence || DraftTasks::Queries::ListReservations::DEFAULT_LIMIT).to_s.to_i.clamp(1, MAX_RESERVATIONS)
       end
 
       def draft_params

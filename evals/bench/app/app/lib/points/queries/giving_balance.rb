@@ -5,6 +5,10 @@ module Points
         def covers?(amount)
           amount <= remaining
         end
+
+        def escrowed?
+          reserved.positive?
+        end
       end
 
       def self.call(user:, company:, now: Time.current)
@@ -50,7 +54,7 @@ module Points
       end
 
       def reserved_points
-        DraftTask.for_company(company).ready.by_author(user).sum(:points)
+        DraftTask.for_company(company).ready.where(author_id: user.id).sum(:points)
       end
     end
   end

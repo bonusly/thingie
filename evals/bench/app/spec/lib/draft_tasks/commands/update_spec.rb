@@ -12,6 +12,21 @@ RSpec.describe DraftTasks::Commands::Update do
     expect(draft.note).to eq("see thread")
   end
 
+  it "writes only the fields that changed" do
+    draft.set(note: "set elsewhere")
+    stale = DraftTask.find(draft.id).tap { |d| d.note = nil }
+
+    described_class.call(draft: stale, actor: member, attrs: { title: "After" })
+
+    expect(draft.reload).to have_attributes(title: "After", note: "set elsewhere")
+  end
+
+  it "is a no-op when nothing changed" do
+    result = described_class.call(draft: draft, actor: member, attrs: { title: "Before" })
+    expect(result).to be_success
+    expect(draft.reload.updated_at).to be_within(1.second).of(draft.created_at)
+  end
+
   it "refuses when the draft is ready" do
     draft.mark_ready!
     result = described_class.call(draft: draft, actor: member, attrs: { title: "After" })

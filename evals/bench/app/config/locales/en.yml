@@ -19,6 +19,7 @@ en:
       in_past: must be in the future
       unknown: 'contains unknown events: %{events}'
       unknown_keys: 'contains unsupported keys: %{keys}'
+      over_budget: exceeds your weekly budget of %{budget}
   mongoid:
     models:
       company:

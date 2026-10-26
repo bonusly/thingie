@@ -11,6 +11,7 @@ RSpec.describe Points::Queries::GivingBalance do
 
   it "starts at the full membership budget" do
     expect(balance).to have_attributes(budget: 100, spent: 0, reserved: 0, remaining: 100, week_key: "2026-W42")
+    expect(balance).not_to be_escrowed
   end
 
   it "subtracts points awarded this week, net of refunds" do
@@ -30,6 +31,24 @@ RSpec.describe Points::Queries::GivingBalance do
 
     expect(balance.reserved).to eq(20)
     expect(balance.remaining).to eq(80)
+    expect(balance).to be_escrowed
+  end
+
+  it "holds escrow for the author's ready drafts and nobody else's" do
+    create(:draft_task, :ready, company: company, author: member, points: 20)
+    create(:draft_task, company: company, author: member, points: 40)
+    create(:draft_task, :sent, company: company, author: member, points: 15)
+    create(:draft_task, :ready, company: company, author: admin, points: 10)
+
+    expect(balance.reserved).to eq(20)
+    expect(balance.remaining).to eq(80)
+  end
+
+  it "counts settled escrow as spent, not reserved" do
+    draft = create(:draft_task, :sent, company: company, author: member, points: 15)
+    create(:points_ledger_entry, :escrow, company: company, user: member, amount: 15, draft_task_id: draft.id, week_key: "2026-W42")
+
+    expect(balance).to have_attributes(spent: 15, reserved: 0, remaining: 85)
   end
 
   it "never reports a negative remainder" do

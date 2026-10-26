@@ -18,6 +18,7 @@ Rails.application.routes.draw do
       resources :comments, only: %i[update destroy]
 
       resources :draft_tasks do
+        collection { get :reservations }
         member do
           post :mark_ready
           post :release

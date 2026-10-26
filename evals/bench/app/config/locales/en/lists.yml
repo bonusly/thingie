@@ -58,12 +58,17 @@ en:
       coming_up: Coming up
       powered_by: Shared with Tasker
       private_author: Someone on the team
+      sent_draft: Sent as a task
   points:
     title: Points
     budget: Weekly budget
     spent: Given this week
-    reserved: Reserved by ready drafts
+    reserved: Held in escrow by ready drafts
     remaining: Remaining
+    escrow:
+      note: Draft escrow
+      settled: "%{points} points moved from escrow to %{title}"
+      released: Escrow released
     week: Week %{key}
     ledger:
       title: History
