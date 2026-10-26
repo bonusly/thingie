@@ -17,13 +17,16 @@ FactoryBot.define do
       external_account_name { "ACME" }
     end
 
+    trait :with_channels do
+      settings { { "channels" => %w[C123 C456] } }
+    end
+
     trait :paused do
       state { "paused" }
     end
 
     trait :synced do
       last_synced_at { 1.hour.ago }
-      cursor { "3" }
     end
   end
 end

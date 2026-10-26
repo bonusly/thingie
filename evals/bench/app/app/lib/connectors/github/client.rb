@@ -8,13 +8,16 @@ module Connectors
       end
 
       def issues(since:, cursor: nil, per_page: PER_PAGE, state: "all")
-        get("/issues", filter: "all", state: state, since: since.iso8601, page: cursor || 1, per_page: per_page)
+        response = get("/issues", filter: "all", state: state, since: since.iso8601, page: cursor || 1, per_page: per_page)
+        Connectors::Page.new(items: response.body, next_cursor: next_page_from(response.headers["link"]))
       end
 
       def pull_requests(since:, cursor: nil, per_page: PER_PAGE)
+        page_number = (cursor || 1).to_i
         query = "is:pr involves:@me updated:>=#{since.to_date.iso8601}"
-        page = get("/search/issues", q: query, page: cursor || 1, per_page: per_page, sort: "updated")
-        Connectors::Page.new(items: page.items.fetch("items", page.items), next_cursor: page.next_cursor)
+        body = get("/search/issues", q: query, page: page_number, per_page: per_page, sort: "updated").body
+        next_page = page_number * per_page <= body.fetch("total_count", 0) ? page_number + 1 : nil
+        Connectors::Page.new(items: body.fetch("items", []), next_cursor: next_page)
       end
 
       private
@@ -26,7 +29,7 @@ module Connectors
         raise Connectors::Unauthorized, "github" if response.status == 401
         raise Connectors::RateLimited.new("github", retry_after: response.headers["retry-after"]) if response.status == 429
 
-        Connectors::Page.new(items: response.body, next_cursor: next_page_from(response.headers["link"]))
+        response
       end
 
       def next_page_from(link_header)

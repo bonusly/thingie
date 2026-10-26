@@ -57,8 +57,8 @@ class ConnectorAccount
     self.access_token_ciphertext = Base64.strict_encode64(Lockbox.new(key: Lockbox.master_key).encrypt(raw))
   end
 
-  def touch_synced!(cursor: nil)
-    update!(last_synced_at: Time.current, cursor: cursor, last_error: nil)
+  def touch_synced!(synced_at: Time.current)
+    update!(last_synced_at: synced_at, cursor: nil, last_error: nil)
   end
 
   def record_error!(message)

@@ -5,7 +5,9 @@ module Connectors
         Input = Dry::Schema.Params do
           required(:account_id).filled(:string)
           optional(:since).maybe(:time)
+          optional(:since_days).maybe(:integer, gt?: 0)
           optional(:cursor).maybe(:string)
+          optional(:pages).maybe(:integer, gt?: 0, lteq?: Connectors::Services::PageLimit::MAX_PAGES)
           optional(:first).filled(:integer, gt?: 0, lteq?: 250)
         end
 
@@ -22,11 +24,11 @@ module Connectors
         def call
           raise Connectors::InvalidInput, input.errors.to_h unless input.success?
 
-          since = Connectors::Services::LookBack.call(account: account, override: input[:since])
+          since = Connectors::Services::LookBack.call(account: account, override: input[:since], since_days: input[:since_days])
           cursor = input[:cursor]
           items = []
 
-          pages = Connectors::Services::PageLimit.call do
+          pages = Connectors::Services::PageLimit.call(max: max_pages) do
             page = client.projects(after: cursor, first: input[:first] || Connectors::Linear::Client::FIRST)
             fresh = page.items.select { |raw| Time.iso8601(raw.fetch("updatedAt")) >= since }
             items.concat(fresh.map { |raw| normalize(raw) })
@@ -47,6 +49,10 @@ module Connectors
 
         def client
           @client ||= Connectors::Linear::Client.new(account)
+        end
+
+        def max_pages
+          input[:pages] || Connectors::Services::PageLimit.max_pages
         end
 
         def normalize(raw)

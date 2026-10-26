@@ -11,6 +11,10 @@ module Connectors
         new(max: max).call(&)
       end
 
+      def self.capped?(pages_fetched, max: max_pages)
+        pages_fetched >= max
+      end
+
       def initialize(max:)
         @max = [max.to_i, 1].max
       end

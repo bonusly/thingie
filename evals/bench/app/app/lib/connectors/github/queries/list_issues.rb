@@ -5,7 +5,9 @@ module Connectors
         Input = Dry::Schema.Params do
           required(:account_id).filled(:string)
           optional(:since).maybe(:time)
+          optional(:since_days).maybe(:integer, gt?: 0)
           optional(:cursor).maybe(:string)
+          optional(:pages).maybe(:integer, gt?: 0, lteq?: Connectors::Services::PageLimit::MAX_PAGES)
           optional(:per_page).filled(:integer, gt?: 0, lteq?: 100)
           optional(:state).filled(:string, included_in?: %w[open closed all])
         end
@@ -23,11 +25,11 @@ module Connectors
         def call
           raise Connectors::InvalidInput, input.errors.to_h unless input.success?
 
-          since = Connectors::Services::LookBack.call(account: account, override: input[:since])
+          since = Connectors::Services::LookBack.call(account: account, override: input[:since], since_days: input[:since_days])
           cursor = input[:cursor]
           items = []
 
-          pages = Connectors::Services::PageLimit.call do
+          pages = Connectors::Services::PageLimit.call(max: max_pages) do
             page = client.issues(since: since, cursor: cursor, per_page: per_page, state: input[:state] || "all")
             items.concat(page.items.reject { |raw| raw["pull_request"] }.map { |raw| normalize(raw) })
             cursor = page.next_cursor&.to_s
@@ -51,6 +53,10 @@ module Connectors
 
         def per_page
           input[:per_page] || Connectors::Github::Client::PER_PAGE
+        end
+
+        def max_pages
+          input[:pages] || Connectors::Services::PageLimit.max_pages
         end
 
         def normalize(raw)

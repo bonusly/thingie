@@ -12,6 +12,10 @@ module Connectors
         Connectors::Page.new(items: body.fetch("messages", []), next_cursor: next_cursor(body))
       end
 
+      def replies(channel:, ts:, limit: LIMIT)
+        post("conversations.replies", channel: channel, ts: ts, limit: limit).fetch("messages", [])
+      end
+
       def channels(cursor: nil, limit: LIMIT)
         body = post("conversations.list", cursor: cursor, limit: limit, exclude_archived: true)
         Connectors::Page.new(items: body.fetch("channels", []), next_cursor: next_cursor(body))

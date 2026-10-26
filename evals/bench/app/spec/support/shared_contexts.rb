@@ -22,3 +22,25 @@ RSpec.shared_context "with a github connector account" do
 
   before { allow(Connectors::Github::Client).to receive(:new).with(account).and_return(client) }
 end
+
+RSpec.shared_context "with a slack connector account" do
+  include_context "with a company and members"
+
+  let(:account) { create(:connector_account, :slack, :with_channels, company: company, user: member) }
+  let(:client) { instance_double(Connectors::Slack::Client) }
+
+  before do
+    allow(Connectors::Slack::Client).to receive(:new).with(account).and_return(client)
+    allow(client).to receive(:permalink) { |channel:, ts:| "https://slack.test/#{channel}/#{ts}" }
+    allow(client).to receive(:replies).and_return([])
+  end
+end
+
+RSpec.shared_context "with a linear connector account" do
+  include_context "with a company and members"
+
+  let(:account) { create(:connector_account, :linear, company: company, user: member, last_synced_at: 1.day.ago) }
+  let(:client) { instance_double(Connectors::Linear::Client) }
+
+  before { allow(Connectors::Linear::Client).to receive(:new).with(account).and_return(client) }
+end
