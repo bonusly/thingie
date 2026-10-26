@@ -1,34 +1,48 @@
 module DraftTasks
   module Commands
     class SendDraft
-      def self.call(draft:, actor:)
-        new(draft: draft, actor: actor).call
+      module Lock
+        class Busy < DraftTasks::Error
+          def initialize(key)
+            super("draft lock #{key} is held by another process")
+          end
+        end
       end
 
-      def initialize(draft:, actor:)
+      def self.call(draft:, actor:, edits: {}, finalize: true)
+        new(draft: draft, actor: actor, edits: edits, finalize: finalize).call
+      end
+
+      def initialize(draft:, actor:, edits:, finalize:)
         @draft = draft
         @actor = actor
+        @edits = edits.to_h.symbolize_keys
+        @finalize = finalize
       end
 
       def call
         DraftTasks::Services::WithLockedDraft.call(draft) do |locked|
-          return Result.failure(DraftTasks::WrongState.new(locked, "ready")) unless locked.may_mark_sent?
+          return Result.failure(DraftTasks::WrongState.new(locked, "ready")) unless locked.ready?
+          return Result.failure(locked.errors.full_messages) unless locked.update(edits)
 
           result = create_task(locked)
           return result if result.failure?
 
           task = result.value
+          locked.attachment&.update!(task_id: task.id, draft_task_id: nil)
+          return Result.success(task) unless finalize
+
           locked.mark_sent!(task)
           notify(locked, task)
           Result.success(task)
         end
-      rescue DraftTasks::Services::WithLockedDraft::Lock::Busy => e
+      rescue Lock::Busy => e
         Result.failure(e)
       end
 
       private
 
-      attr_reader :draft, :actor
+      attr_reader :draft, :actor, :edits, :finalize
 
       def create_task(locked)
         Tasks::Commands::Create.call(

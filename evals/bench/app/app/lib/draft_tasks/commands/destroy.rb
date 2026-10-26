@@ -14,6 +14,7 @@ module DraftTasks
         return Result.failure(DraftTasks::WrongState.new(draft, "drafting or ready")) if draft.sent?
         return Result.failure("only the author can delete a draft") unless draft.author_id == actor.id
 
+        draft.attachment&.destroy
         draft.destroy!
         Result.success(draft)
       end

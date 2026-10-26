@@ -16,6 +16,7 @@ class Task
   field :position, type: Integer, default: 0
   field :assignee_ids, type: Array, default: []
   field :label_ids, type: Array, default: []
+  field :draft_task_id, type: BSON::ObjectId
 
   belongs_to :list
   belongs_to :author, class_name: "User", inverse_of: :authored_tasks
@@ -29,6 +30,7 @@ class Task
   index({ company_id: 1, assignee_ids: 1, state: 1 })
   index({ company_id: 1, due_on: 1 })
   index({ external_item_id: 1 }, { sparse: true })
+  index({ draft_task_id: 1 }, { sparse: true })
 
   validates :title, presence: true, length: { maximum: 200 }
   validates :points, numericality: { greater_than_or_equal_to: 0, less_than_or_equal_to: MAX_POINTS }

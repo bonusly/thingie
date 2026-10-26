@@ -1,13 +1,14 @@
 module DraftTasks
   module Commands
     class MarkReady
-      def self.call(draft:, actor:, now: Time.current)
-        new(draft: draft, actor: actor, now: now).call
+      def self.call(draft:, actor:, edits: {}, now: Time.current)
+        new(draft: draft, actor: actor, edits: edits, now: now).call
       end
 
-      def initialize(draft:, actor:, now:)
+      def initialize(draft:, actor:, edits:, now:)
         @draft = draft
         @actor = actor
+        @edits = edits.to_h.symbolize_keys
         @now = now
       end
 
@@ -15,6 +16,9 @@ module DraftTasks
         DraftTasks::Services::WithLockedDraft.call(draft) do |locked|
           return Result.failure(DraftTasks::WrongState.new(locked, "drafting")) unless locked.may_mark_ready?
           return Result.failure("only the author can mark a draft ready") unless locked.author_id == actor.id
+
+          locked.assign_attributes(edits)
+          return Result.failure(locked.errors.full_messages) unless locked.valid?
 
           balance = Points::Queries::GivingBalance.call(user: locked.author, company: locked.company, now: now)
           unless balance.covers?(locked.points)
@@ -24,13 +28,13 @@ module DraftTasks
           locked.mark_ready!
           Result.success(locked)
         end
-      rescue DraftTasks::Services::WithLockedDraft::Lock::Busy => e
+      rescue DraftTasks::Commands::SendDraft::Lock::Busy => e
         Result.failure(e)
       end
 
       private
 
-      attr_reader :draft, :actor, :now
+      attr_reader :draft, :actor, :edits, :now
     end
   end
 end

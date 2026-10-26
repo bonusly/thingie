@@ -14,6 +14,14 @@ RSpec.describe Lists::Commands::ConvertDraftTaskComment do
     expect(comment.body).to eq("ship it")
     expect(comment.author).to eq(member)
     expect(comment.draft_task_id).to eq(draft.id)
+    expect(draft.reload).to be_sent
+    expect(draft.sent_task_id).to eq(task.id)
+  end
+
+  it "tells the author which comment carried the note" do
+    result = described_class.call(draft: draft, actor: admin)
+    notification = Notification.for_recipient(member).where(kind: "draft_sent").first
+    expect(notification.payload["comment_id"]).to eq(result.value[:comment].id.to_s)
   end
 
   it "skips the comment when the draft has no note" do

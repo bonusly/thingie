@@ -18,7 +18,7 @@ RSpec.describe DraftTasks::Services::WithLockedDraft do
     other.acquire
 
     expect { described_class.call(draft) { raise "should not run" } }
-      .to raise_error(described_class::Lock::Busy, /#{draft.id}/)
+      .to raise_error(DraftTasks::Commands::SendDraft::Lock::Busy, /#{draft.id}/)
   ensure
     other.release
   end
