@@ -7,6 +7,7 @@
 # evals/bench/copilot/run.json; `evals/bench/run --rescore evals/bench/copilot/run.json` then matches the findings
 # against the labels. See evals/bench/README.md.
 
+require 'cgi'
 require 'json'
 require 'open3'
 require 'time'
@@ -27,6 +28,8 @@ module Bench
     SEVERITIES = { 'Critical' => 1, 'High' => 2, 'Medium' => 3, 'Low' => 4 }.freeze
     # One line of the review overview: `alt="High severity"` ... `[Title](...#discussion_r123) · New`
     ISSUE = /alt="(\w+) severity".*?\[(.+?)\]\(\S*#discussion_r(\d+)\)/
+    # A previously missed issue: `<summary>` severity and title, then `` `path:line` `` and the details.
+    MISSED = %r{alt="(\w+) severity".*?</picture>(.+?)</summary>\s*`([^`]+?):\d+`(.*?)</details>}m
     APP_PREFIX = 'evals/bench/app/'
 
     module_function
@@ -74,15 +77,28 @@ module Bench
       @baseline ||= JSON.parse(File.read(File.join(ROOT, 'baseline.json')))
     end
 
-    # The open issues the review's overview lists, which at a later push includes ones still open from an
-    # earlier review, with the details from each issue's inline comment.
+    # The review overview's open issues, which at a later push includes ones still open from an earlier review
+    # (details from each issue's inline comment), and its previously missed issues, which have no inline comment.
+    # Its "resolved since last review" section is left out.
     def findings(review, comments)
-      review['body'].to_s.scan(ISSUE).map do |severity, title, id|
+      body = review['body'].to_s
+      open = section(body, 'open issue').scan(ISSUE).map do |severity, title, id|
         comment = comments.fetch(id) { abort "review #{review['id']} lists comment #{id}, which is not on the PR" }
-        { 'title' => title, 'file' => comment['path'].delete_prefix(APP_PREFIX),
-          'severity' => SEVERITIES.fetch(severity), 'confidence' => nil, 'unchecked' => false,
-          'details' => comment['body'], 'label' => nil }
+        finding(severity, title, comment['path'], comment['body'])
       end
+      missed = section(body, 'previously missed issue').scan(MISSED).map { |fields| finding(*fields) }
+      open + missed
+    end
+
+    def finding(severity, title, path, details)
+      { 'title' => CGI.unescapeHTML(title.strip), 'file' => path.delete('​').delete_prefix(APP_PREFIX),
+        'severity' => SEVERITIES.fetch(severity), 'confidence' => nil, 'unchecked' => false,
+        'details' => details.strip, 'label' => nil }
+    end
+
+    # From the section's `<summary><strong>N heading</strong>` to the next section's, or the end.
+    def section(body, heading)
+      body[%r{#{heading}s?</strong></summary>(.*?)(?=<summary><strong>|<sub>|\z)}m, 1].to_s
     end
 
     def gh(path)

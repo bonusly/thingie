@@ -112,14 +112,20 @@ comment, without the per-file tables when they would pass GitHub's comment size 
 
 ## Copilot
 
-`copilot/run.json` is GitHub Copilot's code review of the same cases, kept as a run file so it reads against
-Thingie's numbers: `bundle exec evals/bench/run --report evals/bench/copilot/run.json`. Each case was opened as
-a pull request (#178, #182 to #186) into `copilot-eval/base`, which is main without `evals/bench/cases`, so
-the labels were out of Copilot's reach. The first push went up as one commit and the final push as a second,
-with Copilot asked to review each. A finding is an open issue in Copilot's review overview (its severity:
-High is 2, Medium 3, Low 4), so a final-push review counts issues still open from the first push as well as
-new ones. Latency is from the review request to the review; there is no cost, and nothing is held back.
+`copilot/report.md` is GitHub Copilot's code review of the same cases against `baseline.json` (the last full run
+on main), and `copilot/run.json` the run file behind it. Each case was opened as a pull request (#178, #182 to
+#186) into `copilot-eval/base`, which is main without `evals/bench/cases`, so the labels were out of Copilot's
+reach. The first push went up as one commit and the final push as a second, with Copilot asked to review each.
 
-`bundle exec evals/bench/copilot/fetch` rebuilds the file from those pull requests, unscored, and
-`bundle exec evals/bench/run --rescore evals/bench/copilot/run.json` scores it. The pull requests are kept
-open and are not merged.
+A finding is an issue under "open issues" or "previously missed issue" in Copilot's review overview, so a
+final-push review counts issues still open from the first push as well as new ones; "resolved since last
+review" is left out. Severity is Copilot's: High is 2, Medium 3, Low 4. Latency is from the review request to
+the review. There is no cost, and nothing is held back.
+
+To rebuild it from those pull requests (they are kept open and are not merged):
+
+```sh
+bundle exec evals/bench/copilot/fetch                                   # writes copilot/run.json, unscored
+bundle exec evals/bench/run --rescore evals/bench/copilot/run.json --no-baseline
+bundle exec evals/bench/run --report evals/bench/copilot/run.json > evals/bench/copilot/report.md
+```
