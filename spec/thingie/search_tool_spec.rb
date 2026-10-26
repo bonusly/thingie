@@ -52,6 +52,11 @@ RSpec.describe Thingie::SearchTool do
     expect(tool.execute(pattern: '(unclosed')).to start_with('Search for `(unclosed` failed:')
   end
 
+  it 'marks a failed search as a failed call, but not a search with no matches', :aggregate_failures do
+    expect(tool.execute(pattern: '(unclosed')).to be_a(Thingie::ToolBudget::Failure)
+    expect(tool.execute(pattern: 'no_such_symbol')).not_to be_a(Thingie::ToolBudget::Failure)
+  end
+
   it 'treats a pattern that looks like an option as a pattern, not a flag' do
     expect(tool.execute(pattern: '--files-with-matches')).to eq('No matches for `--files-with-matches`.')
   end

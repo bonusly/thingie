@@ -94,17 +94,17 @@ RSpec.describe Thingie::Reviewer do
       end
     end
 
-    it 'gives each file review a budget of 5, and says so only when there are tools', :aggregate_failures do
+    it 'gives each file review a budget of 8, and says so only when there are tools', :aggregate_failures do
       reviewer.review
 
       expect(seen[:budget]).to be_a(Thingie::ToolBudget)
-      expect(seen[:budget].limit).to eq(5)
+      expect(seen[:budget].limit).to eq(8)
       expect(seen[:prompt]).not_to include('tool calls for this file')
 
       described_class.new(config: config, changeset: fake_changeset, prompt_builder: Thingie::PromptBuilder.new(config),
                           llm_client: fake_llm_client, tools: [instance_double(RubyLLM::Tool)]).review
 
-      expect(seen[:prompt]).to include('at most 5 tool calls for this file')
+      expect(seen[:prompt]).to include('at most 8 tool calls for this file')
     end
   end
 
@@ -665,6 +665,20 @@ RSpec.describe Thingie::Reviewer do
         expect(report.processing_warnings).to eq(
           ['Asked again for the review JSON of app.rb after no valid JSON found in response']
         )
+      end
+    end
+
+    context 'when the reply has an issue with no severity' do
+      let(:review_replies) { [reply.call({ 'issues' => [{ 'title' => 'Missing return', 'confidence' => 1 }] })] }
+      let(:follow_ups) { [issues_reply] }
+
+      it 'asks the same chat again for the JSON instead of leaving the file unreviewed', :aggregate_failures do
+        report = reviewer.review
+
+        expect(report.total_issues).to eq(1)
+        expect(report.unreviewed_files).to be_empty
+        expect(report.processing_warnings)
+          .to eq(['Asked again for the review JSON of app.rb after an issue has no severity'])
       end
     end
 

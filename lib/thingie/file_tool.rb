@@ -52,12 +52,12 @@ module Thingie
     # @return [String] a human-readable result: file contents, or a status message
     def execute(path:, offset: nil, limit: nil)
       resolved = resolve(path)
-      return "Path `#{path}` is outside the working directory." if resolved.nil?
-      return "Path `#{relative(resolved)}` does not exist." unless File.exist?(resolved)
+      return ToolBudget::Failure.new("Path `#{path}` is outside the working directory.") if resolved.nil?
+      return ToolBudget::Failure.new("Path `#{relative(resolved)}` does not exist.") unless File.exist?(resolved)
 
-      return "Path `#{relative(resolved)}` is a directory." if File.directory?(resolved)
+      return ToolBudget::Failure.new("Path `#{relative(resolved)}` is a directory.") if File.directory?(resolved)
 
-      return "Path `#{relative(resolved)}` is not readable." unless File.readable?(resolved)
+      return ToolBudget::Failure.new("Path `#{relative(resolved)}` is not readable.") unless File.readable?(resolved)
 
       return binary_message(resolved) if binary?(resolved)
 
@@ -65,7 +65,7 @@ module Thingie
       result = "#{relative(resolved)}\n```\n#{contents}\n```"
       note ? "#{result}\n#{note}" : result
     rescue StandardError => e
-      "File lookup unavailable for `#{path}`: #{e.message}"
+      ToolBudget::Failure.new("File lookup unavailable for `#{path}`: #{e.message}")
     end
 
     private

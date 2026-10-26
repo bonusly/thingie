@@ -32,6 +32,38 @@ RSpec.describe Thingie::ToolBudget do
     expect(budget.refused).to eq(1)
   end
 
+  it 'does not charge a call that comes back as a failure', :aggregate_failures do
+    failing = Class.new { def call(*, **) = Thingie::ToolBudget::Failure.new('Path `a.rb` does not exist.') }.new
+    budget = described_class.new(1)
+    miss, hit = budget.wrap([failing, tool])
+
+    expect(miss.call({})).to eq('Path `a.rb` does not exist.')
+    expect(hit.call({})).to eq('ran')
+    expect(budget.used).to eq(1)
+    expect(budget.failed).to eq(1)
+  end
+
+  it 'does not charge a call that raises' do
+    raising = Class.new { def call(*, **) = raise(IOError, 'gone') }.new
+    budget = described_class.new(1)
+    copy = budget.wrap([raising]).first
+
+    expect { copy.call({}) }.to raise_error(IOError)
+    expect(budget.used).to eq(0)
+  end
+
+  it 'charges failures once as many as the budget have been free', :aggregate_failures do
+    failing = Class.new { def call(*, **) = Thingie::ToolBudget::Failure.new('no') }.new
+    budget = described_class.new(2)
+    copy = budget.wrap([failing]).first
+
+    results = Array.new(5) { copy.call({}) }
+
+    expect(results.first(4)).to all(eq('no'))
+    expect(results.last).to eq(described_class::SPENT)
+    expect(budget.failed).to eq(2)
+  end
+
   it 'passes the arguments through in either ruby_llm style', :aggregate_failures do
     copy = described_class.new(5).wrap([tool]).first
 
