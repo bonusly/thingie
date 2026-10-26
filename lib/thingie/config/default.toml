@@ -56,7 +56,8 @@ model = "gpt-5.4-nano"
 
 # LLM provider to use. Must match a provider supported by RubyLLM
 # (e.g. openai, anthropic, gemini, ollama, deepseek, openrouter, mistral,
-# perplexity, xai, azure, bedrock, vertexai, gpustack).
+# perplexity, xai, azure, bedrock, vertexai, gpustack), or `claude-code` / `codex`
+# to run each call through that installed CLI on your own subscription (no API key).
 provider = "openai"
 # Path to a local RubyLLM models registry (JSON). When set and the file exists,
 # reviews load model metadata from it instead of the (potentially stale) file

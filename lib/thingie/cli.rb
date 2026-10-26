@@ -94,15 +94,7 @@ module Thingie
       changeset = build_changeset(config)
       risk_warnings = []
       risk = change_risk_for(config, changeset, rules, risk_questions, risk_warnings)
-      clients = build_lsp_clients(config, changeset)
-      tools = clients.map { |client| Thingie::Lsp::SymbolTool.new(client: client, root: changeset.workdir) }
-      tools << Thingie::FileTool.new(root: changeset.workdir)
-      tools << Thingie::SearchTool.new(root: changeset.workdir)
-      skill_tool = Thingie::SkillCatalog.tool(config)
-      tools << skill_tool if skill_tool
-      mcp_toolset = Thingie::Mcp::Toolset.build(config)
-      mcp_toolset.warnings.each { |w| warn "[thingie] #{w}" }
-      tools.concat(mcp_toolset.tools)
+      clients, tools, mcp_toolset = review_tools(config, changeset)
       reviewer = build_reviewer(config, changeset, tools, file_ratings: file_ratings(risk))
       started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
       report = reviewer.review
@@ -306,11 +298,31 @@ module Thingie
           config: config,
           changeset: changeset,
           prompt_builder: Thingie::PromptBuilder.new(config),
-          llm_client: Thingie::LlmClient.new(config),
+          llm_client: Thingie::LlmClient.build(config),
           tools: tools,
           debug: debug_enabled?,
           file_ratings: file_ratings
         )
+      end
+
+      # Thingie's ruby_llm tools, or none for an agent CLI provider: `claude -p` / `codex exec` bring
+      # their own read-only repository tools, and ruby_llm tools cannot be handed to them.
+      #
+      # @param config [Thingie::Configuration] the loaded configuration
+      # @param changeset [Thingie::Changeset] the changeset being reviewed
+      # @return [Array(Array<Thingie::Lsp::Client>, Array, Thingie::Mcp::Toolset, nil)] LSP clients, tools, MCP toolset
+      def review_tools(config, changeset)
+        return [[], [], nil] if Thingie::AgentCli::Client.provider?(config['provider'])
+
+        clients = build_lsp_clients(config, changeset)
+        tools = clients.map { |client| Thingie::Lsp::SymbolTool.new(client: client, root: changeset.workdir) }
+        tools << Thingie::FileTool.new(root: changeset.workdir)
+        tools << Thingie::SearchTool.new(root: changeset.workdir)
+        skill_tool = Thingie::SkillCatalog.tool(config)
+        tools << skill_tool if skill_tool
+        mcp_toolset = Thingie::Mcp::Toolset.build(config)
+        mcp_toolset.warnings.each { |w| warn "[thingie] #{w}" }
+        [clients, tools.concat(mcp_toolset.tools), mcp_toolset]
       end
 
       # One LSP client per configured language whose extensions match a changed
@@ -496,8 +508,7 @@ module Thingie
         settings = config['dedupe']
         return unless settings.is_a?(Hash) && settings['enabled']
 
-        model = settings['model'].to_s.strip
-        client = model.empty? ? Thingie::LlmClient.new(config) : Thingie::LlmClient.new(config, model: model)
+        client = Thingie::LlmClient.build(config, model: section_model(config, 'dedupe'))
         Thingie::DuplicateFilter.new(llm_client: client, prompt_builder: Thingie::PromptBuilder.new(config))
       rescue StandardError => e
         warn "Repeated-finding check disabled — #{e.message}"
@@ -513,12 +524,22 @@ module Thingie
         settings = config['open_findings']
         return unless settings.is_a?(Hash) && settings['enabled']
 
-        model = settings['model'].to_s.strip
-        client = model.empty? ? Thingie::LlmClient.new(config) : Thingie::LlmClient.new(config, model: model)
+        client = Thingie::LlmClient.build(config, model: section_model(config, 'open_findings'))
         Thingie::OpenFindingCheck.new(llm_client: client, prompt_builder: Thingie::PromptBuilder.new(config))
       rescue StandardError => e
         warn "Fixed-finding check disabled — #{e.message}"
         nil
+      end
+
+      # A check's own `[<section>] model`, or nil to use the review model. An agent CLI provider skips one
+      # set in a config file (see {Thingie::AgentCli::Client.usable_model?}).
+      #
+      # @param config [Thingie::Configuration] the loaded configuration
+      # @param section [String] the config table, e.g. `` `dedupe` ``
+      # @return [String, nil] the model, or nil when unset or not usable
+      def section_model(config, section)
+        model = config.dig(section, 'model').to_s.strip
+        model unless model.empty? || !Thingie::AgentCli::Client.usable_model?(config, section, 'model')
       end
 
       # Auto-approve the PR when the [approve] config block is enabled. Loads
@@ -557,9 +578,9 @@ module Thingie
       # so the approval still posts, just without the risk section.
       #
       # @param config [Thingie::Configuration] the loaded configuration
-      # @return [Thingie::LlmClient, nil] the client, or nil when unavailable
+      # @return [Thingie::LlmClient, Thingie::AgentCli::Client, nil] the client, or nil when unavailable
       def approval_llm_client(config)
-        Thingie::LlmClient.new(config)
+        Thingie::LlmClient.build(config)
       rescue StandardError => e
         warn "Approval risk assessment disabled — #{e.message}" if debug_enabled?
         nil

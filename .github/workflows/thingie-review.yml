@@ -38,8 +38,6 @@ jobs:
         with:
           api_key: ${{ secrets.LLM_API_KEY }}
           system_one_api_key: ${{ secrets.SYSTEM_ONE_API_KEY }}
-          model: ${{ vars.LLM_MODEL }}
-          provider: ${{ vars.LLM_PROVIDER }}
           ruby_version: ${{ vars.RUBY_VERSION || '3.4' }}
           thingie_version: local
           # Post as the app when configured, otherwise as github-actions.

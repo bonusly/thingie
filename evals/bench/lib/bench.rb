@@ -47,6 +47,8 @@ module Bench
   class Case
     PUSHES = %w[first both final].freeze
     LABELS = %w[real nit wrong].freeze
+    # Ignore the developer's signing config so builds don't need keys or tag messages.
+    UNSIGNED_GIT = ['-c', 'tag.gpgsign=false', '-c', 'commit.gpgsign=false'].freeze
 
     attr_reader :name, :dir, :data
 
@@ -160,9 +162,8 @@ module Bench
       git(repo, 'tag', tag)
     end
 
-    # Unsigned: a developer's tag.gpgsign would otherwise make `git tag` demand a message.
     def git(repo, *)
-      system('git', '-C', repo, '-c', 'tag.gpgsign=false', '-c', 'commit.gpgsign=false', *, exception: true)
+      system('git', '-C', repo, *UNSIGNED_GIT, *, exception: true)
     end
   end
 
