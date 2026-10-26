@@ -12,4 +12,8 @@ module Thingie
   # Raised when a System One provider returns an error or an unexpected response.
   class SystemOneError < StandardError
   end
+
+  # Raised when an agent CLI (`claude -p`, `codex exec`) fails or answers without a result.
+  class AgentCliError < StandardError
+  end
 end

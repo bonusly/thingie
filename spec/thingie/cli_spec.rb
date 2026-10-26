@@ -90,7 +90,7 @@ RSpec.describe Thingie::CLI do
       allow(Thingie::Configuration).to receive(:new).and_return(config)
       allow(Thingie::Changeset).to receive(:new).and_return(fake_changeset)
       allow(Thingie::Reviewer).to receive(:new).and_return(fake_reviewer)
-      allow(Thingie::LlmClient).to receive(:new)
+      allow(Thingie::LlmClient).to receive(:build)
       allow(Thingie::SkillCatalog).to receive(:tool).and_return(nil)
     end
 
@@ -110,6 +110,22 @@ RSpec.describe Thingie::CLI do
       expect(event['files_reviewed']).to eq(1)
       expect(event['duration_ms']).to be_an(Integer)
       expect(event['usage']).to eq(usage.to_h)
+    end
+
+    context 'with an agent CLI provider' do
+      let(:lsp) { { 'ruby' => { 'command' => ['ruby-lsp'], 'extensions' => ['.rb'] } } }
+      let(:config) { Thingie::Configuration.new(root: tmp_dir, overrides: { provider: 'claude-code', 'lsp' => lsp }) }
+
+      it 'reviews without Thingie tools, LSP servers or MCP servers', :aggregate_failures do
+        allow(Thingie::Lsp::Client).to receive(:new)
+        allow(Thingie::Mcp::Toolset).to receive(:build)
+
+        run_review
+
+        expect(Thingie::Reviewer).to have_received(:new).with(hash_including(tools: []))
+        expect(Thingie::Lsp::Client).not_to have_received(:new)
+        expect(Thingie::Mcp::Toolset).not_to have_received(:build)
+      end
     end
   end
 
@@ -176,7 +192,7 @@ RSpec.describe Thingie::CLI do
     before do
       allow(Thingie::Configuration).to receive(:new).and_return(config)
       allow(Thingie::GitHub::Commenter).to receive(:new).and_return(fake_commenter)
-      allow(Thingie::LlmClient).to receive(:new).and_call_original
+      allow(Thingie::LlmClient).to receive(:build).and_call_original
       report.save(tmp_dir)
       File.write(md_path, 'summary')
       allow(Thingie::Env).to receive(:fetch).and_call_original
@@ -215,7 +231,7 @@ RSpec.describe Thingie::CLI do
       it 'builds the filter on that model' do
         run_github_comment
 
-        expect(Thingie::LlmClient).to have_received(:new).with(config, model: 'cheap/model')
+        expect(Thingie::LlmClient).to have_received(:build).with(config, model: 'cheap/model')
       end
     end
 
@@ -232,7 +248,7 @@ RSpec.describe Thingie::CLI do
 
     context 'when building the filter fails for another reason' do
       it 'goes without a repeat check and says so', :aggregate_failures do
-        allow(Thingie::LlmClient).to receive(:new).and_raise(RuntimeError, 'boom')
+        allow(Thingie::LlmClient).to receive(:build).and_raise(RuntimeError, 'boom')
 
         expect { run_github_comment }.to output(/Repeated-finding check disabled — boom/).to_stderr
         expect(passed_filter).to be_nil
@@ -290,7 +306,7 @@ RSpec.describe Thingie::CLI do
       allow(Thingie::Changeset).to receive(:new).and_return(fake_changeset)
       allow(Thingie::Reviewer).to receive(:new)
         .and_return(instance_double(Thingie::Reviewer, review: report, usage: Thingie::Stats::Usage.new))
-      allow(Thingie::LlmClient).to receive(:new)
+      allow(Thingie::LlmClient).to receive(:build)
       allow(Thingie::SkillCatalog).to receive(:tool).and_return(nil)
       allow(Thingie::SystemOneClassifier).to receive(:new)
       allow(Thingie::ChangeRiskScorer).to receive(:new).and_return(scorer)
