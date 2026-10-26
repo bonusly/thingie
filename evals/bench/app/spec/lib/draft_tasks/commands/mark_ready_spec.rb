@@ -50,4 +50,15 @@ RSpec.describe DraftTasks::Commands::MarkReady do
     expect(draft.reload).to be_drafting
     lock.release
   end
+
+  it "reports a busy giver lock as a failure message" do
+    lock = RedisLock.new("locks:giver:#{company.id}:#{member.id}", ttl: 5)
+    lock.acquire
+
+    result = described_class.call(draft: draft, actor: member)
+
+    expect(result.error).to match(/giver lock/)
+    expect(draft.reload).to be_drafting
+    lock.release
+  end
 end

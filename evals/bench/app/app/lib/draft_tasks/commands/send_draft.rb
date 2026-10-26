@@ -1,13 +1,14 @@
 module DraftTasks
   module Commands
     class SendDraft
-      def self.call(draft:, actor:)
-        new(draft: draft, actor: actor).call
+      def self.call(draft:, actor:, points: nil)
+        new(draft: draft, actor: actor, points: points).call
       end
 
-      def initialize(draft:, actor:)
+      def initialize(draft:, actor:, points:)
         @draft = draft
         @actor = actor
+        @points = points
       end
 
       def call
@@ -25,7 +26,7 @@ module DraftTasks
 
       private
 
-      attr_reader :draft, :actor
+      attr_reader :draft, :actor, :points
 
       def create_task(locked)
         Tasks::Commands::Create.call(
@@ -35,12 +36,16 @@ module DraftTasks
       end
 
       def finalize(locked, task)
-        settled = Points::Commands::SettleReservation.call(draft: locked, task: task, amount: locked.points)
+        settled = Points::Commands::SettleReservation.call(draft: locked, task: task, amount: settle_amount(locked))
         return settled if settled.failure?
 
         locked.mark_sent!(task)
         notify(locked, task)
         Result.success(task)
+      end
+
+      def settle_amount(locked)
+        points.present? ? points.to_i : locked.points
       end
 
       def notify(locked, task)

@@ -75,10 +75,13 @@ class DraftTask
   end
 
   def release_reservation!
-    raise DraftTasks::WrongState.new(self, "ready") unless ready?
+    claimed = self.class.where(_id: id, state: "ready").find_one_and_update(
+      { "$set" => { state: "drafting", ready_at: nil, updated_at: Time.current } },
+      return_document: :after
+    )
+    raise DraftTasks::WrongState.new(self, "ready") if claimed.nil?
 
-    set(state: "drafting", ready_at: nil)
-    self
+    reload
   end
 
   def task_attributes
