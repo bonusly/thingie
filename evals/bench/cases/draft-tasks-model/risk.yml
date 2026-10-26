@@ -1,0 +1,621 @@
+# Expected System One answers per scored file, by push: true/false for each probability question, a
+# rating for overall. Bootstrapped from a run with `evals/bench/risk --write-expectations <run file>`,
+# then corrected by hand; the bootstrap never overwrites an entry that is already here.
+final-push:
+  app/controllers/api/v1/draft_tasks_controller.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/javascript/pages/DraftTasksPage.tsx:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/javascript/types.ts:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/draft_tasks/blueprints/draft_task_blueprint.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/draft_tasks/commands/create.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/lib/draft_tasks/commands/mark_ready.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: critical
+  app/lib/draft_tasks/commands/release.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/lib/draft_tasks/commands/send_draft.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: critical
+  app/lib/draft_tasks/commands/update.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/lib/draft_tasks/queries/list_reservations.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/lists/services/draft_public_view.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/lib/points/blueprints/ledger_entry_blueprint.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/points/commands/release_stale_reservations.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/lib/points/commands/settle_reservation.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: critical
+  app/lib/points/jobs/release_stale_reservations_job.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/lib/points/queries/giving_balance.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/lib/points/services/with_locked_giver.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/lib/sharing/queries/public_list.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/tasks/commands/create.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/models/draft_task.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/models/points_ledger_entry.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: critical
+  config/routes.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  config/sidekiq.yml:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  spec/factories/draft_tasks.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/factories/points_ledger_entries.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/draft_tasks/blueprints/draft_task_blueprint_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/draft_tasks/commands/create_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/draft_tasks/commands/mark_ready_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/draft_tasks/commands/release_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/draft_tasks/commands/send_draft_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/draft_tasks/commands/update_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/draft_tasks/queries/list_reservations_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/lists/services/draft_public_view_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/points/commands/release_stale_reservations_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/points/commands/settle_reservation_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/points/jobs/release_stale_reservations_job_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/points/queries/giving_balance_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/points/services/with_locked_giver_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/sharing/queries/public_list_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/tasks/commands/create_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/models/draft_task_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/models/points_ledger_entry_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/requests/api/v1/draft_tasks_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/requests/api/v1/points_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/requests/public/share_pages_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+first-push:
+  app/controllers/api/v1/draft_tasks_controller.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/javascript/pages/DraftTasksPage.tsx:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/javascript/types.ts:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/draft_tasks/blueprints/draft_task_blueprint.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/draft_tasks/commands/create.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/lib/draft_tasks/commands/mark_ready.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/draft_tasks/commands/release.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/lib/draft_tasks/commands/send_draft.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: critical
+  app/lib/draft_tasks/commands/update.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/lib/draft_tasks/queries/list_reservations.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/lists/services/draft_public_view.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/lib/points/blueprints/ledger_entry_blueprint.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/points/commands/release_stale_reservations.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/lib/points/commands/settle_reservation.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: critical
+  app/lib/points/jobs/release_stale_reservations_job.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/lib/points/queries/giving_balance.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/lib/sharing/queries/public_list.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  app/lib/tasks/commands/create.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/models/draft_task.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: risky
+  app/models/points_ledger_entry.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: critical
+  config/routes.rb:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  config/sidekiq.yml:
+    security: false
+    user_impact: true
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: routine
+  spec/factories/draft_tasks.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/factories/points_ledger_entries.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/draft_tasks/blueprints/draft_task_blueprint_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/draft_tasks/commands/create_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/draft_tasks/commands/mark_ready_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/draft_tasks/commands/release_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/draft_tasks/commands/send_draft_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/draft_tasks/commands/update_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/draft_tasks/queries/list_reservations_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/lists/services/draft_public_view_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/points/commands/release_stale_reservations_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/points/commands/settle_reservation_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/points/jobs/release_stale_reservations_job_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/points/queries/giving_balance_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/sharing/queries/public_list_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/lib/tasks/commands/create_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/models/draft_task_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/models/points_ledger_entry_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/requests/api/v1/draft_tasks_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/requests/api/v1/points_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
+  spec/requests/public/share_pages_spec.rb:
+    security: false
+    user_impact: false
+    performance: false
+    new_dependencies: false
+    maintainability: false
+    overall: trivial
