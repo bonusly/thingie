@@ -17,11 +17,17 @@ module Api
       def connected
         result = Search::Queries::ConnectedSearch.call(
           company: current_company, user: current_user, q: params[:q], since_days: params[:since_days].presence,
-          cursor: params[:cursor], providers: params[:providers]
+          cursors: cursor_params, providers: params[:providers]
         )
         render json: {
-          items: result.items, next_cursor: result.next_cursor, truncated: result.truncated, skipped: result.skipped
+          items: result.items, next_cursors: result.next_cursors, truncated: result.truncated, skipped: result.skipped
         }
+      end
+
+      private
+
+      def cursor_params
+        params.fetch(:cursors, {}).permit(*ConnectorAccount::PROVIDERS).to_h
       end
     end
   end

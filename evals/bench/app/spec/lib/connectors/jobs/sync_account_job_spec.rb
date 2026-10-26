@@ -16,13 +16,14 @@ RSpec.describe Connectors::Jobs::SyncAccountJob do
     allow(Connectors::Github::Queries::ListPullRequests).to receive(:call).and_return(result_for(Connectors::Github::Queries::ListPullRequests))
   end
 
-  it "runs every registered query over the window and advances last_synced_at" do
-    travel_to(Time.zone.parse("2026-10-16 09:00:00")) { described_class.new.perform(account.id.to_s) }
+  it "runs every registered query with one watermark and advances last_synced_at to the start of the run" do
+    started_at = Time.zone.parse("2026-10-16 09:00:00")
+    travel_to(started_at) { described_class.new.perform(account.id.to_s) }
 
-    expected_since = Date.new(2026, 10, 2).in_time_zone
+    expected_since = account.last_synced_at - Connectors::Services::LookBack::OVERLAP
     expect(Connectors::Github::Queries::ListIssues).to have_received(:call).with(account_id: account.id.to_s, since: expected_since)
     expect(Connectors::Github::Queries::ListPullRequests).to have_received(:call).with(account_id: account.id.to_s, since: expected_since)
-    expect(account.reload.last_synced_at).to eq(Time.zone.parse("2026-10-16 09:00:00"))
+    expect(account.reload.last_synced_at).to eq(started_at)
     expect(account.external_items.pluck(:external_id)).to eq(["1"])
   end
 

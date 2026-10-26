@@ -8,16 +8,16 @@ RSpec.describe "Connected search API" do
   end
 
   describe "GET /api/v1/search/connected" do
-    it "returns matching items with a cursor to continue from" do
+    it "returns matching items with per-provider cursors" do
       allow(client).to receive(:issues).with(hash_including(cursor: "2")).and_return(Connectors::Page.new(items: [issue(1, title: "Flaky build")], next_cursor: 3))
 
       api_get "/api/v1/search/connected", user: member, company: company,
-                                          params: { q: "flaky", providers: ["github"], cursor: "2", since_days: "3" }
+                                          params: { q: "flaky", providers: ["github"], cursors: { github: "2" }, since_days: "3" }
 
       expect(response).to have_http_status(:ok)
       expect(json["items"].map { |i| i["external_id"] }).to eq(["1"])
       expect(json["items"].first["provider"]).to eq("github")
-      expect(json["next_cursor"]).to eq("3")
+      expect(json["next_cursors"]).to eq("github" => "3")
       expect(json["truncated"]).to be(true)
       expect(client).to have_received(:issues).with(hash_including(since: a_value_within(5.seconds).of(3.days.ago)))
     end
