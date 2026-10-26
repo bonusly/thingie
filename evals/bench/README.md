@@ -109,23 +109,3 @@ across repeats; every other number counts a file once, at its first answer). `.g
 runs it when the `eval-risk` label is added (or on demand, with a `models` input) and posts a "Risk eval results"
 comment, without the per-file tables when they would pass GitHub's comment size limit. It needs the
 `SYSTEM_ONE_API_KEY` secret.
-
-## Copilot
-
-`copilot/report.md` is GitHub Copilot's code review of the same cases against `baseline.json` (the last full run
-on main), and `copilot/run.json` the run file behind it. Each case was opened as a pull request (#178, #182 to
-#186) into `copilot-eval/base`, which is main without `evals/bench/cases`, so the labels were out of Copilot's
-reach. The first push went up as one commit and the final push as a second, with Copilot asked to review each.
-
-A finding is an issue under "open issues" or "previously missed issue" in Copilot's review overview, so a
-final-push review counts issues still open from the first push as well as new ones; "resolved since last
-review" is left out. Severity is Copilot's: High is 2, Medium 3, Low 4. Latency is from the review request to
-the review. There is no cost, and nothing is held back.
-
-To rebuild it from those pull requests (closed without merging):
-
-```sh
-bundle exec evals/bench/copilot/fetch                                   # writes copilot/run.json, unscored
-bundle exec evals/bench/run --rescore evals/bench/copilot/run.json --no-baseline
-bundle exec evals/bench/run --report evals/bench/copilot/run.json > evals/bench/copilot/report.md
-```
