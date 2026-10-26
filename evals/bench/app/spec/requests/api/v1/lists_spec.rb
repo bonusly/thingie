@@ -12,7 +12,7 @@ RSpec.describe "Lists API" do
       api_get "/api/v1/lists", user: member, company: company
 
       expect(json.first).to include(
-        "id" => list.id.to_s, "open_task_count" => 1, "ready_draft_count" => 0, "attached_draft_count" => 1, "member_count" => 1
+        "id" => list.id.to_s, "open_task_count" => 1, "ready_draft_count" => 0, "attached_draft_count" => 1, "member_count" => 2
       )
     end
 

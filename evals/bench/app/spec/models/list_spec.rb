@@ -42,6 +42,18 @@ RSpec.describe List do
     end
   end
 
+  describe "#members" do
+    it "includes the authors of attached drafts alongside member_ids" do
+      list = create(:list, company: company)
+      contributor = create(:user)
+      create(:draft_task, company: company, list: list, author: contributor, attached_at: 1.hour.ago)
+      create(:draft_task, :sent, company: company, list: list, author: create(:user))
+
+      expect(list.members.to_a).to contain_exactly(list.owner, contributor)
+      expect(list).not_to be_member(contributor)
+    end
+  end
+
   describe "#add_member and #remove_member" do
     it "keeps member_ids unique" do
       list = create(:list, company: company)

@@ -25,11 +25,11 @@ RSpec.describe "Share pages" do
 
     expect(json["drafts"].size).to eq(1)
     expect(json["drafts"].first).to include("title" => draft.title, "state" => "ready", "has_note" => true)
-    expect(json["drafts"].first["author"]["name"]).to eq(member.name)
+    expect(json["drafts"].first["author"]).to eq("name" => member.display_name)
     expect(json["drafts"].first["attached_at"]).to be_present
   end
 
-  it "hides the author name when the draft is private" do
+  it "hides the author entirely when the draft is private" do
     draft.update!(visibility: "private")
     link = create(:share_link, :with_drafts, company: company, list: list, created_by: admin)
 
@@ -37,6 +37,8 @@ RSpec.describe "Share pages" do
 
     expect(json["drafts"].size).to eq(1)
     expect(json["drafts"].first["author_name"]).to be_nil
+    expect(json["drafts"].first["author"]).to be_nil
+    expect(response.body).not_to include(member.name)
   end
 
   it "404s for dead links" do
