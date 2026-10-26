@@ -97,8 +97,6 @@ jobs:
         uses: Bonusly/rubyrt/.github/actions/thingie@v1
         with:
           api_key: ${{ secrets.LLM_API_KEY }}
-          model: ${{ vars.LLM_MODEL }}
-          provider: ${{ vars.LLM_PROVIDER }}
           # Post as the app when configured, otherwise as github-actions.
           github_token: ${{ steps.app_token.outputs.token || github.token }}
           # PAT (user token) with pull-requests write so stale review threads can
@@ -106,10 +104,12 @@ jobs:
           resolve_token: ${{ secrets.THINGIE_RESOLVE_TOKEN }}
 ```
 
-Model and provider come from repo **variables** (`vars.LLM_MODEL`,
-`vars.LLM_PROVIDER`) so you can change them without editing the workflow. This
-repo runs the review on OpenRouter and re-checks findings with a stronger model
-in the critic pass — see [The critic pass](#the-critic-pass-reducing-false-positives).
+The review model and provider come from `model` and `provider` in
+`.thingie/config.toml`. The action's `model` and `provider` inputs are optional
+overrides: when set, they win over the config file; when left out, the config
+file (or Thingie's bundled default) is used. This repo runs the review on
+OpenRouter and re-checks findings in the critic pass — see
+[The critic pass](#the-critic-pass-reducing-false-positives).
 
 The action referenced above is the composite action at
 [`.github/actions/thingie/action.yml`](.github/actions/thingie/action.yml); it
@@ -279,7 +279,7 @@ Key settings:
 | Setting | Default | Config key | Environment variable | CLI flag |
 |---|---|---|---|---|
 | LLM provider | `openai` | `provider` | `LLM_PROVIDER` | `-p`, `--provider` |
-| LLM model | `gpt-4o` | `model` | `LLM_MODEL` | `-m`, `--model` |
+| LLM model | `gpt-5.4-nano` | `model` | `LLM_MODEL` | `-m`, `--model` |
 | API key | — | `llm_api_key` | `LLM_API_KEY` | — |
 | API base URL | provider default | `llm_api_base` | `LLM_API_BASE` | — |
 | Request timeout (seconds) | `120` | `request_timeout` | `LLM_REQUEST_TIMEOUT` | — |

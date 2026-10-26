@@ -15,13 +15,16 @@ inputs:
     description: "OpenAI-compatible API base URL"
     required: false
   model:
-    description: "LLM model name"
+    description: >-
+      LLM model name. Optional; when unset, `model` from .thingie/config.toml
+      (or Thingie's bundled default) is used.
     required: false
-    default: "gpt-4o"
   provider:
-    description: "LLM provider (e.g. openai, anthropic, gemini)"
+    description: >-
+      LLM provider (e.g. openai, anthropic, gemini, openrouter). Optional; when
+      unset, `provider` from .thingie/config.toml (or Thingie's bundled default)
+      is used.
     required: false
-    default: "openai"
   output_dir:
     description: "Directory for review reports"
     required: false
