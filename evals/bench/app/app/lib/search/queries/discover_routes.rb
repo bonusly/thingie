@@ -33,8 +33,6 @@ module Search
 
       def call
         source = read_source
-        return [] if source.nil?
-
         resolver = Search::Services::ConstantResolver.new(source: source, router_path: router_path, tsconfig_path: tsconfig_path)
         routes = Search::Services::RouteParser.new(source: source, resolver: resolver, path: router_path).call
         raise Search::RouterEmpty, router_path if routes.empty?
@@ -48,8 +46,10 @@ module Search
 
       def read_source
         File.read(router_path)
-      rescue SystemCallError
-        nil
+      rescue Errno::ENOENT
+        raise Search::RouterMissing, router_path
+      rescue SystemCallError => e
+        raise Search::FetchFailed.new(router_path, e)
       end
     end
   end
