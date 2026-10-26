@@ -36,4 +36,12 @@ RSpec.describe DraftTasks::Commands::Release do
     draft.mark_sent!(create(:task, company: company, list: list))
     expect(described_class.call(draft: draft, actor: member).error).to be_a(DraftTasks::WrongState)
   end
+
+  it "does not undo a send that landed after the draft was read" do
+    stale = DraftTask.find(draft.id)
+    draft.mark_sent!(create(:task, company: company, list: list))
+
+    expect(described_class.call(draft: stale, actor: member).error).to be_a(DraftTasks::WrongState)
+    expect(draft.reload).to be_sent
+  end
 end

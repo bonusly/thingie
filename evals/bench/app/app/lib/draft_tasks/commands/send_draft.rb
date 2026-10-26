@@ -9,6 +9,8 @@ module DraftTasks
         end
       end
 
+      FINAL_EDITS = DraftTasks::Commands::MarkReady::FINAL_EDITS
+
       def self.call(draft:, actor:, edits: {}, finalize: true)
         new(draft: draft, actor: actor, edits: edits, finalize: finalize).call
       end
@@ -16,7 +18,7 @@ module DraftTasks
       def initialize(draft:, actor:, edits:, finalize:)
         @draft = draft
         @actor = actor
-        @edits = edits.to_h.symbolize_keys
+        @edits = edits.to_h.symbolize_keys.slice(*FINAL_EDITS)
         @finalize = finalize
       end
 

@@ -1,6 +1,8 @@
 module DraftTasks
   module Commands
     class Release
+      FINAL_EDITS = DraftTasks::Commands::MarkReady::FINAL_EDITS
+
       def self.call(draft:, actor:, edits: {})
         new(draft: draft, actor: actor, edits: edits).call
       end
@@ -8,27 +10,30 @@ module DraftTasks
       def initialize(draft:, actor:, edits:)
         @draft = draft
         @actor = actor
-        @edits = edits.to_h.symbolize_keys
+        @edits = edits.to_h.symbolize_keys.slice(*FINAL_EDITS)
       end
 
       def call
-        return Result.failure(DraftTasks::WrongState.new(draft, "ready")) if draft.sent?
-        return Result.failure("only the author can release a draft") unless allowed?
-        return Result.success(draft) if draft.drafting?
+        DraftTasks::Services::WithLockedDraft.call(draft) do |locked|
+          return Result.failure(DraftTasks::WrongState.new(locked, "ready")) if locked.sent?
+          return Result.failure("only the author can release a draft") unless allowed?(locked)
+          return Result.success(locked) if locked.drafting?
 
-        draft.assign_attributes(edits)
-        return Result.failure(draft.errors.full_messages) unless draft.valid?
+          locked.resume_drafting!
+          return Result.failure(locked.errors.full_messages) unless locked.update(edits)
 
-        draft.update(state: "drafting", ready_at: nil, points_reserved_at: nil)
-        Result.success(draft)
+          Result.success(locked)
+        end
+      rescue DraftTasks::Commands::SendDraft::Lock::Busy => e
+        Result.failure(e)
       end
 
       private
 
       attr_reader :draft, :actor, :edits
 
-      def allowed?
-        draft.author_id == actor.id || actor.admin_of?(draft.company)
+      def allowed?(locked)
+        locked.author_id == actor.id || actor.admin_of?(locked.company)
       end
     end
   end

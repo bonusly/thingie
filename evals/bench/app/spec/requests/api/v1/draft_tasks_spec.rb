@@ -62,6 +62,13 @@ RSpec.describe "Draft tasks API" do
       expect(json["points_reserved_at"]).to be_present
     end
 
+    it "rejects read-only keys on the transition" do
+      api_post "/api/v1/draft_tasks/#{draft.id}/mark_ready", user: member, company: company,
+               params: { draft_task: { author_id: admin.id.to_s } }
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(draft.reload.author_id).to eq(member.id)
+    end
+
     it "forbids non-authors" do
       api_post "/api/v1/draft_tasks/#{draft.id}/mark_ready", user: admin, company: company
       expect(response).to have_http_status(:forbidden)
@@ -73,6 +80,14 @@ RSpec.describe "Draft tasks API" do
       draft = create(:draft_task, :ready, company: company, list: list, author: member)
       api_post "/api/v1/draft_tasks/#{draft.id}/release", user: admin, company: company
       expect(json).to include("state" => "drafting", "points_reserved_at" => nil)
+    end
+
+    it "rejects state in the body" do
+      draft = create(:draft_task, :ready, company: company, list: list, author: member)
+      api_post "/api/v1/draft_tasks/#{draft.id}/release", user: member, company: company,
+               params: { draft_task: { state: "sent" } }
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(draft.reload).to be_ready
     end
   end
 

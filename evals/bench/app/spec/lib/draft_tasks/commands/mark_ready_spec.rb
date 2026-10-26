@@ -23,6 +23,12 @@ RSpec.describe DraftTasks::Commands::MarkReady do
     expect(draft.scheduled_for).to eq(at)
   end
 
+  it "only takes the note and schedule as final edits" do
+    described_class.call(draft: draft, actor: member, edits: { title: "Renamed", author_id: admin.id })
+    expect(draft.reload.title).not_to eq("Renamed")
+    expect(draft.author_id).to eq(member.id)
+  end
+
   it "fails when the remaining budget cannot cover the points" do
     create(:draft_task, :ready, company: company, author: member, points: 80)
 

@@ -12,7 +12,7 @@ class DraftTaskPolicy < ApplicationPolicy
   end
 
   def mark_ready?
-    same_company? && author? && record.drafting?
+    same_company? && author? && record.drafting? && Features.enabled?(:draft_tasks, user)
   end
 
   def release?
