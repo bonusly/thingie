@@ -59,4 +59,12 @@ class Company
   def setting(key)
     settings.fetch(key.to_s, nil)
   end
+
+  def enabled_flags
+    Array(setting("flags")).map(&:to_s)
+  end
+
+  def flag_enabled?(name)
+    enabled_flags.include?(name.to_s)
+  end
 end

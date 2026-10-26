@@ -1,45 +1,55 @@
 module Search
   module Queries
     class DiscoverRoutes
-      Route = Struct.new(:path, :name, :component, :permission, keyword_init: true) do
+      Route = Struct.new(:path, :name, :component, :permission, :flag, keyword_init: true) do
         def gated?
           permission.present?
+        end
+
+        def flagged?
+          flag.present?
+        end
+
+        def dynamic?
+          path.to_s.include?(":")
+        end
+
+        def readable?
+          path.to_s.start_with?("/") && name.present? && component.present?
         end
       end
 
       DEFAULT_ROUTER = "app/javascript/app-router.tsx".freeze
+      DEFAULT_TSCONFIG = "tsconfig.json".freeze
 
-      ENTRY = /\{\s*path:\s*"(?<path>[^"]*)"\s*,\s*name:\s*"(?<name>[^"]*)"\s*,\s*component:\s*lazy\(\(\)\s*=>\s*import\("(?<component>[^"]*)"\)\)(?:\s*,\s*permission:\s*"(?<permission>[^"]*)")?\s*,?\s*\}/m
-
-      def self.call(router_path: Rails.root.join(DEFAULT_ROUTER))
-        new(router_path: router_path).call
+      def self.call(router_path: Rails.root.join(DEFAULT_ROUTER), tsconfig_path: Rails.root.join(DEFAULT_TSCONFIG))
+        new(router_path: router_path, tsconfig_path: tsconfig_path).call
       end
 
-      def initialize(router_path:)
+      def initialize(router_path:, tsconfig_path:)
         @router_path = router_path
+        @tsconfig_path = tsconfig_path
       end
 
       def call
-        raise Search::RouterMissing, router_path unless File.exist?(router_path)
+        source = read_source
+        return [] if source.nil?
 
-        source = File.read(router_path)
-        routes = source.to_enum(:scan, ENTRY).map { build_route(Regexp.last_match) }
+        resolver = Search::Services::ConstantResolver.new(source: source, router_path: router_path, tsconfig_path: tsconfig_path)
+        routes = Search::Services::RouteParser.new(source: source, resolver: resolver, path: router_path).call
         raise Search::RouterEmpty, router_path if routes.empty?
 
-        routes
+        routes.sort_by.with_index { |route, index| [route.dynamic? ? 1 : 0, index] }
       end
 
       private
 
-      attr_reader :router_path
+      attr_reader :router_path, :tsconfig_path
 
-      def build_route(match)
-        Route.new(
-          path: match[:path],
-          name: match[:name],
-          component: File.basename(match[:component]),
-          permission: match[:permission].presence
-        )
+      def read_source
+        File.read(router_path)
+      rescue SystemCallError
+        nil
       end
     end
   end

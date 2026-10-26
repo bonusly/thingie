@@ -9,6 +9,18 @@ FactoryBot.define do
       permission { "tasks:read" }
     end
 
+    trait :staff_only do
+      permission { "admin:staff" }
+    end
+
+    trait :flagged do
+      flag { "points_ledger" }
+    end
+
+    trait :unreadable do
+      unreadable { true }
+    end
+
     trait :stale do
       indexed_at { 2.days.ago }
     end
