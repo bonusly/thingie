@@ -1,0 +1,98 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# Copilot's reviews of the bench cases, as a run file the bench can score. Each case was opened as a pull request
+# into copilot-eval/base (main without evals/bench/cases, so the labels are out of reach), its first push then its
+# final push, with Copilot asked to review each. This reads those reviews from GitHub and writes
+# evals/bench/copilot/run.json; `evals/bench/run --rescore evals/bench/copilot/run.json` then matches the findings
+# against the labels. See evals/bench/README.md.
+
+require 'json'
+require 'open3'
+require 'time'
+require_relative '../lib/bench'
+
+module Bench
+  # Builds the Copilot run file from the eval pull requests.
+  module Copilot
+    REPO = 'bonusly/thingie'
+    PULL_REQUESTS = {
+      'attach-drafts-to-lists' => 178,
+      'readme-typo' => 182,
+      'draft-tasks-api' => 183,
+      'draft-tasks-model' => 184,
+      'paged-connectors' => 185,
+      'route-discovery' => 186
+    }.freeze
+    SEVERITIES = { 'Critical' => 1, 'High' => 2, 'Medium' => 3, 'Low' => 4 }.freeze
+    # One line of the review overview: `alt="High severity"` ... `[Title](...#discussion_r123) · New`
+    ISSUE = /alt="(\w+) severity".*?\[(.+?)\]\(\S*#discussion_r(\d+)\)/
+    APP_PREFIX = 'evals/bench/app/'
+
+    module_function
+
+    def run
+      reviews = PULL_REQUESTS.flat_map { |name, number| reviews_for(Case.load(name), number) }
+      RunFile.assemble(reviews, label: 'copilot')
+             .merge('at' => Time.now.utc.iso8601, 'variant' => 'copilot', 'model' => 'copilot',
+                    'source' => PULL_REQUESTS.transform_values { |n| "https://github.com/#{REPO}/pull/#{n}" })
+    end
+
+    def reviews_for(kase, number)
+      commits = gh("pulls/#{number}/commits").map { |c| c['sha'] }
+      pushes = kase.first_push? ? %w[first-push final-push] : %w[final-push]
+      refs = pushes.zip(commits).select(&:last).to_h
+      copilot = gh("pulls/#{number}/reviews").select { |r| r.dig('user', 'login').match?(/copilot/i) }
+      comments = gh("pulls/#{number}/comments").to_h { |c| [c['id'].to_s, c] }
+      requests = gh("issues/#{number}/timeline").select { |e| e['event'] == 'review_requested' }
+                                                .map { |e| Time.parse(e['created_at']) }
+
+      refs.filter_map do |ref, sha|
+        review = copilot.select { |r| r['commit_id'] == sha }.max_by { |r| r['submitted_at'] }
+        next warn("#{kase.name} #{ref}: no Copilot review of #{sha[0, 7]}") unless review
+
+        submitted = Time.parse(review['submitted_at'])
+        seconds = submitted - (requests.select { |t| t <= submitted }.max || submitted)
+        entry(kase, ref, review, findings(review, comments), seconds)
+      end
+    end
+
+    def entry(kase, ref, review, posted, seconds)
+      metrics = Metrics.compute(labels: kase.labels_at(ref), posted: posted, held_back: [], usage: {},
+                                seconds: seconds, changed_lines: changed_lines(kase.name, ref), warnings: [])
+      { 'case' => kase.name, 'ref' => ref, 'model' => 'copilot', 'metrics' => metrics,
+        'first_pass' => posted.size, 'posted' => posted, 'held_back' => [], 'warnings' => [], 'repeat' => 0,
+        'review' => review['html_url'] }
+    end
+
+    # The same diff the bench reviews, so baseline.json already counts its changed lines.
+    def changed_lines(name, ref)
+      baseline['cases'].find { |c| c['case'] == name && c['ref'] == ref }&.dig('metrics', 'noise', 'changed_lines').to_i
+    end
+
+    def baseline
+      @baseline ||= JSON.parse(File.read(File.join(ROOT, 'baseline.json')))
+    end
+
+    # The open issues the review's overview lists, which at a later push includes ones still open from an
+    # earlier review, with the details from each issue's inline comment.
+    def findings(review, comments)
+      review['body'].to_s.scan(ISSUE).map do |severity, title, id|
+        comment = comments.fetch(id) { abort "review #{review['id']} lists comment #{id}, which is not on the PR" }
+        { 'title' => title, 'file' => comment['path'].delete_prefix(APP_PREFIX),
+          'severity' => SEVERITIES.fetch(severity), 'confidence' => nil, 'unchecked' => false,
+          'details' => comment['body'], 'label' => nil }
+      end
+    end
+
+    def gh(path)
+      out, err, status = Open3.capture3('gh', 'api', '--paginate', '--slurp', "repos/#{REPO}/#{path}")
+      abort "gh api #{path}: #{err}" unless status.success?
+      JSON.parse(out).flatten
+    end
+  end
+end
+
+out = File.join(Bench::ROOT, 'copilot', 'run.json')
+File.write(out, JSON.pretty_generate(Bench::Copilot.run))
+puts out
