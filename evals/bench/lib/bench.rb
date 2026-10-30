@@ -196,7 +196,7 @@ module Bench
     def critic(findings)
       issues = findings.map { |hash| Thingie::Issue.from_hash(hash) }
       verifier = Thingie::Verifier.new(config: @config, changeset: @changeset, prompt_builder: prompt_builder,
-                                       llm_client: Thingie::LlmClient.new(@config), tools: tools, usage: @usage)
+                                       llm_client: Thingie::LlmClient.build(@config), tools: tools, usage: @usage)
       kept = verifier.call(issues)
       posted, held_back = Thingie::PostProcessor.new(@config['post_process']).split_confidence(kept)
       posted = dedupe(posted)
@@ -214,7 +214,7 @@ module Bench
     # and body are not shown to the model.
     def reviewer_args
       args = { config: @config, changeset: @changeset, prompt_builder: prompt_builder,
-               llm_client: Thingie::LlmClient.new(@config), tools: tools }
+               llm_client: Thingie::LlmClient.build(@config), tools: tools }
       accepts = Thingie::Reviewer.instance_method(:initialize).parameters.include?(%i[key pull_request])
       accepts ? args.merge(pull_request: @pull_request) : args
     end
@@ -229,7 +229,7 @@ module Bench
       settings = @config['dedupe']
       return issues unless settings.is_a?(Hash) && settings['enabled'] && issues.size > 1
 
-      Thingie::DuplicateFilter.new(llm_client: Thingie::LlmClient.new(@config), prompt_builder: prompt_builder)
+      Thingie::DuplicateFilter.new(llm_client: Thingie::LlmClient.build(@config), prompt_builder: prompt_builder)
                               .call(issues, [])
     rescue StandardError => e
       # The commenter posts everything when the repeat check fails; the bench keeps everything the same way.
@@ -262,7 +262,7 @@ module Bench
     }.freeze
 
     def initialize(config, labels)
-      @client = Thingie::LlmClient.new(config)
+      @client = Thingie::LlmClient.build(config)
       @labels = labels
     end
 
