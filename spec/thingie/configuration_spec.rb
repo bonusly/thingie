@@ -226,6 +226,37 @@ RSpec.describe Thingie::Configuration do
       expect(description.length).to eq(151)
       expect(description).to end_with('…')
     end
+
+    it 'uses the front matter description when present' do
+      content = "---\nname: forms\ndescription: >\n  Zod + react-hook-form\n  conventions.\n---\n\n# Forms\nbody"
+      expect(fragment(content).description).to eq('Zod + react-hook-form conventions.')
+    end
+
+    it 'falls back to the first body line when front matter has no description' do
+      expect(fragment("---\nname: forms\n---\n\n# Forms\nbody").description).to eq('Forms')
+    end
+
+    it 'ignores malformed front matter' do
+      expect(fragment("---\nname: [unclosed\n---\nbody").description).to eq('---')
+    end
+  end
+
+  describe 'SkillFragment#name' do
+    def fragment(path, content = 'body')
+      Thingie::SkillFragment.new(path: path, content: content, source: '/tmp/skills')
+    end
+
+    it 'uses the filename for plain fragments' do
+      expect(fragment('/tmp/skills/rails_rules.md').name).to eq('rails_rules')
+    end
+
+    it 'uses the parent directory for SKILL.md files without front matter' do
+      expect(fragment('/tmp/skills/forms/SKILL.md').name).to eq('forms')
+    end
+
+    it 'prefers the front matter name' do
+      expect(fragment('/tmp/skills/forms/SKILL.md', "---\nname: zod-forms\n---\nbody").name).to eq('zod-forms')
+    end
   end
 
   context 'with custom skill_directories' do

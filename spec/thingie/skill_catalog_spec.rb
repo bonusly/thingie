@@ -54,5 +54,25 @@ RSpec.describe Thingie::SkillCatalog do
         expect(catalog.find('.cursor/rails_rules').content).to eq('.cursor content')
       end
     end
+
+    context 'with <name>/SKILL.md skills that have front matter' do
+      before do
+        %w[forms styling].each do |name|
+          dir = File.join(tmp_dir, '.agents', 'skills', name)
+          FileUtils.mkdir_p(dir)
+          File.write(File.join(dir, 'SKILL.md'), "---\nname: #{name}\ndescription: About #{name}.\n---\n\n#{name} body")
+        end
+      end
+
+      it 'names and describes each skill from its front matter so each is findable', :aggregate_failures do
+        config = Thingie::Configuration.new(root: tmp_dir, overrides: { skill_directories: ['.agents/skills'] })
+        catalog = described_class.new(config)
+
+        expect(catalog.list.map { |s| [s.name, s.description] })
+          .to contain_exactly(['skills/forms', 'About forms.'], ['skills/styling', 'About styling.'])
+        expect(catalog.find('skills/forms').content).to include('forms body')
+        expect(catalog.find('skills/styling').content).to include('styling body')
+      end
+    end
   end
 end
