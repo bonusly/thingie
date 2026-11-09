@@ -2,6 +2,7 @@
 
 require 'tomlrb'
 require 'dotenv'
+require 'ruby_llm/skills'
 
 module Thingie
   # Environment-variable overrides for config keys, extracted from {Configuration}
@@ -306,19 +307,58 @@ module Thingie
       @source = source
     end
 
-    # The skill's name, derived from its filename without the `.md` extension.
+    # The skill's name: the front matter `name` when present, otherwise the
+    # parent directory for a `<name>/SKILL.md` file, otherwise the filename
+    # without its `.md` extension.
     #
     # @return [String] skill name
     def name
-      File.basename(@path, '.md')
+      @name ||= front_matter_string('name') || filename_name
     end
 
     # One-line summary used as progressive-disclosure metadata (SkillCatalog),
     # so the LLM sees this instead of the full skill body until it asks for it.
+    # Uses the front matter `description` when present, otherwise the first
+    # non-blank line of the body.
     def description
-      line = content.each_line.map(&:strip).find { |l| !l.empty? } || name
+      line = front_matter_string('description') || first_body_line || name
       line = line.sub(/\A#+\s*/, '')
       line.length > 150 ? "#{line[0, 150].rstrip}…" : line
+    end
+
+    private
+
+    def filename_name
+      basename = File.basename(@path, '.md')
+      basename.casecmp?('SKILL') ? File.basename(File.dirname(@path)) : basename
+    end
+
+    def first_body_line
+      body = front_matter.empty? ? content : RubyLLM::Skills::Parser.extract_body(unix_content)
+      body.each_line.map(&:strip).find { |l| !l.empty? }
+    end
+
+    # The gem's front matter regex only matches `\n`, so CRLF files are
+    # normalized before parsing.
+    def unix_content
+      @unix_content ||= content.gsub(/\r\n?/, "\n")
+    end
+
+    # Collapses whitespace so a multi-line YAML value still reads as one line.
+    def front_matter_string(key)
+      value = front_matter[key].to_s.split.join(' ')
+      value.empty? ? nil : value
+    end
+
+    # Parsed YAML front matter, or {} when the file has none (plain fragments)
+    # or it can't be parsed — those fall back to filename / first-line metadata.
+    def front_matter
+      @front_matter ||= begin
+        parsed = RubyLLM::Skills::Parser.parse_string(unix_content)
+        parsed.is_a?(Hash) ? parsed : {}
+      rescue RubyLLM::Skills::ParseError
+        {}
+      end
     end
   end
 end
