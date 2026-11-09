@@ -236,6 +236,11 @@ RSpec.describe Thingie::Configuration do
       expect(fragment("---\nname: forms\n---\n\n# Forms\nbody").description).to eq('Forms')
     end
 
+    it 'reads front matter from files with Windows line endings' do
+      expect(fragment("---\r\nname: forms\r\ndescription: About forms.\r\n---\r\n\r\nbody").description)
+        .to eq('About forms.')
+    end
+
     it 'ignores malformed front matter' do
       expect(fragment("---\nname: [unclosed\n---\nbody").description).to eq('---')
     end

@@ -334,8 +334,14 @@ module Thingie
     end
 
     def first_body_line
-      body = front_matter.empty? ? content : RubyLLM::Skills::Parser.extract_body(content)
+      body = front_matter.empty? ? content : RubyLLM::Skills::Parser.extract_body(unix_content)
       body.each_line.map(&:strip).find { |l| !l.empty? }
+    end
+
+    # The gem's front matter regex only matches `\n`, so CRLF files are
+    # normalized before parsing.
+    def unix_content
+      @unix_content ||= content.gsub(/\r\n?/, "\n")
     end
 
     # Collapses whitespace so a multi-line YAML value still reads as one line.
@@ -348,7 +354,7 @@ module Thingie
     # or it can't be parsed — those fall back to filename / first-line metadata.
     def front_matter
       @front_matter ||= begin
-        parsed = RubyLLM::Skills::Parser.parse_string(content)
+        parsed = RubyLLM::Skills::Parser.parse_string(unix_content)
         parsed.is_a?(Hash) ? parsed : {}
       rescue RubyLLM::Skills::ParseError
         {}
