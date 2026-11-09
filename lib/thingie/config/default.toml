@@ -370,6 +370,10 @@ dry_run = false
 # THINGIE_RESOLVE_TOKEN to a PAT with read:org. Membership that can't be
 # determined fails safe (not eligible).
 approval_team = ""
+# Bot logins also eligible when approval_team is set, e.g. ["loop-de-loops[bot]"].
+# A GitHub App can't be a team member, so list it here; the login must match the
+# PR author exactly. Ignored when approval_team is empty.
+approval_bots = []
 # Other required checks Thingie does not evaluate but that still gate merge (e.g.
 # a security scan, the test suite). Listed in the approval comment so it's clear
 # Thingie's approval isn't the only gate — these do not affect Thingie's decision.

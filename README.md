@@ -206,6 +206,7 @@ max_changes = 500          # additions + deletions ceiling; blocks approval if G
 max_severity = 3           # BLOCK line: issues at/below this severity number (1=Critical) block approval — independent from post_process.max_severity (the SHOW line), see "Filtering findings" below
 skip_label = "thingie-skip-approve"
 approval_team = "bonusly/pr-auto-approval"  # only auto-approve PRs whose author is on this GitHub team (needs read:org)
+approval_bots = ["loop-de-loops[bot]"]      # bot logins also eligible, since a GitHub App can't join a team
 protected_paths = ["app/billing/**", "config/secrets.yml"]  # globs that block approval when changed
 dry_run = false            # evaluate and log the decision without approving/dismissing
 ```
@@ -213,7 +214,7 @@ dry_run = false            # evaluate and log the decision without approving/dis
 A PR is approved only when **all** of these hold:
 
 - It isn't a draft and doesn't carry the `skip_label`.
-- Its author is a member of `approve.approval_team`, when that option is set (a non-member is skipped, not blocked, so a human's approval is left intact). Reading team membership needs a `read:org` token — set `THINGIE_RESOLVE_TOKEN` to a PAT with that scope.
+- Its author is a member of `approve.approval_team`, when that option is set (a non-member is skipped, not blocked, so a human's approval is left intact). Reading team membership needs a `read:org` token — set `THINGIE_RESOLVE_TOKEN` to a PAT with that scope. A bot login listed in `approve.approval_bots` is eligible too.
 - It doesn't modify `.thingie/config.toml` — a PR can't weaken the approval rules and wave itself through.
 - No changed file matches a `protected_paths` glob — e.g. billing code or sensitive config you always want a human to review.
 - Total changes are within `max_changes` (an unknown size fails safe and blocks approval).
@@ -302,6 +303,7 @@ Key settings:
 | Auto-approve skip label | `thingie-skip-approve` | `approve.skip_label` | — | — |
 | Auto-approve protected paths | `[".thingie/**/*"]` | `approve.protected_paths` | — | — |
 | Auto-approve team gate | `""` (disabled) | `approve.approval_team` | — | — |
+| Auto-approve bot authors | `[]` | `approve.approval_bots` | — | — |
 | Auto-approve dry run | `false` | `approve.dry_run` | — | — |
 | Skill directories | `.agents`, `.claude`, `.cursor` | `skill_directories` | — | — |
 | Language servers | none | `lsp.<name>` | — | — |

@@ -121,6 +121,12 @@ module Thingie
         @config['approval_team'].to_s.strip
       end
 
+      # Bot logins (e.g. "loop-de-loops[bot]") eligible alongside approval_team
+      # members: a GitHub App can't join a team, so it's named here instead.
+      def approval_bots
+        Array(@config['approval_bots']).map { |login| login.to_s.strip }.reject(&:empty?)
+      end
+
       # Skip (leave existing approvals alone) for intentional non-approvals;
       # block (dismiss any stale approval) when a rule fails.
       def decide(pr, report)
@@ -201,7 +207,11 @@ module Thingie
       def outside_approval_team?(pr)
         return false if approval_team.empty?
 
-        !author_on_approval_team?(pr)
+        !approval_bot?(pr) && !author_on_approval_team?(pr)
+      end
+
+      def approval_bot?(pr)
+        approval_bots.include?(pr.user&.login)
       end
 
       def author_on_approval_team?(pr)
@@ -394,7 +404,7 @@ module Thingie
         checks << 'No findings resolved by the PR author or a contributor'
         checks << 'No human reviewer requested changes'
         checks << 'Every file was reviewed'
-        checks << "Author is a member of #{approval_team}" unless approval_team.empty?
+        checks << author_check(pr) unless approval_team.empty?
         listed('Checks passed', checks)
       end
 
@@ -410,6 +420,12 @@ module Thingie
         return nil if checks.empty?
 
         listed('Checks not evaluated', checks)
+      end
+
+      def author_check(pr)
+        return "Author #{pr.user.login} is an approved bot" if approval_bot?(pr)
+
+        "Author is a member of #{approval_team}"
       end
 
       def change_size_check(pr)
