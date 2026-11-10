@@ -412,6 +412,52 @@ RSpec.describe Thingie::GitHub::Approver do # rubocop:disable RSpec/SpecFilePath
 
       expect(client).not_to have_received(:dismiss_pull_request_review)
     end
+
+    context 'when the author is a listed bot' do
+      let(:pr) do
+        double('pr', draft: false, additions: 10, deletions: 20, title: 'Example PR', # rubocop:disable RSpec/VerifiedDoubles
+                     head: double('head', sha: 'sha1'), user: double('user', login: 'loop-de-loops[bot]'), # rubocop:disable RSpec/VerifiedDoubles
+                     labels: [])
+      end
+
+      before do
+        config['approval_bots'] = ['loop-de-loops[bot]']
+        allow(client).to receive(:get)
+      end
+
+      it 'approves without a team lookup', :aggregate_failures do
+        approver.run(report_for([]))
+
+        expect(client).to have_received(:create_pull_request_review)
+          .with('o/r', 1, hash_including(body: a_string_including('Author loop-de-loops[bot] is an approved bot')))
+        expect(client).not_to have_received(:get)
+      end
+
+      it 'still blocks on a protected path' do
+        config['protected_paths'] = ['db/**/*']
+        allow(client).to receive(:pull_request_files).and_return([double('f', filename: 'db/schema.rb', patch: nil)]) # rubocop:disable RSpec/VerifiedDoubles
+        approver.run(report_for([]))
+
+        expect(client).not_to have_received(:create_pull_request_review)
+      end
+    end
+
+    context 'when the author is a bot that is not listed' do
+      let(:pr) do
+        double('pr', draft: false, additions: 10, deletions: 20, title: 'Example PR', # rubocop:disable RSpec/VerifiedDoubles
+                     head: double('head', sha: 'sha1'), user: double('user', login: 'other-bot[bot]'), # rubocop:disable RSpec/VerifiedDoubles
+                     labels: [])
+      end
+
+      it 'does not approve' do
+        config['approval_bots'] = ['loop-de-loops[bot]']
+        allow(client).to receive(:get)
+          .with('/orgs/bonusly/teams/pr-auto-approval/memberships/other-bot[bot]').and_raise(Octokit::NotFound)
+        approver.run(report_for([]))
+
+        expect(client).not_to have_received(:create_pull_request_review)
+      end
+    end
   end
 
   it 'ignores team gating when approval_team is unset' do
