@@ -442,12 +442,21 @@ RSpec.describe Thingie::GitHub::Approver do # rubocop:disable RSpec/SpecFilePath
       end
     end
 
-    it 'does not treat another bot as listed' do
-      config['approval_bots'] = ['loop-de-loops[bot]']
-      allow(client).to receive(:get).with(membership_path).and_raise(Octokit::NotFound)
-      approver.run(report_for([]))
+    context 'when the author is a bot that is not listed' do
+      let(:pr) do
+        double('pr', draft: false, additions: 10, deletions: 20, title: 'Example PR', # rubocop:disable RSpec/VerifiedDoubles
+                     head: double('head', sha: 'sha1'), user: double('user', login: 'other-bot[bot]'), # rubocop:disable RSpec/VerifiedDoubles
+                     labels: [])
+      end
 
-      expect(client).not_to have_received(:create_pull_request_review)
+      it 'does not approve' do
+        config['approval_bots'] = ['loop-de-loops[bot]']
+        allow(client).to receive(:get)
+          .with('/orgs/bonusly/teams/pr-auto-approval/memberships/other-bot[bot]').and_raise(Octokit::NotFound)
+        approver.run(report_for([]))
+
+        expect(client).not_to have_received(:create_pull_request_review)
+      end
     end
   end
 
