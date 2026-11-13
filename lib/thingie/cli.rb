@@ -341,7 +341,8 @@ module Thingie
 
           Thingie::Lsp::Client.new(
             command: server['command'], root: changeset.workdir,
-            initialization_options: server['initialization_options']
+            initialization_options: server['initialization_options'],
+            language_ids: server.fetch('language_ids', {})
           )
         end
       end

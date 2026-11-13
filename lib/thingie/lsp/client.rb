@@ -25,7 +25,8 @@ module Thingie
         'rb' => 'ruby', 'rake' => 'ruby', 'erb' => 'erb',
         'ts' => 'typescript', 'tsx' => 'typescriptreact',
         'js' => 'javascript', 'jsx' => 'javascriptreact',
-        'mjs' => 'javascript', 'cjs' => 'javascript'
+        'mjs' => 'javascript', 'cjs' => 'javascript',
+        'py' => 'python', 'pyi' => 'python'
       }.freeze
 
       # Builds a client; the server process itself isn't launched until the first {#lookup}.
@@ -33,10 +34,12 @@ module Thingie
       # @param command [String, Array<String>] the LSP server launch command
       # @param root [String] the workspace root the server should index
       # @param initialization_options [Object, nil] optional server-specific LSP initialization options
-      def initialize(command:, root:, initialization_options: nil)
+      # @param language_ids [Hash{String=>String}] optional language IDs keyed by lowercase dotted extension
+      def initialize(command:, root:, initialization_options: nil, language_ids: {})
         @command = Array(command)
         @root = File.expand_path(root)
         @initialization_options = initialization_options
+        @language_ids = language_ids
         # ponytail: global lock per client serializes lookups and blocks the
         # Async reactor during a call; fine at review throughput (a handful of
         # concurrent fibers). Move to async IO if it ever bottlenecks.
@@ -195,8 +198,11 @@ module Thingie
       end
 
       def language_id(path)
-        extension = File.extname(path).downcase.delete_prefix('.')
-        LANGUAGE_IDS.fetch(extension, extension)
+        extension = File.extname(path).downcase
+        @language_ids.fetch(extension) do
+          identifier = extension.delete_prefix('.')
+          LANGUAGE_IDS.fetch(identifier, identifier)
+        end
       end
 
       def request(method, params, timeout:)

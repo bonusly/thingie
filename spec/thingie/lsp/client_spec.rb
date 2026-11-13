@@ -114,7 +114,8 @@ RSpec.describe Thingie::Lsp::Client do
       'rb' => 'ruby', 'rake' => 'ruby', 'erb' => 'erb',
       'ts' => 'typescript', 'tsx' => 'typescriptreact',
       'js' => 'javascript', 'jsx' => 'javascriptreact',
-      'mjs' => 'javascript', 'cjs' => 'javascript', 'CUSTOM' => 'custom'
+      'mjs' => 'javascript', 'cjs' => 'javascript',
+      'py' => 'python', 'pyi' => 'python', 'CUSTOM' => 'custom'
     }
     expected.each_key do |extension|
       path = File.join(tmp_dir, "source.#{extension}")
@@ -124,6 +125,22 @@ RSpec.describe Thingie::Lsp::Client do
     client.shutdown
     opened = messages.select { |message| message['method'] == 'textDocument/didOpen' }
     expect(opened.map { |message| message.dig('params', 'textDocument', 'languageId') }).to eq(expected.values)
+  end
+
+  it 'uses server-specific language IDs before built-in and extension defaults' do
+    configured = described_class.new(
+      command: ['ruby', fake_server], root: tmp_dir,
+      language_ids: { '.rb' => 'custom-ruby', '.custom' => 'ruby' }
+    )
+    custom_path = File.join(tmp_dir, 'source.custom')
+    File.write(custom_path, "source\n")
+    begin
+      [source_path, custom_path].each { |path| configured.definition(path: path, line: 0, character: 0) }
+    ensure
+      configured.shutdown
+    end
+    opened = messages.select { |message| message['method'] == 'textDocument/didOpen' }
+    expect(opened.map { |message| message.dig('params', 'textDocument', 'languageId') }).to eq(%w[custom-ruby ruby])
   end
 
   it 'raises LspError when the command does not exist' do

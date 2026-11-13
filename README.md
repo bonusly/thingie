@@ -544,6 +544,21 @@ TypeScript's default automatic mode can return syntax-only definitions while
 its project loads, missing standard-library targets or stopping at import aliases.
 `useSyntaxServer = "never"` waits for semantic resolution instead.
 
+Ruby/ERB, TypeScript/JavaScript variants, and Python have built-in language IDs.
+For other extensions or server-specific overrides, set `language_ids` on that
+server's table, keyed by lowercase extensions including the dot:
+
+```toml
+[lsp.cpp]
+command = ["clangd"]
+extensions = [".cpp", ".h"]
+language_ids = { ".h" = "cpp" }
+```
+
+Configured IDs take precedence over built-ins. Unmapped extensions retain the
+lowercase extension fallback; configure an ID when that is not the server's
+canonical language identifier.
+
 The tool accepts a required `query` for name discovery, or `query` plus
 workspace-relative `path`, 1-based `line`, and 1-based UTF-16 `column` at a
 reference (including `super`). Contextual lookup uses the server's receiver
