@@ -619,6 +619,59 @@ RSpec.describe Thingie::GitHub::Approver do # rubocop:disable RSpec/SpecFilePath
     end
   end
 
+  context 'with main_branch_run_repos' do
+    let(:run_url) { 'https://github.com/bonusly/loop-de-loop/actions/runs/42' }
+    let(:pr) do
+      double('pr', draft: false, additions: 10, deletions: 20, title: 'Example PR', # rubocop:disable RSpec/VerifiedDoubles
+                   head: double('head', sha: 'sha1'), user: double('user', login: 'author'), # rubocop:disable RSpec/VerifiedDoubles
+                   labels: [], body: 'No runs linked here.')
+    end
+
+    before do
+      config['main_branch_run_repos'] = ['bonusly/loop-de-loop']
+      allow(client).to receive_messages(
+        issue_comments: [double('comment', body: "**Fixit** opened this ([run](#{run_url}))")], # rubocop:disable RSpec/VerifiedDoubles
+        workflow_run: double('run', head_sha: 'abc', head_branch: 'test-branch'), # rubocop:disable RSpec/VerifiedDoubles
+        repository: double('repo', default_branch: 'main') # rubocop:disable RSpec/VerifiedDoubles
+      )
+    end
+
+    def stub_compare(status)
+      allow(client).to receive(:compare).with('bonusly/loop-de-loop', 'main', 'abc')
+                                        .and_return(double('comparison', status: status)) # rubocop:disable RSpec/VerifiedDoubles
+    end
+
+    it 'blocks when a linked run ran a commit off the default branch', :aggregate_failures do
+      stub_compare('ahead')
+      decision = approver.run(report_for([]))
+
+      expect(client).not_to have_received(:create_pull_request_review)
+      expect(decision.reasons).to include('bonusly/loop-de-loop run 42 ran from test-branch, not main')
+      expect(client).to have_received(:workflow_run).with('bonusly/loop-de-loop', 42)
+    end
+
+    it 'approves when the linked run ran a commit on the default branch' do
+      stub_compare('behind')
+      approver.run(report_for([]))
+
+      expect(client).to have_received(:create_pull_request_review)
+    end
+
+    it 'approves when the linked run cannot be read' do
+      allow(client).to receive(:workflow_run).and_raise(Octokit::NotFound)
+      approver.run(report_for([]))
+
+      expect(client).to have_received(:create_pull_request_review)
+    end
+
+    it 'ignores runs in repositories it was not given' do
+      config['main_branch_run_repos'] = ['bonusly/other']
+      approver.run(report_for([]))
+
+      expect(client).not_to have_received(:workflow_run)
+    end
+  end
+
   context 'when the main token cannot approve and a PAT fallback is configured' do
     subject(:approver) do
       described_class.new(token: 'gh', owner: 'o', repo: 'r', pr_number: 1, config: config, resolve_token: 'pat')

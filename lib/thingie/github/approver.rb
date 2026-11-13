@@ -3,6 +3,7 @@
 require 'octokit'
 require_relative 'commenter' # SEVERITY_BY_LABEL is built from Commenter::SEVERITY_LABELS at load time
 require_relative 'graphql_client'
+require_relative 'linked_runs'
 
 module Thingie
   module GitHub
@@ -151,7 +152,22 @@ module Thingie
         reasons << 'Thingie findings were resolved by the author or a contributor' if self_resolved?(threads, pr)
         reasons << 'a human reviewer requested changes' if human_requested_changes?
         reasons << incomplete_reason(report) if report.unreviewed_files.any?
+        reasons.concat(off_main_runs(pr))
         reasons
+      end
+
+      # "owner/name" repositories whose Actions runs, linked from the PR, must have run from
+      # that repository's default branch.
+      def main_branch_run_repos
+        Array(@config['main_branch_run_repos']).map(&:to_s).reject(&:empty?)
+      end
+
+      def off_main_runs(pr)
+        return [] if main_branch_run_repos.empty?
+
+        texts = [pr.body, *@client.issue_comments(slug, @pr_number).map(&:body)]
+        LinkedRuns.new(clients: [@client, @resolve_client].compact, repos: main_branch_run_repos)
+                  .off_default_branch(texts)
       end
 
       # An approval must not stand on a review that skipped part of the change.
@@ -404,6 +420,7 @@ module Thingie
         checks << 'No findings resolved by the PR author or a contributor'
         checks << 'No human reviewer requested changes'
         checks << 'Every file was reviewed'
+        checks << 'No linked workflow run came from off the default branch' unless main_branch_run_repos.empty?
         checks << author_check(pr) unless approval_team.empty?
         listed('Checks passed', checks)
       end
