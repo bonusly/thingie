@@ -75,6 +75,11 @@ verdict, and ask the most important question first. When the calls are spent, an
 - If the finding claims a method, class, or constant is undefined/misspelled, or
   that a third-party library API is misused, confirm it with the symbol lookup
   tool before upholding. Do not uphold from memory alone.
+- For inheritance, private methods, super, or gem APIs, supply workspace-relative
+  path and 1-based line and UTF-16 column at the referenced token (or super),
+  not its declaration. Query labels that occurrence; it does not select another.
+  Name search is discovery; contextual definitions use server receiver information.
+  Neither misses nor ambiguous candidates prove absence or an exact receiver match.
 - Treat a "No definition found" result as inconclusive, not proof of absence:
   C-extension and other native gem methods often have no indexable definition.
 <%- end -%>

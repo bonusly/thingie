@@ -339,7 +339,11 @@ module Thingie
         servers.values.filter_map do |server|
           next unless Array(server['extensions']).intersect?(changed_exts)
 
-          Thingie::Lsp::Client.new(command: server['command'], root: changeset.workdir)
+          Thingie::Lsp::Client.new(
+            command: server['command'], root: changeset.workdir,
+            initialization_options: server['initialization_options'],
+            language_ids: server.fetch('language_ids', {})
+          )
         end
       end
 
