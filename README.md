@@ -525,6 +525,40 @@ A server is only started when the changeset contains a file whose extension
 matches one of its `extensions`, so unrelated reviews don't pay the startup
 cost. LSP is disabled entirely when no `[lsp.*]` entry is configured.
 
+For TypeScript, use canonical TypeScript/TSX language IDs (sent automatically)
+and opt into semantic-only definitions:
+
+```toml
+[lsp.typescript]
+command = ["node_modules/.bin/typescript-language-server", "--stdio"]
+extensions = [".ts", ".tsx"]
+
+[lsp.typescript.initialization_options.tsserver]
+useSyntaxServer = "never"
+```
+
+Each server's optional `initialization_options` value is passed unchanged as
+LSP `initializationOptions`; nested option names retain their original casing.
+Other servers and configurations without this setting keep their existing defaults.
+TypeScript's default automatic mode can return syntax-only definitions while
+its project loads, missing standard-library targets or stopping at import aliases.
+`useSyntaxServer = "never"` waits for semantic resolution instead.
+
+The tool accepts a required `query` for name discovery, or `query` plus
+workspace-relative `path`, 1-based `line`, and 1-based UTF-16 `column` at a
+reference (including `super`). Contextual lookup uses the server's receiver
+information and can return inherited, private, or dependency definitions directly.
+Caller paths must stay inside the workspace; returned dependency source may be
+outside it. Servers without definition support visibly fall back to name search.
+A supported contextual miss does not fall back to unrelated names, and neither
+misses nor ambiguous candidates prove that an API is absent. Results include up
+to three distinct readable source ranges, with an omission count when necessary.
+
+Ruby-lsp 0.26.11 has UTF-16 coordinate limitations: non-ASCII text before a call
+on the same line, or an earlier supplementary character such as an emoji, can
+cause valid references to return no candidates. Thingie sends standard UTF-16
+positions without speculative offsets; these misses remain inconclusive.
+
 ### Logging
 
 Set `log_file` to a file path to persist RubyLLM request logs for debugging. Set `log_level` to `debug` to see full request and response bodies. Valid levels are `debug`, `info`, `warn`, `error`, and `fatal`.

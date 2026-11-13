@@ -4,30 +4,39 @@ require 'json'
 require 'open3'
 require 'timeout'
 require 'io/wait' # IO#wait_readable
+require 'uri'
 require_relative '../errors'
 
 module Thingie
   module Lsp
     # Generic Language Server Protocol client: speaks JSON-RPC over the stdio of
-    # a launched LSP process. Configured with a launch command and the workspace
-    # root, so it works for any LSP (ruby-lsp, gopls, etc.) — only the command
-    # changes. The transport (spawn, framing, initialize handshake, request/
-    # notify, server-request acks) is generic; #lookup adds the one capability we
-    # use today: workspace/symbol for code context.
+    # a launched LSP process. Configured with a launch command, workspace root,
+    # and optional server-specific initialization settings, so it works for any
+    # LSP (ruby-lsp, gopls, etc.). The transport (spawn, framing, initialize handshake, request/
+    # notify, server-request acks) is generic; symbol and contextual definition
+    # requests supply source context for reviews.
     class Client # rubocop:disable Metrics/ClassLength
       INIT_TIMEOUT = 60 # ruby-lsp indexes the project at boot; allow time for it.
       REQUEST_TIMEOUT = 15
       # How long to wait for the server's first message before assuming it does
       # no background indexing (workspace/symbol is then usable immediately).
       READY_GRACE = 5
+      LANGUAGE_IDS = {
+        'rb' => 'ruby', 'rake' => 'ruby', 'erb' => 'erb',
+        'ts' => 'typescript', 'tsx' => 'typescriptreact',
+        'js' => 'javascript', 'jsx' => 'javascriptreact',
+        'mjs' => 'javascript', 'cjs' => 'javascript'
+      }.freeze
 
       # Builds a client; the server process itself isn't launched until the first {#lookup}.
       #
       # @param command [String, Array<String>] the LSP server launch command
       # @param root [String] the workspace root the server should index
-      def initialize(command:, root:)
+      # @param initialization_options [Object, nil] optional server-specific LSP initialization options
+      def initialize(command:, root:, initialization_options: nil)
         @command = Array(command)
         @root = File.expand_path(root)
+        @initialization_options = initialization_options
         # ponytail: global lock per client serializes lookups and blocks the
         # Async reactor during a call; fine at review throughput (a handful of
         # concurrent fibers). Move to async IO if it ever bottlenecks.
@@ -48,6 +57,38 @@ module Thingie
           ensure_indexed
           Array(request('workspace/symbol', { query: query }, timeout: REQUEST_TIMEOUT))
         end
+      end
+
+      # Resolves a reference using zero-based UTF-16 LSP coordinates.
+      #
+      # @param path [String] absolute path to an existing source file
+      # @param line [Integer] zero-based line
+      # @param character [Integer] zero-based UTF-16 column
+      # @return [Array<Hash>, nil] candidates, or nil when definitions are unsupported
+      def definition(path:, line:, character:)
+        @mutex.synchronize do
+          start unless @started
+          ensure_indexed
+          provider = @capabilities['definitionProvider']
+          return nil unless provider == true || provider.is_a?(Hash)
+
+          document = { uri: file_uri(path) }
+          opened = false
+          begin
+            notify('textDocument/didOpen', {
+                     textDocument: document.merge(languageId: language_id(path), version: 1, text: File.read(path))
+                   })
+            opened = true
+            result = request('textDocument/definition', {
+                               textDocument: document, position: { line: line, character: character }
+                             }, timeout: REQUEST_TIMEOUT)
+            result.is_a?(Hash) ? [result] : (result || [])
+          ensure
+            notify('textDocument/didClose', { textDocument: document }) if opened
+          end
+        end
+      rescue SystemCallError, IOError, JSON::ParserError => e
+        raise LspError, "LSP definition failed: #{e.message}"
       end
 
       # Gracefully shuts down the LSP server: sends `shutdown`/`exit`, then closes
@@ -71,7 +112,11 @@ module Thingie
 
       def start
         @stdin, @stdout, @stderr, @wait = Open3.popen3(*@command, chdir: @root)
-        request('initialize', initialize_params, timeout: REQUEST_TIMEOUT)
+        response = request('initialize', initialize_params, timeout: REQUEST_TIMEOUT)
+        @capabilities = response.fetch('capabilities', {})
+        encoding = @capabilities['positionEncoding']
+        raise LspError, "Unsupported LSP position encoding: #{encoding}" if encoding && encoding != 'utf-16'
+
         notify('initialized', {})
         # Mark started only after a successful handshake, so a failed init leaves
         # @started false (callers can retry) rather than trapped half-open.
@@ -100,7 +145,9 @@ module Thingie
       # needs no indexing and proceed.
       def wait_until_ready
         deadline = now + INIT_TIMEOUT
-        saw_progress = false
+        return if @initial_progress == 'end'
+
+        saw_progress = @initial_progress == 'begin'
         while (remaining = deadline - now).positive?
           # Until progress starts, only wait a short grace so a non-indexing
           # server isn't blocked for the full INIT_TIMEOUT.
@@ -128,11 +175,28 @@ module Thingie
       end
 
       def initialize_params
-        {
+        params = {
           processId: Process.pid,
-          rootUri: "file://#{@root}",
-          capabilities: { workspace: { symbol: {} } }
+          rootUri: file_uri(@root),
+          workspaceFolders: [{ uri: file_uri(@root), name: File.basename(@root) }],
+          capabilities: {
+            window: { workDoneProgress: true },
+            workspace: { symbol: {} },
+            general: { positionEncodings: ['utf-16'] },
+            textDocument: { definition: { linkSupport: true } }
+          }
         }
+        params[:initializationOptions] = @initialization_options unless @initialization_options.nil?
+        params
+      end
+
+      def file_uri(path)
+        "file://#{URI::DEFAULT_PARSER.escape(path, %r{[^a-zA-Z0-9\-._~/]})}"
+      end
+
+      def language_id(path)
+        extension = File.extname(path).downcase.delete_prefix('.')
+        LANGUAGE_IDS.fetch(extension, extension)
       end
 
       def request(method, params, timeout:)
@@ -155,6 +219,9 @@ module Thingie
           raise LspError, "LSP connection closed waiting for #{id}" if message.nil?
 
           answer_server_request(message)
+          kind = progress_kind(message)
+          @initial_progress = kind if !@indexed && %w[begin end].include?(kind)
+          next if message['method']
           next unless message['id'] == id
 
           raise LspError, "LSP error: #{message['error']}" if message['error']
@@ -205,6 +272,9 @@ module Thingie
         nil
       ensure
         @started = false
+        @indexed = false
+        @capabilities = {}
+        @initial_progress = nil
       end
 
       # Closing the pipes makes a well-behaved server exit; escalate to TERM then
