@@ -207,6 +207,7 @@ max_severity = 3           # BLOCK line: issues at/below this severity number (1
 skip_label = "thingie-skip-approve"
 approval_team = "bonusly/pr-auto-approval"  # only auto-approve PRs whose author is on this GitHub team (needs read:org)
 approval_bots = ["loop-de-loops[bot]"]      # bot logins also eligible, since a GitHub App can't join a team
+main_branch_run_repos = ["bonusly/loop-de-loop"]  # linked Actions runs from these repos must have run from their default branch
 protected_paths = ["app/billing/**", "config/secrets.yml"]  # globs that block approval when changed
 dry_run = false            # evaluate and log the decision without approving/dismissing
 ```
@@ -221,6 +222,7 @@ A PR is approved only when **all** of these hold:
 - This run produced no findings at or above `max_severity`.
 - No Thingie findings at or above `max_severity` are still unresolved.
 - No human reviewer's current review is `CHANGES_REQUESTED` (a later dismissal or approval by that reviewer clears it). Thingie never waves through a change a human has pushed back on; an undeterminable review state fails safe and blocks.
+- Every GitHub Actions run that the description or one of the PR author's comments links, in a repository listed in `main_branch_run_repos`, ran a commit on that repository's default branch. A run dispatched from another branch ran that branch's copy of the workflow, which may hold test settings main never had. Other people's comments don't count, so a reviewer citing a test run doesn't block. A run Thingie can't read (its token needs read access to that repository's Actions; it tries the `resolve_token` PAT too) doesn't block, and the approval lists it under **Linked runs not checked**.
 - Every resolved Thingie finding at or above `max_severity` was resolved by someone who is **neither the PR author nor a contributor** to the PR — an author can't clear their own findings to earn an approval.
 
 When Thingie does **not** approve — a rule failed (block) or the run was skipped — it posts a single status comment on the PR explaining why, and keeps that comment updated in place on re-runs (it doesn't stack a new comment each push). Once the PR qualifies and is approved, that status comment is removed.

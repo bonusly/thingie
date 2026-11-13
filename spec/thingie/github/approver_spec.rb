@@ -619,6 +619,89 @@ RSpec.describe Thingie::GitHub::Approver do # rubocop:disable RSpec/SpecFilePath
     end
   end
 
+  context 'with main_branch_run_repos' do
+    let(:run_url) { 'https://github.com/bonusly/loop-de-loop/actions/runs/42' }
+    let(:pr_body) { 'No runs linked here.' }
+    let(:pr) do
+      double('pr', draft: false, additions: 10, deletions: 20, title: 'Example PR', # rubocop:disable RSpec/VerifiedDoubles
+                   head: double('head', sha: 'sha1'), user: double('user', login: 'author'), # rubocop:disable RSpec/VerifiedDoubles
+                   labels: [], body: pr_body)
+    end
+
+    def comment(login, body)
+      double('comment', user: double('u', login: login), body: body) # rubocop:disable RSpec/VerifiedDoubles
+    end
+
+    before do
+      config['main_branch_run_repos'] = ['bonusly/loop-de-loop']
+      allow(client).to receive_messages(
+        issue_comments: [comment('author', "**Fixit** opened this ([run](#{run_url}))")],
+        workflow_run: double('run', head_sha: 'abc', head_branch: 'test-branch'), # rubocop:disable RSpec/VerifiedDoubles
+        repository: double('repo', default_branch: 'main') # rubocop:disable RSpec/VerifiedDoubles
+      )
+    end
+
+    def stub_compare(status)
+      allow(client).to receive(:compare).with('bonusly/loop-de-loop', 'main', 'abc')
+                                        .and_return(double('comparison', status: status)) # rubocop:disable RSpec/VerifiedDoubles
+    end
+
+    it 'blocks when a run linked from the author ran a commit off the default branch', :aggregate_failures do
+      stub_compare('diverged')
+      decision = approver.run(report_for([]))
+
+      expect(client).not_to have_received(:create_pull_request_review)
+      expect(decision.reasons).to include('bonusly/loop-de-loop run 42 ran from `test-branch`, not main')
+    end
+
+    context 'when the run is linked from the description' do
+      let(:pr_body) { "Opened by [this run](#{run_url})." }
+
+      it 'blocks' do
+        allow(client).to receive(:issue_comments).and_return([])
+        stub_compare('ahead')
+        approver.run(report_for([]))
+
+        expect(client).not_to have_received(:create_pull_request_review)
+      end
+    end
+
+    it 'ignores runs linked by someone other than the author' do
+      allow(client).to receive(:issue_comments).and_return([comment('reviewer', "Repro in #{run_url}")])
+      approver.run(report_for([]))
+
+      expect(client).not_to have_received(:workflow_run)
+    end
+
+    it 'approves and lists the check as passed when the run is on the default branch' do
+      stub_compare('behind')
+      approver.run(report_for([]))
+
+      expect(client).to have_received(:create_pull_request_review).with(
+        'o/r', 1, hash_including(body: a_string_including('No linked workflow run came from off the default branch'))
+      )
+    end
+
+    it 'approves but says the run was not checked when it cannot be read' do
+      allow(client).to receive(:workflow_run).and_raise(Octokit::NotFound)
+      approver.run(report_for([]))
+
+      not_claimed = satisfy('omits the passed check') { |body| !body.include?('No linked workflow run') }
+      expected = a_string_including('Linked runs not checked')
+                 .and(a_string_including('bonusly/loop-de-loop run 42'))
+                 .and(not_claimed)
+      expect(client).to have_received(:create_pull_request_review).with('o/r', 1, hash_including(body: expected))
+    end
+
+    it 'approves but says the comments were not checked when they cannot be read' do
+      allow(client).to receive(:issue_comments).and_raise(Faraday::ConnectionFailed, 'reset')
+      approver.run(report_for([]))
+
+      expect(client).to have_received(:create_pull_request_review)
+        .with('o/r', 1, hash_including(body: a_string_including('comments could not be read')))
+    end
+  end
+
   context 'when the main token cannot approve and a PAT fallback is configured' do
     subject(:approver) do
       described_class.new(token: 'gh', owner: 'o', repo: 'r', pr_number: 1, config: config, resolve_token: 'pat')
