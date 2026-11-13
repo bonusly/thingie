@@ -163,11 +163,30 @@ module Thingie
       end
 
       def off_main_runs(pr)
-        return [] if main_branch_run_repos.empty?
+        linked_runs(pr)&.off_branch.to_a
+      end
 
-        texts = [pr.body, *@client.issue_comments(slug, @pr_number).map(&:body)]
-        LinkedRuns.new(clients: [@client, @resolve_client].compact, repos: main_branch_run_repos)
-                  .off_default_branch(texts)
+      # Only the description and the author's comments count: fixit's summary comment, which links
+      # the run that opened the PR, is the author's, and a reviewer citing a test run of their own
+      # shouldn't block. A run that can't be read doesn't block; the approval says it wasn't checked.
+      def linked_runs(pr)
+        return if main_branch_run_repos.empty?
+
+        @linked_runs ||= begin
+          texts, unread = linked_run_texts(pr)
+          result = LinkedRuns.new(clients: [@client, @resolve_client].compact, repos: main_branch_run_repos)
+                             .check(texts)
+          result.unchecked.unshift(unread) if unread
+          result
+        end
+      end
+
+      def linked_run_texts(pr)
+        comments = @client.issue_comments(slug, @pr_number).select { |comment| comment.user&.login == pr.user&.login }
+        [[pr.body, *comments.map(&:body)], nil]
+      rescue Octokit::Error, Faraday::Error => e
+        warn "Could not read PR comments for linked runs — #{e.message}"
+        [[pr.body], 'runs linked from PR comments (comments could not be read)']
       end
 
       # An approval must not stand on a review that skipped part of the change.
@@ -420,7 +439,7 @@ module Thingie
         checks << 'No findings resolved by the PR author or a contributor'
         checks << 'No human reviewer requested changes'
         checks << 'Every file was reviewed'
-        checks << 'No linked workflow run came from off the default branch' unless main_branch_run_repos.empty?
+        checks << 'No linked workflow run came from off the default branch' if linked_runs(pr)&.unchecked&.empty?
         checks << author_check(pr) unless approval_team.empty?
         listed('Checks passed', checks)
       end
@@ -443,6 +462,14 @@ module Thingie
         return "Author #{pr.user.login} is an approved bot" if approval_bot?(pr)
 
         "Author is a member of #{approval_team}"
+      end
+
+      # Linked runs Thingie couldn't read, so a reader knows that check didn't cover them.
+      def unchecked_runs_section(pr)
+        unchecked = linked_runs(pr)&.unchecked.to_a
+        return nil if unchecked.empty?
+
+        listed('Linked runs not checked (no token could read them)', unchecked)
       end
 
       def change_size_check(pr)
@@ -526,7 +553,7 @@ module Thingie
         rows << "- Review model: #{report.model}" unless report.model.to_s.strip.empty?
         scored_by = decision_model(report)
         rows << "- Decision model: #{scored_by}" if scored_by
-        parts = [rows.join("\n"), passed_rules_section(pr), external_checks_section].compact
+        parts = [rows.join("\n"), passed_rules_section(pr), unchecked_runs_section(pr), external_checks_section].compact
         "<details><summary>Thingie details</summary>\n\n#{parts.join("\n\n")}\n\n</details>"
       end
 

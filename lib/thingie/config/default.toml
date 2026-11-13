@@ -374,10 +374,11 @@ approval_team = ""
 # A GitHub App can't be a team member, so list it here; the login must match the
 # PR author exactly. Ignored when approval_team is empty.
 approval_bots = []
-# "owner/name" repositories whose GitHub Actions runs, when the PR description or a
-# comment links one, must have run a commit on that repository's default branch, e.g.
-# ["bonusly/loop-de-loop"]. A run dispatched from another branch ran that branch's copy
-# of the workflow, so the PR is blocked. A run Thingie can't read doesn't block.
+# "owner/name" repositories whose GitHub Actions runs, when the PR description or one of
+# the PR author's comments links one, must have run a commit on that repository's default
+# branch, e.g. ["bonusly/loop-de-loop"]. A run dispatched from another branch ran that
+# branch's copy of the workflow, so the PR is blocked. A run Thingie can't read doesn't
+# block; the approval lists it as not checked.
 main_branch_run_repos = []
 # Other required checks Thingie does not evaluate but that still gate merge (e.g.
 # a security scan, the test suite). Listed in the approval comment so it's clear

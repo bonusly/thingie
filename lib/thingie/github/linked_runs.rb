@@ -12,6 +12,9 @@ module Thingie
       # On the default branch: the run's commit is main's head or behind it.
       ON_BRANCH_STATUSES = %w[identical behind].freeze
 
+      # off_branch: runs confirmed off the default branch. unchecked: runs no client could read.
+      Result = Struct.new(:off_branch, :unchecked)
+
       # Builds a checker for the given repositories' runs.
       #
       # @param clients [Array<Octokit::Client>] tried in order for each read
@@ -19,43 +22,58 @@ module Thingie
       def initialize(clients:, repos:)
         @clients = clients
         @repos = repos
+        @default_branches = {}
       end
 
-      # The linked runs that ran a commit off their repository's default branch.
+      # Sorts the linked runs into those off their repository's default branch and those that
+      # couldn't be read.
       #
       # @param texts [Array<String, nil>] the PR description and comment bodies
-      # @return [Array<String>] one line per linked run off the default branch, e.g.
-      #   "bonusly/loop-de-loop run 123 ran from test-branch, not main"
-      def off_default_branch(texts)
+      # @return [Result] one line per run in each list, e.g.
+      #   "bonusly/loop-de-loop run 123 ran from `test-branch`, not main"
+      def check(texts)
         text = texts.compact.join("\n")
-        @repos.flat_map do |repo|
-          run_ids(repo, text).filter_map { |id| off_default_branch_line(repo, id) }
+        result = Result.new([], [])
+        @repos.each do |repo|
+          run_ids(repo, text).each { |id| sort_run(repo, id, result) }
         end
+        result
       end
 
       private
 
       def run_ids(repo, text)
-        text.scan(%r{https://github\.com/#{Regexp.escape(repo)}/actions/runs/(\d+)}i).flatten.uniq
+        text.scan(%r{(?:https?://)?(?:www\.)?github\.com/#{Regexp.escape(repo)}/actions/runs/(\d+)}i).flatten.uniq
       end
 
-      # nil when the run is on the default branch, or when it can't be read: only a confirmed
-      # off-branch run blocks.
-      def off_default_branch_line(repo, id)
-        with_client("check #{repo} run #{id}") do |client|
+      def sort_run(repo, id, result)
+        checked = with_client("check #{repo} run #{id}") do |client|
           run = client.workflow_run(repo, id.to_i)
-          main = client.repository(repo).default_branch
-          next if ON_BRANCH_STATUSES.include?(client.compare(repo, main, run.head_sha).status)
+          main = default_branch(client, repo)
+          next :on_branch if ON_BRANCH_STATUSES.include?(client.compare(repo, main, run.head_sha).status)
 
-          "#{repo} run #{id} ran from #{run.head_branch}, not #{main}"
+          "#{repo} run #{id} ran from `#{ref_name(run)}`, not #{main}"
         end
+        case checked
+        when :on_branch then nil
+        when nil then result.unchecked << "#{repo} run #{id}"
+        else result.off_branch << checked
+        end
+      end
+
+      def default_branch(client, repo)
+        @default_branches[repo] ||= client.repository(repo).default_branch
+      end
+
+      def ref_name(run)
+        (run.head_branch || run.head_sha.to_s[0, 7]).to_s.delete('`')
       end
 
       def with_client(action)
         last_error = nil
         @clients.each do |client|
           return yield(client)
-        rescue Octokit::Error => e
+        rescue Octokit::Error, Faraday::Error => e
           last_error = e
         end
         warn "Could not #{action} — #{last_error&.message}"
