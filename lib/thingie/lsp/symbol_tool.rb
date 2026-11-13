@@ -109,19 +109,25 @@ module Thingie
         term = query.sub(/\A::/, '')
         term = base_name(query) unless term.include?('::') && !query.match?(/#|\./)
         symbols = @client.lookup(term)
-        symbols = @client.lookup(base_name(query)) if symbols.empty? && term != base_name(query)
+        if term != base_name(query) && symbols.none? { |symbol| exact_name?(symbol, term) }
+          symbols += @client.lookup(base_name(query))
+        end
         symbols.sort_by do |symbol|
-          name = symbol['name'].to_s.sub(/\A::/, '')
-          qualified = [symbol['containerName'], name].compact.reject(&:empty?).join('::')
-          tier = if [name, qualified].any? { |value| value.casecmp?(query.sub(/\A::/, '')) }
+          tier = if exact_name?(symbol, query)
                    0
-                 elsif base_name(name).casecmp?(base_name(query))
+                 elsif base_name(symbol['name']).casecmp?(base_name(query))
                    1
                  else
                    2
                  end
           [tier, VARIABLE_KINDS.include?(symbol['kind']) ? 1 : 0]
         end
+      end
+
+      def exact_name?(symbol, query)
+        name = symbol['name'].to_s.sub(/\A::/, '')
+        qualified = [symbol['containerName'], name].compact.reject(&:empty?).join('::')
+        [name, qualified].any? { |value| value.casecmp?(query.sub(/\A::/, '')) }
       end
 
       def base_name(name)

@@ -106,6 +106,15 @@ RSpec.describe Thingie::Lsp::SymbolTool do
     expect(client).to have_received(:lookup).with('Thing').ordered
   end
 
+  it 'finds the qualified symbol through short-name search when the full query returns only fuzzy matches' do
+    fuzzy = symbol(0, 4).merge('name' => 'Outer::ThingElse')
+    fuzzy['location']['range']['end']['character'] = 3
+    wanted = symbol(1, 3).merge('name' => 'Thing', 'containerName' => 'Outer')
+    allow(client).to receive(:lookup).with('Outer::Thing').and_return([fuzzy])
+    allow(client).to receive(:lookup).with('Thing').and_return([wanted])
+    expect(tool.execute(query: 'Outer::Thing')).to start_with('lib/thing.rb:2-4')
+  end
+
   it 'labels qualified method searches as discovery' do
     allow(client).to receive(:lookup).with('thing').and_return([symbol(1, 3)])
     expect(tool.execute(query: 'Outer#thing')).to include('Name-search candidates; use path, line, and column')
