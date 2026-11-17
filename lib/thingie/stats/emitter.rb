@@ -41,17 +41,6 @@ module Thingie
         sinks.each { |sink| safe_emit(sink, event) }
       end
 
-      # Emits the `review.completed` event carrying the run's report summary
-      # and accumulated LLM usage.
-      #
-      # @param report [Thingie::Report] the finished review report
-      # @param duration_ms [Integer] wall-clock review duration in milliseconds
-      # @param usage [Thingie::Stats::Usage] accumulated LLM usage for the run
-      # @return [void]
-      def emit_review_completed(report:, duration_ms:, usage:)
-        emit('review.completed', Events.review_completed(report, duration_ms, usage))
-      end
-
       # Emits the `approval.decided` event carrying the approver's action and
       # block reasons. Explicit `repo`/`pr_number` override env-derived values.
       #

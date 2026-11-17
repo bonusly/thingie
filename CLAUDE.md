@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-Thingie is an opinionated, AI-powered code review CLI and GitHub Action for Ruby/Rails projects. It diffs a PR's changeset, sends each changed file to an LLM for review, optionally runs a "critic pass" that adversarially re-checks each finding, then posts inline PR comments and optionally auto-approves.
+Thingie is a deterministic pull request auto-approver and GitHub Action. It approves a PR when GitHub Copilot's latest review approves the PR's current commit and a set of safety rules pass. It makes no LLM calls and posts no review comments; up to 0.11 it also ran its own LLM review, which 0.12.0 removed.
 
 ## Commands
 
@@ -19,64 +19,30 @@ bundle exec rubocop -A  # auto-fix
 
 ## Architecture
 
-The review pipeline flows through these modules in order:
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the flow. The pieces:
 
-1. **`CLI`** (`cli.rb`) — Thor commands wire everything together. `review` is the main command.
-2. **`Configuration`** (`configuration.rb`) — 5-layer merge: bundled defaults → `.thingie/config.toml` → `~/.thingie/.env` → env vars → CLI flags. `prompt_vars` is deep-merged; all other keys override. Skills (markdown fragments from `.agents/`, `.claude/`, `.cursor/`) are lazy-loaded.
-3. **`Changeset`** (`changeset.rb`) — Uses `Rugged` (libgit2) to compute the diff between two refs. Supports merge-base comparison, glob-pattern file filters, and an `--all` mode to review the full codebase.
-4. **`Reviewer`** (`reviewer.rb`) — Orchestrates the pipeline. Runs file reviews concurrently via `Async` fibers (bounded by `max_concurrent_tasks`). Aggregates errors without halting other files.
-5. **PromptBuilder** (`prompt_builder.rb`) — Renders ERB templates (`review.erb`, `verify.erb`) with config vars and skills merged in.
-6. **`LlmClient`** (`llm_client.rb`) — Wraps `ruby_llm`. Registers LSP/file tools for tool-use, handles retries and per-request timeout, uses structured output (schema → JSON).
-7. **`IssueParser`** (`issue_parser.rb`) — Validates LLM JSON against `IssueSchema` and converts `RawIssue` → `Issue`.
-8. **`PostProcessor`** (`post_processor.rb`) — Filters by `max_confidence` and `max_severity` thresholds before the critic pass.
-9. **`CodeEnricher`** (`code_enricher.rb`) — Adds the actual affected code snippet and a syntax hint to each issue.
-10. **`Verifier`** (`verifier.rb`) — Critic pass: re-runs each surviving finding through a skeptical LLM call. Drops findings it can't uphold. Fails open — unparseable verdict keeps the finding and records a warning.
-11. **`ReportRenderer`** — Renders CLI (colored) or Markdown output from a `Report`.
-
-**GitHub integration** (`github/`):
-- `Commenter` — Posts/updates line-level PR comments via Octokit. Collapses stale Thingie threads before reposting.
-- `Approver` — Evaluates PR against configured thresholds and submits an Approve review.
-- `GraphQLClient` — Resolves stale review threads via GraphQL mutation (requires a user PAT; `GITHUB_TOKEN` cannot do this).
-
-**LSP integration** (`lsp/`):
-- `Client` — JSON-RPC-over-stdio client; spawns the LSP server (e.g. `ruby-lsp`) and calls `workspace/symbol`.
-- `SymbolTool` — Wraps the client as a `ruby_llm` tool so the LLM can verify method/class existence during review, reducing hallucinated "undefined method" findings.
+- **`CLI`** (`cli.rb`) — `approve` builds a `GitHub::Approver` from `[approve]` config and the Actions context, runs it, and emits the `approval.decided` stats event. `version` prints the version.
+- **`Configuration`** (`configuration.rb`) — bundled defaults (`config/default.toml`) deep-merged with `.thingie/config.toml`, then explicit overrides. Loads `~/.thingie/.env` into `Thingie::Env` without replacing variables already set.
+- **`GitHub::Approver`** (`github/approver.rb`) — skips (draft, skip label, self-approval, `approval_team`) or blocks unless: Copilot's latest review is `APPROVED` on the head commit, no config or protected-path change, size within `max_changes`, no obfuscated code, no human `CHANGES_REQUESTED`, linked runs came from the default branch. Approves the evaluated commit, dismisses stale Thingie approvals, and keeps one status comment.
+- **`ObfuscationDetector`** (`obfuscation_detector.rb`) — pure pattern scan over `{path => content}`.
+- **`GitHub::LinkedRuns`**, **`GitHub::Context`**, **`Stats`** — linked-run checks, Actions context, fail-open event sinks.
 
 ## Key Domain Concepts
 
-- **Severity** 1–4: 1 = Critical, 4 = Low. Lower is stricter.
-- **Confidence** 1–4: 1 = Highest certainty. Lower is stricter.
-- **Tags**: `bug`, `security`, `performance`, `readability`, `maintainability`, `overcomplexity`, `language`, `architecture`, `compatibility`, `deprecation`, `anti-pattern`, `naming`, `code-style`.
-- `pr` is allowed as a parameter name in RuboCop config (overrides default exclusion).
-- RuboCop limits: 65-line methods, 120-line classes, 120-char lines.
-- Block length cop is disabled for specs and gemspec.
+- Copilot's verdict is its review **state**, read from the API: `APPROVED` for "Approval recommended", `COMMENTED` for "Changes recommended". Never parse review text.
+- Copilot is identified by login `copilot-pull-request-reviewer[bot]` **and** user type `Bot`.
+- Fail safe: anything a rule can't determine blocks.
+- `pr` is allowed as a parameter name in RuboCop config.
+- RuboCop limits: 65-line methods, 120-line classes, 120-char lines. Block length cop is disabled for specs and gemspec.
 
 ## Configuration
 
-Project config lives in `.thingie/config.toml`. Key sections:
+Project config lives in `.thingie/config.toml`:
 
 ```toml
-provider = "openai"           # or anthropic, gemini, etc.
-model = "gpt-4o"
-llm_api_key = "..."           # or set LLM_API_KEY env var
-
-[verify]
-enabled = true
-model = "anthropic/claude-opus-4.8"  # optional stronger model for critic pass
-
-[lsp.ruby]
-command = ["ruby-lsp"]
-extensions = [".rb", ".rake"]
-
 [approve]
-enabled = false
+enabled = true
 max_changes = 500
-max_severity = 3
-protected_paths = ["app/billing/**"]
-
-[post_process]
-max_confidence = 1
-max_severity = 3
+protected_paths = [".thingie/**/*", "app/billing/**"]
+approval_team = "bonusly/pr-auto-approval"
 ```
-
-Skills are `.md` files in `skill_directories` (default: `.agents`, `.claude`, `.cursor`) injected as system instructions.

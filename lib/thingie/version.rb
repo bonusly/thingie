@@ -1,5 +1,5 @@
 # frozen_string_literal: true
 
 module Thingie
-  VERSION = '0.11.10'
+  VERSION = '0.12.0'
 end

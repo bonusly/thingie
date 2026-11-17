@@ -14,21 +14,6 @@ RSpec.describe Thingie::Stats::Emitter do
     Thingie::Configuration.new(root: tmp_dir, overrides: overrides)
   end
 
-  def review_target(commit_sha: 'abc123', branch: 'feat')
-    Thingie::ReviewTarget.new(platform: 'local', repo_url: nil, pr_number: nil, commit_sha: commit_sha,
-                              branch: branch, base_ref: 'main', head_ref: 'HEAD', merge_base: false)
-  end
-
-  def issue(severity:, tags: [])
-    raw = Thingie::RawIssue.new(title: 'T', severity: severity, confidence: 1, details: 'd', tags: tags)
-    Thingie::Issue.new(id: 1, file: 'a.rb', raw_issue: raw, affected_lines: [])
-  end
-
-  def report(issues: [])
-    Thingie::Report.new(target: review_target, model: 'gpt-test', issues: issues,
-                        number_of_processed_files: 2)
-  end
-
   describe '#enabled?' do
     it 'is disabled by default' do
       expect(described_class.new(config)).not_to be_enabled
@@ -59,36 +44,8 @@ RSpec.describe Thingie::Stats::Emitter do
 
     it 'emits nothing when disabled' do
       emitter = described_class.new(config)
-      emitter.emit('review.completed', 'total_issues' => 0)
+      emitter.emit('approval.decided', 'action' => 'skip')
       expect(File.exist?(sink_path)).to be(false)
-    end
-
-    describe '#emit_review_completed' do
-      it 'writes the full schema with usage, severity, and tag breakdowns' do
-        emitter = described_class.new(config('stats' => stats_config))
-        usage = Thingie::Stats::Usage.new
-        usage.record(message_double(input_tokens: 100, output_tokens: 50,
-                                    cache_read_tokens: nil, cache_write_tokens: nil,
-                                    cost: instance_double(RubyLLM::Cost, total: 0.001)))
-        issues = [issue(severity: 1, tags: ['bug']), issue(severity: 2, tags: %w[bug security])]
-
-        emitter.emit_review_completed(report: report(issues: issues), duration_ms: 1234, usage: usage)
-
-        event = read_events.first
-        expect(event['event']).to eq('review.completed')
-        expect(event['commit_sha']).to eq('abc123')
-        expect(event['branch']).to eq('feat')
-        expect(event['model']).to eq('gpt-test')
-        expect(event['files_reviewed']).to eq(2)
-        expect(event['total_issues']).to eq(2)
-        expect(event['issues_by_severity']).to eq('1' => 1, '2' => 1)
-        expect(event['issues_by_tag']).to eq('bug' => 2, 'security' => 1)
-        expect(event['duration_ms']).to eq(1234)
-        expect(event['usage']['input_tokens']).to eq(100)
-        expect(event['usage']['cost_usd']).to be_within(1e-9).of(0.001)
-        expect(event['timestamp']).to match(/^\d{4}-\d{2}-\d{2}T/)
-        expect(event['thingie_version']).to eq(Thingie::VERSION)
-      end
     end
 
     describe '#emit_approval_decided' do
@@ -105,6 +62,8 @@ RSpec.describe Thingie::Stats::Emitter do
         expect(event['repo']).to eq('org/repo')
         expect(event['pr_number']).to eq(42)
         expect(event['dry_run']).to be(true)
+        expect(event['timestamp']).to match(/^\d{4}-\d{2}-\d{2}T/)
+        expect(event['thingie_version']).to eq(Thingie::VERSION)
       end
 
       it 'serializes dry_run as a boolean' do
@@ -123,7 +82,7 @@ RSpec.describe Thingie::Stats::Emitter do
       emitter = described_class.new(config('stats' => stats_config))
 
       expect do
-        emitter.emit('review.completed', 'total_issues' => 0)
+        emitter.emit('approval.decided', 'action' => 'skip')
       end.to output(/Unknown stats sink type 'totally-made-up' — skipped/).to_stderr
     end
   end
@@ -145,7 +104,7 @@ RSpec.describe Thingie::Stats::Emitter do
                                    { 'type' => 'jsonl', 'path' => sink_path }] }
       emitter = described_class.new(config('stats' => stats_config))
 
-      emitter.emit('review.completed', 'total_issues' => 0)
+      emitter.emit('approval.decided', 'action' => 'skip')
 
       expect(File.readlines(sink_path).size).to eq(1)
     end
@@ -183,7 +142,7 @@ RSpec.describe Thingie::Stats::Emitter do
                                      'require' => require_name }] }
       emitter = described_class.new(config('stats' => stats_config))
 
-      emitter.emit('review.completed', 'total_issues' => 0)
+      emitter.emit('approval.decided', 'action' => 'skip')
 
       expect(File.readlines(sink_path).size).to eq(1)
     ensure

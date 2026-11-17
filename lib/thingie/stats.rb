@@ -1,12 +1,12 @@
 # frozen_string_literal: true
 
 module Thingie
-  # Stats logging interface: emits machine-readable events after each review
-  # and auto-approval decision so admins can build dashboards (Datadog, Logstash,
+  # Stats logging interface: emits a machine-readable event after each
+  # auto-approval decision so admins can build dashboards (Datadog, Logstash,
   # …). Disabled unless `[stats] enabled = true` and at least one
   # `[[stats.sinks]]` destination is configured. Sink failures are fail-open
   # (warn + continue), mirroring the Approver's philosophy — a stats outage
-  # never fails a review.
+  # never fails a run.
   module Stats
     # Register a sink class under a `type` name so it can be resolved from a
     # `[[stats.sinks]]` `type = "..."` entry. Any gem can call this to add a
@@ -42,7 +42,6 @@ module Thingie
   end
 end
 
-require_relative 'stats/usage'
 require_relative 'stats/jsonl_sink'
 require_relative 'stats/command_sink'
 require_relative 'stats/events'

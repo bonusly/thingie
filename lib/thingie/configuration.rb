@@ -2,134 +2,25 @@
 
 require 'tomlrb'
 require 'dotenv'
-require 'ruby_llm/skills'
 
 module Thingie
-  # Environment-variable overrides for config keys, extracted from {Configuration}
-  # to keep that class under RuboCop's ClassLength limit. Mixed in via
-  # `include EnvOverrides`.
-  module EnvOverrides
-    ENV_OVERRIDES = {
-      'model' => 'LLM_MODEL',
-      'provider' => 'LLM_PROVIDER',
-      'llm_api_key' => 'LLM_API_KEY',
-      'llm_api_base' => 'LLM_API_BASE',
-      'github_token' => 'GITHUB_TOKEN',
-      'log_file' => 'THINGIE_LOG_FILE',
-      'log_level' => 'THINGIE_LOG_LEVEL',
-      'models_file' => 'THINGIE_MODELS_FILE',
-      'system_one_model' => 'SYSTEM_ONE_MODEL',
-      'system_one_api_base' => 'SYSTEM_ONE_API_BASE',
-      'system_one_api_key' => 'SYSTEM_ONE_API_KEY'
-    }.freeze
-
-    INTEGER_ENV_OVERRIDES = {
-      'retries' => 'LLM_RETRIES',
-      'request_timeout' => 'LLM_REQUEST_TIMEOUT',
-      'max_concurrent_tasks' => 'MAX_CONCURRENT_TASKS'
-    }.freeze
-
-    BOOLEAN_KEYS = %w[system_one_enabled].freeze
-
-    private
-
-    # Records each key it sets in `@local_paths`, the host's list of settings made on this machine.
-    def apply_env_overrides(config)
-      env = string_env_overrides.merge(integer_env_overrides).merge(boolean_env_overrides)
-      @local_paths.concat(env.keys.map { |key| [key] })
-      validate_booleans(apply_verify_model_env(config.merge(env)))
-    end
-
-    # `VERIFY_MODEL` sets `[verify] model`, keeping the rest of the `[verify]` table.
-    def apply_verify_model_env(config)
-      model = Env.fetch('VERIFY_MODEL', nil)&.strip
-      return config if model.to_s.empty?
-
-      @local_paths << %w[verify model]
-      config.merge('verify' => config['verify'].to_h.merge('model' => model))
-    end
-
-    def validate_booleans(config)
-      BOOLEAN_KEYS.each do |key|
-        next if [true, false].include?(config[key])
-
-        raise ConfigurationError, "#{key} must be 'true' or 'false', got #{config[key].inspect}"
-      end
-      config
-    end
-
-    def string_env_overrides
-      env_overrides_for(ENV_OVERRIDES, &:itself)
-    end
-
-    def boolean_env_overrides
-      env_overrides_for('system_one_enabled' => 'SYSTEM_ONE_ENABLED') { |value| parse_boolean(value) }
-    end
-
-    def parse_boolean(value)
-      # Anything but true/false passes through unchanged so validate_booleans rejects it by key.
-      { 'true' => true, 'false' => false }.fetch(value.downcase, value)
-    end
-
-    def integer_env_overrides
-      env_overrides_for(INTEGER_ENV_OVERRIDES, &:to_i)
-    end
-
-    # Only override keys that have a non-blank env var set; otherwise leave the
-    # merged config value untouched (a blank var must not coerce to 0/false).
-    def env_overrides_for(mapping)
-      mapping.each_with_object({}) do |(key, env_key), result|
-        value = Env.fetch(env_key, nil)&.strip
-        result[key] = yield(value) unless value.to_s.empty?
-      end
-    end
-  end
-
-  # MCP server config accessors, extracted from {Configuration} to keep that
-  # class under RuboCop's ClassLength limit. Mixed in via `include McpConfig`,
-  # so it reads `@data` and `@root` as instance variables of the host class.
-  module McpConfig
-    # The `[mcp.<name>]` tables from project config, keyed by server name.
-    # Returns an empty hash when absent or `mcp` isn't a table, so callers
-    # iterate safely.
-    #
-    # @return [Hash{String=>Hash}] server name => raw TOML table
-    def mcp_servers
-      @data['mcp'].is_a?(Hash) ? @data['mcp'] : {}
-    end
-
-    # Path to a standalone `.thingie/mcp.{yml,yaml,json}` file (yml > yaml >
-    # json precedence), or nil when none exists — mirroring {#project_config_path}.
-    #
-    # @return [String, nil] absolute path to the first matching file, or nil
-    def mcp_config_file
-      candidates = %w[mcp.yml mcp.yaml mcp.json].map { |n| File.join(@root, '.thingie', n) }
-      candidates.find { |path| File.file?(path) }
-    end
-  end
-
   # Loads and merges Thingie configuration.
   #
   # Layers (later layers override earlier ones):
   # 1. Bundled defaults from lib/thingie/config/default.toml
   # 2. Project-specific .thingie/config.toml
-  # 3. ~/.thingie/.env (loaded into ENV via dotenv)
-  # 4. OS environment variables
-  # 5. Explicit overrides passed to Configuration.new
+  # 3. Explicit overrides passed to Configuration.new
+  #
+  # ~/.thingie/.env is also loaded into the environment (without replacing
+  # variables already set), so local runs can keep their tokens there.
   class Configuration
     attr_reader :data, :root
-
-    include McpConfig
-    include EnvOverrides
 
     # Expanded lazily in load_user_env_file so a missing/unresolvable home
     # directory can't crash at load time.
     USER_ENV_FILE = '~/.thingie/.env'
 
-    DEFAULT_SKILL_DIRECTORIES = %w[.agents .claude .cursor].freeze
-
-    # Build the merged configuration for a project by loading and combining all layers
-    # (bundled defaults, `.thingie/config.toml`, `~/.thingie/.env`, OS env vars, explicit overrides).
+    # Build the merged configuration for a project by loading and combining all layers.
     #
     # @param root [String] project root used to locate `.thingie/config.toml`; defaults to the current directory
     # @param overrides [Hash] explicit key/value overrides, applied last and taking highest precedence
@@ -141,7 +32,7 @@ module Thingie
 
     # Fetch a top-level config value by key.
     #
-    # @param key [String, Symbol] config key, e.g. `` `model` `` or `` `provider` ``
+    # @param key [String, Symbol] config key, e.g. `` `approve` ``
     # @return [Object, nil] the value, or nil if absent
     def [](key)
       @data[key.to_s]
@@ -155,85 +46,14 @@ module Thingie
       @data.dig(*keys.map(&:to_s))
     end
 
-    # Whether the value at `keys` was set on this machine (an environment variable, `~/.thingie/.env`, a CLI
-    # flag or an explicit override) rather than by a config file.
-    #
-    # @param keys [Array<String, Symbol>] path of keys, e.g. `` `verify`, `model` ``
-    # @return [Boolean] true when an env var or override set the value or a table containing it
-    def set_locally?(*keys)
-      path = keys.map(&:to_s)
-      @local_paths.any? { |local| path.first(local.size) == local }
-    end
-
-    # The `` `prompt_vars` `` config section, deep-merged across all layers.
-    #
-    # @return [Hash] template variables available to the ERB prompt templates
-    def prompt_vars
-      @data.fetch('prompt_vars', {})
-    end
-
-    # The `` `severity_scale` `` config section mapping severity levels to human-readable labels.
-    #
-    # @return [Hash] severity level => label
-    def severity_scale
-      @data.fetch('severity_scale', {})
-    end
-
-    # The `` `confidence_scale` `` config section mapping confidence levels to human-readable labels.
-    #
-    # @return [Hash] confidence level => label
-    def confidence_scale
-      @data.fetch('confidence_scale', {})
-    end
-
-    # The "show" line: thresholds from `` `[post_process]` `` controlling whether a
-    # finding is surfaced to maintainers at all. Absent/invalid values mean "no limit".
-    #
-    # @return [Hash] `{ max_severity:, max_confidence: }`, either possibly nil
-    def show_threshold
-      settings = @data.fetch('post_process', {})
-      {
-        max_severity: Threshold.parse(settings['max_severity']),
-        max_confidence: Threshold.parse(settings['max_confidence'])
-      }
-    end
-
-    # The "block" line: the threshold from `` `[approve]` `` controlling whether a
-    # finding prevents auto-approval. `enabled` reflects whether auto-approval is
-    # configured at all; when it isn't, the threshold is not meaningfully in effect.
-    #
-    # @return [Hash] `{ max_severity:, enabled: }`
-    def block_threshold
-      settings = @data.fetch('approve', {})
-      { max_severity: Threshold.parse(settings['max_severity']), enabled: settings.fetch('enabled', false) }
-    end
-
-    # Absolute paths of the directories to scan for skill markdown fragments, defaulting to
-    # `.agents`, `.claude`, and `.cursor` resolved against the project root.
-    #
-    # @return [Array<String>] absolute directory paths
-    def skill_directories
-      # expand_path leaves absolute paths intact and resolves relative ones
-      # against the project root.
-      Array(@data.fetch('skill_directories', DEFAULT_SKILL_DIRECTORIES)).map { |d| File.expand_path(d, @root) }
-    end
-
-    # All skill fragments discovered under {#skill_directories}, lazily loaded and memoized.
-    #
-    # @return [Array<Thingie::SkillFragment>] discovered skill fragments
-    def skills
-      @skills ||= skill_directories.flat_map { |dir| load_skills_from(dir) }
-    end
-
     private
 
     def build_data
       load_user_env_file
-      @local_paths = @overrides.keys.map { |key| [key] }
       defaults = load_toml(default_config_path)
       project = project_config_path ? load_toml(project_config_path) : {}
 
-      apply_env_overrides(deep_merge(defaults, project)).merge(@overrides)
+      deep_merge(defaults, project).merge(@overrides)
     end
 
     def load_user_env_file
@@ -243,8 +63,8 @@ module Thingie
       return unless File.file?(path)
 
       # overwrite: true stops Dotenv::Parser from substituting real ENV values
-      # for keys it already finds set — precedence between layers 3 and 4 is
-      # ours to decide, via Env[key] ||= value below, not Dotenv's.
+      # for keys it already finds set — whether the OS environment wins is ours
+      # to decide, via Env[key] ||= value below, not Dotenv's.
       Dotenv.parse(path, overwrite: true).each { |key, value| Env[key] ||= value }
     rescue StandardError
       # A missing/unreadable/malformed user env file must never be fatal.
@@ -277,87 +97,6 @@ module Thingie
         deep_merge(base_value, override_value)
       else
         override_value.nil? ? base_value : override_value
-      end
-    end
-
-    def load_skills_from(dir)
-      return [] unless Dir.exist?(dir)
-
-      # Use base: so the directory name is taken literally — glob metacharacters
-      # in the path (e.g. brackets) don't change which files are matched.
-      Dir.glob('**/*.md', base: dir).map do |relative|
-        path = File.join(dir, relative)
-        SkillFragment.new(path: path, content: File.read(path), source: dir)
-      end
-    end
-  end
-
-  # A single skill prompt fragment discovered from .agents, .claude, or .cursor.
-  class SkillFragment
-    attr_reader :path, :content, :source
-
-    # Builds a fragment from an already-read skill file.
-    #
-    # @param path [String] absolute path to the skill's markdown file
-    # @param content [String] the raw markdown content of the skill file
-    # @param source [String] the skill directory this fragment was discovered under
-    def initialize(path:, content:, source:)
-      @path = path
-      @content = content
-      @source = source
-    end
-
-    # The skill's name: the front matter `name` when present, otherwise the
-    # parent directory for a `<name>/SKILL.md` file, otherwise the filename
-    # without its `.md` extension.
-    #
-    # @return [String] skill name
-    def name
-      @name ||= front_matter_string('name') || filename_name
-    end
-
-    # One-line summary used as progressive-disclosure metadata (SkillCatalog),
-    # so the LLM sees this instead of the full skill body until it asks for it.
-    # Uses the front matter `description` when present, otherwise the first
-    # non-blank line of the body.
-    def description
-      line = front_matter_string('description') || first_body_line || name
-      line = line.sub(/\A#+\s*/, '')
-      line.length > 150 ? "#{line[0, 150].rstrip}…" : line
-    end
-
-    private
-
-    def filename_name
-      basename = File.basename(@path, '.md')
-      basename.casecmp?('SKILL') ? File.basename(File.dirname(@path)) : basename
-    end
-
-    def first_body_line
-      body = front_matter.empty? ? content : RubyLLM::Skills::Parser.extract_body(unix_content)
-      body.each_line.map(&:strip).find { |l| !l.empty? }
-    end
-
-    # The gem's front matter regex only matches `\n`, so CRLF files are
-    # normalized before parsing.
-    def unix_content
-      @unix_content ||= content.gsub(/\r\n?/, "\n")
-    end
-
-    # Collapses whitespace so a multi-line YAML value still reads as one line.
-    def front_matter_string(key)
-      value = front_matter[key].to_s.split.join(' ')
-      value.empty? ? nil : value
-    end
-
-    # Parsed YAML front matter, or {} when the file has none (plain fragments)
-    # or it can't be parsed — those fall back to filename / first-line metadata.
-    def front_matter
-      @front_matter ||= begin
-        parsed = RubyLLM::Skills::Parser.parse_string(unix_content)
-        parsed.is_a?(Hash) ? parsed : {}
-      rescue RubyLLM::Skills::ParseError
-        {}
       end
     end
   end

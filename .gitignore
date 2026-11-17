@@ -11,18 +11,11 @@
 /test/version_tmp/
 /tmp/
 /log/
-# Local reports:
-code-review-report.json
-code-review-report.md
-
 # Used by dotenv library to load environment variables.
 # .env
 
 # Ignore RSpec persistence file.
 .rspec_status
-
-# Ignore local review output directories.
-tmp_review/
 
 # Ignore Byebug command history file.
 .byebug_history
@@ -77,7 +70,3 @@ Gemfile.lock
 
 # Used by RuboCop. Remote config files pulled in from inherit_from directive.
 # .rubocop-https?--*
-
-# Bench scratch: built fixture repos and local run files
-/evals/bench/tmp/
-/evals/bench/results/

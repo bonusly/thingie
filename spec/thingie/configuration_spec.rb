@@ -12,88 +12,36 @@ RSpec.describe Thingie::Configuration do
   after { FileUtils.rm_rf(tmp_dir) }
 
   it 'loads bundled defaults', :aggregate_failures do
-    expect(config['retries']).to eq(3)
-    expect(config['request_timeout']).to eq(120)
-    expect(config['models_file']).to eq('')
-  end
-
-  it 'disables System One by default', :aggregate_failures do
-    expect(config['system_one_enabled']).to be(false)
-    expect(config['system_one_api_base']).to eq('https://openrouter.ai/api')
-  end
-
-  context 'with System One environment variables' do
-    before do
-      Thingie::Env['SYSTEM_ONE_ENABLED'] = 'true'
-      Thingie::Env['SYSTEM_ONE_API_BASE'] = 'https://example.test/api'
-    end
-
-    it 'overrides the defaults', :aggregate_failures do
-      expect(config['system_one_enabled']).to be(true)
-      expect(config['system_one_api_base']).to eq('https://example.test/api')
-    end
-  end
-
-  it 'rejects System One enabled values other than true or false' do
-    Thingie::Env['SYSTEM_ONE_ENABLED'] = 'yes'
-
-    expect { config }.to raise_error(Thingie::ConfigurationError, /'true' or 'false'/)
-  end
-
-  it 'rejects a non-boolean system_one_enabled in project config' do
-    FileUtils.mkdir_p(File.join(tmp_dir, '.thingie'))
-    File.write(File.join(tmp_dir, '.thingie', 'config.toml'), %(system_one_enabled = "true"\n))
-
-    expect { config }.to raise_error(Thingie::ConfigurationError, /system_one_enabled must be 'true' or 'false'/)
-  end
-
-  it 'exposes prompt_vars' do
-    expect(config.prompt_vars).to include('self_id', 'requirements', 'json_requirements')
-  end
-
-  it 'exposes the show threshold (post_process)' do
-    expect(config.show_threshold).to eq(max_severity: 4, max_confidence: 2)
-  end
-
-  it 'exposes the block threshold (approve), disabled by default' do
-    expect(config.block_threshold).to eq(max_severity: 2, enabled: false)
-  end
-
-  context 'with approve enabled via project config' do
-    before do
-      FileUtils.mkdir_p(File.join(tmp_dir, '.thingie'))
-      File.write(File.join(tmp_dir, '.thingie', 'config.toml'), <<~TOML)
-        [approve]
-        enabled = true
-        max_severity = 2
-      TOML
-    end
-
-    it 'reflects the overridden block threshold' do
-      expect(config.block_threshold).to eq(max_severity: 2, enabled: true)
-    end
+    expect(config.dig('approve', 'enabled')).to be(false)
+    expect(config.dig('approve', 'max_changes')).to eq(500)
+    expect(config.dig('approve', 'protected_paths')).to eq(['.thingie/**/*'])
   end
 
   context 'with a project config file' do
     before do
       FileUtils.mkdir_p(File.join(tmp_dir, '.thingie'))
       File.write(File.join(tmp_dir, '.thingie', 'config.toml'), <<~TOML)
-        retries = 10
-        model = "claude-sonnet-4"
-
-        [prompt_vars]
-        requirements = "Extra requirement."
+        [approve]
+        enabled = true
+        max_changes = 750
       TOML
     end
 
-    it 'overrides simple keys', :aggregate_failures do
-      expect(config['retries']).to eq(10)
-      expect(config['model']).to eq('claude-sonnet-4')
+    it 'deep-merges it over the defaults', :aggregate_failures do
+      expect(config.dig('approve', 'enabled')).to be(true)
+      expect(config.dig('approve', 'max_changes')).to eq(750)
+      expect(config.dig('approve', 'skip_label')).to eq('thingie-skip-approve')
+    end
+  end
+
+  context 'with an unreadable project config file' do
+    before do
+      FileUtils.mkdir_p(File.join(tmp_dir, '.thingie'))
+      File.write(File.join(tmp_dir, '.thingie', 'config.toml'), '[approve')
     end
 
-    it 'deep-merges prompt_vars', :aggregate_failures do
-      expect(config.prompt_vars['requirements']).to eq('Extra requirement.')
-      expect(config.prompt_vars['self_id']).to include('AI-powered')
+    it 'raises naming the file' do
+      expect { config }.to raise_error(/Failed to load config from .*config\.toml/)
     end
   end
 
@@ -101,254 +49,29 @@ RSpec.describe Thingie::Configuration do
     let(:env_file) { File.join(tmp_dir, 'fake-home.env') }
 
     before do
-      File.write(env_file, "LLM_API_KEY=from-dotenv-file\n")
+      File.write(env_file, "GITHUB_TOKEN=from-dotenv-file\n")
       stub_const('Thingie::Configuration::USER_ENV_FILE', env_file)
     end
 
-    it 'loads LLM_API_KEY from the env file' do
-      expect(config['llm_api_key']).to eq('from-dotenv-file')
-    end
-  end
+    it 'loads its variables into the environment' do
+      config
 
-  context 'with environment variables' do
-    before { Thingie::Env['LLM_MODEL'] = 'gpt-5' }
-
-    it 'overrides model from environment' do
-      expect(config['model']).to eq('gpt-5')
-    end
-  end
-
-  context 'with VERIFY_MODEL' do
-    before do
-      FileUtils.mkdir_p(File.join(tmp_dir, '.thingie'))
-      File.write(File.join(tmp_dir, '.thingie', 'config.toml'), "[verify]\nmodel = \"anthropic/claude-opus\"\n")
-      Thingie::Env['VERIFY_MODEL'] = 'opus'
+      expect(Thingie::Env['GITHUB_TOKEN']).to eq('from-dotenv-file')
     end
 
-    it 'replaces the project [verify] model and keeps the rest of the table', :aggregate_failures do
-      expect(config.dig('verify', 'model')).to eq('opus')
-      expect(config.dig('verify', 'enabled')).to be(true)
-    end
-  end
+    it 'leaves variables already set alone' do
+      Thingie::Env['GITHUB_TOKEN'] = 'from-shell'
+      config
 
-  describe '#set_locally?' do
-    subject(:config) { described_class.new(root: tmp_dir, overrides: { provider: 'codex' }) }
-
-    before do
-      FileUtils.mkdir_p(File.join(tmp_dir, '.thingie'))
-      File.write(File.join(tmp_dir, '.thingie', 'config.toml'),
-                 "model = \"openai/gpt-6-sol\"\n[verify]\nmodel = \"openai/gpt-6-sol\"\n")
-      Thingie::Env['VERIFY_MODEL'] = 'opus'
-    end
-
-    it 'is true for env vars and overrides, false for config files', :aggregate_failures do
-      expect(config.set_locally?('verify', 'model')).to be(true)
-      expect(config.set_locally?('provider')).to be(true)
-      expect(config.set_locally?('model')).to be(false)
-      expect(config.set_locally?('verify', 'enabled')).to be(false)
-    end
-  end
-
-  context 'with blank string environment variables' do
-    before do
-      Thingie::Env['LLM_MODEL'] = '  '
-      Thingie::Env['SYSTEM_ONE_API_BASE'] = ''
-    end
-
-    it 'keeps the default values', :aggregate_failures do
-      expect(config['model']).to eq('gpt-5.4-nano')
-      expect(config['system_one_api_base']).to eq('https://openrouter.ai/api')
-    end
-  end
-
-  context 'with THINGIE_MODELS_FILE environment variable' do
-    before { Thingie::Env['THINGIE_MODELS_FILE'] = '/tmp/thingie-models.json' }
-
-    it 'overrides models_file from environment' do
-      expect(config['models_file']).to eq('/tmp/thingie-models.json')
+      expect(Thingie::Env['GITHUB_TOKEN']).to eq('from-shell')
     end
   end
 
   context 'with explicit overrides' do
-    subject(:config) { described_class.new(root: tmp_dir, overrides: { model: 'o1-preview' }) }
+    subject(:config) { described_class.new(root: tmp_dir, overrides: { approve: { 'enabled' => true } }) }
 
-    it 'overrides model from constructor options' do
-      expect(config['model']).to eq('o1-preview')
-    end
-  end
-
-  context 'with environment variable and explicit override' do
-    subject(:config) { described_class.new(root: tmp_dir, overrides: { model: 'o1-preview' }) }
-
-    before { Thingie::Env['LLM_MODEL'] = 'gpt-5' }
-
-    it 'prefers explicit override over environment variable' do
-      expect(config['model']).to eq('o1-preview')
-    end
-  end
-
-  context 'with skill directories' do
-    before do
-      %w[.agents .claude .cursor].each do |source|
-        FileUtils.mkdir_p(File.join(tmp_dir, source))
-        File.write(File.join(tmp_dir, source, 'rails_rules.md'), "#{source} rule")
-      end
-    end
-
-    it 'discovers markdown skill files', :aggregate_failures do
-      expect(config.skills.size).to eq(3)
-      expect(config.skills.map(&:name)).to contain_exactly('rails_rules', 'rails_rules', 'rails_rules')
-    end
-
-    it 'captures content and source', :aggregate_failures do
-      skill = config.skills.find { |s| s.source.end_with?('.agents') }
-      expect(skill.source).to end_with('.agents')
-      expect(skill.content).to eq('.agents rule')
-    end
-  end
-
-  describe 'SkillFragment#description' do
-    def fragment(content)
-      Thingie::SkillFragment.new(path: '/tmp/skill.md', content: content, source: '/tmp')
-    end
-
-    it 'uses the first non-blank line' do
-      expect(fragment("\n\nAlways use strong params.\nMore detail.").description)
-        .to eq('Always use strong params.')
-    end
-
-    it 'strips leading markdown heading markers' do
-      expect(fragment("# Rails rules\nbody").description).to eq('Rails rules')
-    end
-
-    it 'truncates long lines' do
-      description = fragment('a' * 200).description
-      expect(description.length).to eq(151)
-      expect(description).to end_with('…')
-    end
-
-    it 'uses the front matter description when present' do
-      content = "---\nname: forms\ndescription: >\n  Zod + react-hook-form\n  conventions.\n---\n\n# Forms\nbody"
-      expect(fragment(content).description).to eq('Zod + react-hook-form conventions.')
-    end
-
-    it 'falls back to the first body line when front matter has no description' do
-      expect(fragment("---\nname: forms\n---\n\n# Forms\nbody").description).to eq('Forms')
-    end
-
-    it 'reads front matter from files with Windows line endings' do
-      expect(fragment("---\r\nname: forms\r\ndescription: About forms.\r\n---\r\n\r\nbody").description)
-        .to eq('About forms.')
-    end
-
-    it 'ignores malformed front matter' do
-      expect(fragment("---\nname: [unclosed\n---\nbody").description).to eq('---')
-    end
-  end
-
-  describe 'SkillFragment#name' do
-    def fragment(path, content = 'body')
-      Thingie::SkillFragment.new(path: path, content: content, source: '/tmp/skills')
-    end
-
-    it 'uses the filename for plain fragments' do
-      expect(fragment('/tmp/skills/rails_rules.md').name).to eq('rails_rules')
-    end
-
-    it 'uses the parent directory for SKILL.md files without front matter' do
-      expect(fragment('/tmp/skills/forms/SKILL.md').name).to eq('forms')
-    end
-
-    it 'prefers the front matter name' do
-      expect(fragment('/tmp/skills/forms/SKILL.md', "---\nname: zod-forms\n---\nbody").name).to eq('zod-forms')
-    end
-  end
-
-  context 'with custom skill_directories' do
-    subject(:config) do
-      described_class.new(root: tmp_dir, overrides: { skill_directories: ['.github'] })
-    end
-
-    before do
-      FileUtils.mkdir_p(File.join(tmp_dir, '.github'))
-      File.write(File.join(tmp_dir, '.github', 'review_rules.md'), 'Custom rules.')
-      # Create a default skill dir that should NOT be loaded
-      FileUtils.mkdir_p(File.join(tmp_dir, '.agents'))
-      File.write(File.join(tmp_dir, '.agents', 'default_rules.md'), 'Default rules.')
-    end
-
-    it 'only scans configured directories', :aggregate_failures do
-      expect(config.skills.map(&:name)).to eq(['review_rules'])
-      expect(config.skills.map(&:source)).to all(end_with('.github'))
-    end
-  end
-
-  describe '#mcp_servers' do
-    it 'returns an empty hash when no mcp section is present' do
-      expect(config.mcp_servers).to eq({})
-    end
-
-    context 'with [mcp.<name>] tables' do
-      before do
-        FileUtils.mkdir_p(File.join(tmp_dir, '.thingie'))
-        File.write(File.join(tmp_dir, '.thingie', 'config.toml'), <<~TOML)
-          [mcp.github]
-          command = "npx"
-
-          [mcp.docs]
-          url = "https://example.com/mcp"
-        TOML
-      end
-
-      it 'returns the servers keyed by name', :aggregate_failures do
-        expect(config.mcp_servers.keys).to contain_exactly('github', 'docs')
-        expect(config.mcp_servers['github']['command']).to eq('npx')
-      end
-    end
-
-    it 'returns an empty hash when mcp is not a table' do
-      FileUtils.mkdir_p(File.join(tmp_dir, '.thingie'))
-      File.write(File.join(tmp_dir, '.thingie', 'config.toml'), "mcp = [1, 2, 3]\n")
-      expect(config.mcp_servers).to eq({})
-    end
-  end
-
-  describe '#mcp_config_file' do
-    def write_mcp_file(name)
-      FileUtils.mkdir_p(File.join(tmp_dir, '.thingie'))
-      File.write(File.join(tmp_dir, '.thingie', name), "mcp_servers: {}\n")
-    end
-
-    it 'returns nil when no mcp config file exists' do
-      expect(config.mcp_config_file).to be_nil
-    end
-
-    it 'finds mcp.yml' do
-      write_mcp_file('mcp.yml')
-      expect(config.mcp_config_file).to end_with('mcp.yml')
-    end
-
-    it 'finds mcp.yaml' do
-      write_mcp_file('mcp.yaml')
-      expect(config.mcp_config_file).to end_with('mcp.yaml')
-    end
-
-    it 'finds mcp.json' do
-      write_mcp_file('mcp.json')
-      expect(config.mcp_config_file).to end_with('mcp.json')
-    end
-
-    it 'prefers yml over yaml and json' do
-      write_mcp_file('mcp.yaml')
-      write_mcp_file('mcp.json')
-      write_mcp_file('mcp.yml')
-      expect(config.mcp_config_file).to end_with('mcp.yml')
-    end
-
-    it 'prefers yaml over json' do
-      write_mcp_file('mcp.yaml')
-      write_mcp_file('mcp.json')
-      expect(config.mcp_config_file).to end_with('mcp.yaml')
+    it 'applies them last' do
+      expect(config.dig('approve', 'enabled')).to be(true)
     end
   end
 end

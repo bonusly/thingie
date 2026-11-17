@@ -1,51 +1,7 @@
-models_file = ".thingie/models.json"
-
-provider = "openrouter"
-model = "openai/gpt-6-sol"
-
-skill_directories = [
-  ".thingie/skills"
-]
-
-exclude_files = [
-  ".thingie/skills/**/*",
-  ".thingie/models.json",
-  # The bench fixture and its seeded pull requests plant defects on purpose; they are reviewed by the
-  # bench, not by the review of this repo.
-  "evals/bench/app/**/*",
-  "evals/bench/cases/**/*"
-]
-
-system_one_enabled = true
-system_one_model = "jev-latest"
-system_one_api_base = "https://openrouter.ai/api"
-
-[lsp.ruby]
-command = ["bundle", "exec", "ruby-lsp"]
-extensions = [".rb", ".rake"]
-
-# Post Critical, High and Medium findings; Low ones are not posted.
-[post_process]
-max_severity = 3
-
-# Critic pass: review runs on `model` above; the verify pass re-checks each
-# surviving finding. Same provider/key (OpenRouter), so the slug is
-# provider-prefixed.
-[verify]
-enabled = true
-model = "openai/gpt-6-sol"
-
-# Auto-Approving PRs
-#
-# Disabled in Thingie's own repository: we don't want Thingie auto-approving
-# pull requests to Thingie itself. Changes here should always get a human
-# review. The remaining settings are kept for reference/documentation.
-
 [approve]
 enabled = false
 dry_run = false
 max_changes = 500
-max_severity = 2
 protected_paths = [
   ".github/*",
   "Gemfile",
@@ -53,11 +9,3 @@ protected_paths = [
   "thingie.gemspec",
   ".thingie/**/*"
 ]
-
-[[escalations]]
-threshold=0.5
-label="medium-risk"
-
-[[escalations]]
-threshold=0.75
-label="high-risk"
