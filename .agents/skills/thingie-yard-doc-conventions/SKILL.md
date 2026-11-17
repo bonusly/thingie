@@ -1,6 +1,6 @@
 ---
 name: thingie-yard-doc-conventions
-description: Add YARD documentation comments to thingie's Ruby classes following this repo's conventions for Thor commands, RubyLLM::Tool subclasses, and Data.define/Struct models.
+description: Add YARD documentation comments to thingie's Ruby classes following this repo's conventions for Thor commands and Data.define/Struct models.
 ---
 <!-- zeroshot-skill {"schema":1,"id":"019f8ed9-aed3-7327-9d58-f2f02960c5d4","createdBy":"zeroshot","managedBy":"zeroshot","revision":1} -->
 
@@ -16,8 +16,7 @@ Asked to add YARD documentation / doc comments to files under `lib/thingie` in t
 4. Skip methods that already have a doc comment above them (check first) rather than duplicating or overwriting existing prose.
 5. Thor CLI classes (`class CLI < Thor`, e.g. `lib/thingie/cli.rb`): Thor already documents each command via `desc '...'` immediately above the method, so keep the YARD comment to a one-line summary plus only non-obvious `@param`/`@return` tags — do not restate what `desc` already says.
 6. Methods defined inside a `no_commands do ... end` block in a Thor class are **not** Thor commands (they're plain public Ruby helper methods) even though they sit inside the CLI class — give them full, regular YARD docs, not the abbreviated Thor treatment.
-7. `RubyLLM::Tool` subclasses (e.g. `FileTool`, `SymbolTool`) already carry a `description <<~DESC ... DESC` block that documents the tool's behavior for the LLM caller. YARD comments on `#initialize`/`#execute` should describe the Ruby-level method contract (params, return value, exceptions) — do not repeat the DESC text.
-8. `Data.define`/`Struct.new` model classes (`lib/thingie/models.rb`): document derived predicate methods (e.g. `#github?`, `#local?`) with `@return [Boolean]`; a struct with no custom methods just needs a one-line class-level comment if it lacks one already — skip it if that comment already exists.
+7. `Data.define`/`Struct.new` classes (e.g. `ObfuscationDetector::Finding`, `Approver::Decision`): document derived predicate methods with `@return [Boolean]`; a struct with no custom methods just needs a one-line class-level comment if it lacks one already — skip it if that comment already exists.
 
 ## Verification
 

@@ -4,7 +4,7 @@ This file provides guidance to AI coding agents (Codex, Copilot, Cursor, etc.) w
 
 ## What This Is
 
-Thingie is an AI-powered code review CLI and GitHub Action for Ruby/Rails projects. It reviews PR changesets using LLMs, runs an optional adversarial "critic pass" to reduce false positives, and posts inline GitHub PR comments.
+Thingie is a deterministic pull request auto-approver and GitHub Action. It approves a PR when GitHub Copilot's latest review approves the PR's current commit and a set of safety rules pass. It makes no LLM calls and posts no review comments.
 
 ## Commands
 
@@ -21,29 +21,18 @@ Always run `bundle exec rake` before committing to ensure both linting and tests
 
 ## Architecture
 
-The review pipeline runs in this order:
+See [ARCHITECTURE.md](ARCHITECTURE.md). In short:
 
-1. **CLI** (`lib/thingie/cli.rb`) — Thor commands. `review` is the primary command.
-2. **Configuration** (`lib/thingie/configuration.rb`) — 5-layer merge: bundled defaults → `.thingie/config.toml` → `~/.thingie/.env` → env vars → CLI flags. `.thingie/config.toml` deep-merges over the defaults at every table level (e.g. one key in `[change_risk.ratings.critical]` keeps the rest); env vars and CLI flags replace top-level keys.
-3. **Changeset** (`lib/thingie/changeset.rb`) — Uses `Rugged` (libgit2) to produce the diff between two git refs.
-4. **Reviewer** (`lib/thingie/reviewer.rb`) — Orchestrates concurrent file reviews via `Async` fibers.
-5. **PromptBuilder** (`lib/thingie/prompt_builder.rb`) — Renders ERB templates with config and skills merged in.
-6. **LlmClient** (`lib/thingie/llm_client.rb`) — Wraps `ruby_llm`; handles retries, timeouts, tool registration, structured output.
-7. **IssueParser** (`lib/thingie/issue_parser.rb`) — Validates LLM JSON against `IssueSchema`; converts `RawIssue` → `Issue`.
-8. **PostProcessor** (`lib/thingie/post_processor.rb`) — Filters by `max_confidence`/`max_severity` before the critic pass.
-9. **CodeEnricher** (`lib/thingie/code_enricher.rb`) — Attaches the actual affected code snippet to each issue.
-10. **Verifier** (`lib/thingie/verifier.rb`) — Critic pass: re-examines each finding with an adversarial LLM call. Fails open (broken verdict keeps the finding).
-11. **ReportRenderer** (`lib/thingie/report_renderer.rb`) — Renders CLI or Markdown output.
-
-GitHub integration (`lib/thingie/github/`): `Commenter` posts inline PR comments via Octokit; `Approver` handles auto-approval; `GraphQLClient` resolves stale threads (requires a user PAT, not `GITHUB_TOKEN`).
-
-LSP integration (`lib/thingie/lsp/`): `Client` spawns an LSP server (e.g. `ruby-lsp`) for symbol lookup; `SymbolTool` exposes it as a `ruby_llm` tool so the LLM can verify method/class existence.
+1. **CLI** (`lib/thingie/cli.rb`) — Thor commands: `approve` and `version`.
+2. **Configuration** (`lib/thingie/configuration.rb`) — bundled defaults deep-merged with `.thingie/config.toml`, then explicit overrides.
+3. **Approver** (`lib/thingie/github/approver.rb`) — the approval rules, the approve/dismiss writes, and the status comment.
+4. **ObfuscationDetector** (`lib/thingie/obfuscation_detector.rb`) — pattern scan of changed files' content, which the Approver reads through the GitHub API.
+5. **Stats** (`lib/thingie/stats/`) — fail-open `approval.decided` event sinks.
 
 ## Code Conventions
 
-- **Severity** 1–4 and **confidence** 1–4: lower numbers = stricter/higher priority.
-- Valid issue tags: `bug`, `security`, `performance`, `readability`, `maintainability`, `overcomplexity`, `language`, `architecture`, `compatibility`, `deprecation`, `anti-pattern`, `naming`, `code-style`.
+- Fail safe: when Thingie can't determine something a rule depends on, the rule blocks.
 - `pr` is explicitly allowed as a parameter name in `.rubocop.yml`.
 - RuboCop limits: 65-line methods, 120-line classes, 120-char lines. Block length cop is disabled for specs and gemspec.
-- RSpec uses `expect()` syntax with no monkey-patching. Tests mock LLM responses — no real API key required.
+- RSpec uses `expect()` syntax with no monkey-patching. Specs stub Octokit — no GitHub token required.
 - Specs isolate from `~/.thingie/.env` to avoid developer environment leakage.

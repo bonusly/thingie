@@ -1,643 +1,191 @@
-# Thingie: Ruby (but mostly Rails) Review Thing
-
-Thingie is an opinionated but helpful and flexible AI code review tool for Ruby and Rails projects. It is heavily inspired by [Gito](https://github.com/Nayjest/Gito) and brings the same LLM-driven review workflow to Ruby codebases, with extra context pulled from the Ruby LSP.
-
-## Features
-
-- AI-powered code review via any OpenAI-compatible LLM (powered by [ruby_llm](https://github.com/crmne/ruby_llm)).
-- Ruby and Rails-aware review prompts out of the box.
-- Reads project skills and rules from configurable directories (defaults to `.agents`, `.claude`, and `.cursor`).
-- Configurable request timeouts, retries, and logging to fail fast on unreachable providers.
-- Pulls extra context from language servers (LSP) during review — ruby-lsp first, any LSP via config. (Run static analyzers like RuboCop as a separate step.)
-- Cuts false positives with a **critic pass** (`[verify]`): every surviving finding is re-checked by a fresh, skeptical LLM call before it's reported.
-- Runs as a GitHub Action composite action, posting feedback as precise PR comments and (with a suitable token) resolving stale review threads automatically.
-
-## Quickstart (after release)
-
-Add to your repository:
-
-```yaml
-# .github/workflows/thingie-review.yml
-name: "Thingie Review"
-on:
-  pull_request:
-    types: [opened, synchronize, reopened]
-
-jobs:
-  review:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: Bonusly/rubyrt/.github/actions/thingie@v1
-        with:
-          api_key: ${{ secrets.LLM_API_KEY }}
-          provider: openrouter
-          model: moonshotai/kimi-k2.6
-```
-
-### Ruby version and run command
-
-- **`ruby_version`** — Ruby the action installs to run Thingie. Defaults to `3.4`.
-- **`thingie_command`** — how the CLI is invoked. Defaults to `thingie`. Set it to `bundle exec thingie`, `direnv exec . thingie`, etc. when your environment needs it.
-- **`thingie_version`** — gem version to install (`local` builds from the checked-out repo). Set to `skip` to install nothing when `thingie_command` already provides Thingie (e.g. it's in your Gemfile).
-
-```yaml
-      - uses: Bonusly/rubyrt/.github/actions/thingie@v1
-        with:
-          api_key: ${{ secrets.LLM_API_KEY }}
-          ruby_version: "4.0"
-          thingie_command: bundle exec thingie
-          thingie_version: skip   # thingie comes from the project's Gemfile
-```
-
-### Full working example (the workflow this repo runs)
-
-Thingie reviews its own pull requests. Below is the actual
-`.github/workflows/thingie-review.yml` from this repo — copy it as a known-good
-starting point. It mints a GitHub App token when one is configured (so comments
-post under the app's name) and otherwise falls back to the default token.
-
-```yaml
-# .github/workflows/thingie-review.yml
-name: "Thingie Review"
-
-on:
-  pull_request:
-    types: [opened, synchronize, reopened]
-  workflow_dispatch:
-    inputs:
-      pr_number:
-        description: "Pull Request number"
-        required: true
-
-jobs:
-  review:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-      # Mint an app installation token so review comments post under the app's
-      # name/avatar. Skipped (falls back to GITHUB_TOKEN) when the app isn't set up.
-      - uses: actions/create-github-app-token@v3
-        id: app_token
-        if: ${{ vars.THINGIE_APP_ID != '' }}
-        with:
-          client-id: ${{ vars.THINGIE_APP_ID }}
-          private-key: ${{ secrets.THINGIE_APP_PRIVATE_KEY }}
-      - name: Run Thingie review
-        uses: Bonusly/rubyrt/.github/actions/thingie@v1
-        with:
-          api_key: ${{ secrets.LLM_API_KEY }}
-          # Post as the app when configured, otherwise as github-actions.
-          github_token: ${{ steps.app_token.outputs.token || github.token }}
-          # PAT (user token) with pull-requests write so stale review threads can
-          # be auto-resolved — GITHUB_TOKEN and App tokens cannot. Skipped if unset.
-          resolve_token: ${{ secrets.THINGIE_RESOLVE_TOKEN }}
-```
-
-The review model and provider come from `model` and `provider` in
-`.thingie/config.toml`. The action's `model` and `provider` inputs are optional
-overrides: when set, they win over the config file; when left out, the config
-file (or Thingie's bundled default) is used. This repo runs the review on
-OpenRouter and re-checks findings in the critic pass — see
-[The critic pass](#the-critic-pass-reducing-false-positives).
-
-The action referenced above is the composite action at
-[`.github/actions/thingie/action.yml`](.github/actions/thingie/action.yml); it
-installs Ruby, installs Thingie, computes the base ref (unshallowing as needed so
-merge-base is correct), runs the review, posts the comment, and uploads the JSON
-and Markdown reports as artifacts.
-
-### Required secrets and permissions
-
-- `secrets.LLM_API_KEY`: Your LLM provider API key.
-- `secrets.GITHUB_TOKEN` is provided automatically by GitHub Actions. It must have at least `pull-requests: write` permission (set in the workflow `permissions` block) so Thingie can post review comments.
-- Want comments to post under a custom name and avatar instead of "github-actions"? See **Posting as a GitHub App** below.
-- Resolving stale review threads needs an **extra** token — see **Resolving stale review threads** below. The default `GITHUB_TOKEN` cannot do it.
-
-### Posting as a GitHub App (custom name and avatar)
-
-By default Thingie posts as **github-actions[bot]** (the workflow `GITHUB_TOKEN`). To post under your own bot name and avatar, authenticate with a **GitHub App installation token** and pass it as the action's `github_token` input — review comments then appear as **YourApp[bot]**.
-
-1. Create the app: **Settings → Developer settings → GitHub Apps → New GitHub App** (under your org or account). Give it the name and avatar you want to see on comments.
-   - **Repository permissions → Pull requests: Read and write.** (No webhook needed — uncheck **Active**.)
-2. **Generate a private key** and note the **App ID**.
-3. **Install the app** on the repositories that run Thingie.
-4. Store the **App ID** as a variable (e.g. `vars.THINGIE_APP_ID`) and the private key as a secret (e.g. `secrets.THINGIE_APP_PRIVATE_KEY`).
-5. Mint an installation token with [`actions/create-github-app-token`](https://github.com/actions/create-github-app-token) and pass it as `github_token`:
-
-```yaml
-jobs:
-  review:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/create-github-app-token@v2
-        id: app_token
-        with:
-          app-id: ${{ vars.THINGIE_APP_ID }}
-          private-key: ${{ secrets.THINGIE_APP_PRIVATE_KEY }}
-      - uses: Bonusly/rubyrt/.github/actions/thingie@v1
-        with:
-          api_key: ${{ secrets.LLM_API_KEY }}
-          github_token: ${{ steps.app_token.outputs.token }}   # post as the app
-          resolve_token: ${{ secrets.THINGIE_RESOLVE_TOKEN }}    # resolve threads (PAT — see below)
-```
-
-> The app installation token posts comments fine, but **cannot resolve review threads** (`resolveReviewThread` rejects server-to-server tokens). If you also want stale threads auto-resolved, pair it with a user PAT in `resolve_token` as shown — see the next section.
-
-### Resolving stale review threads
-
-When Thingie re-reviews a PR, it marks its earlier threads as resolved once the code they commented on changes (GitHub marks the thread outdated). It does not resolve a thread just because the model did not repeat the finding on a later run, since the model mentions a different set of issues each time. This uses the GraphQL `resolveReviewThread` mutation, which **requires a user-to-server token (a personal access token).**
-
-> **The default `GITHUB_TOKEN` cannot do this, and neither can a GitHub App.** Both are *server-to-server* tokens, and `resolveReviewThread` returns `Resource not accessible by integration` for them even with `pull-requests: write` — including the installation token from `actions/create-github-app-token`. Only a user PAT works.
-
-To enable auto-resolving, create a PAT and pass it via the `resolve_token` action input (or the `THINGIE_RESOLVE_TOKEN` env var / `--resolve-token` flag for the `github-comment` CLI). If you don't set one, Thingie skips resolving and still posts the new review.
-
-1. Create a token as a user with write access to the repo:
-   - **Classic PAT** with the `repo` scope (**recommended** — reliably works for `resolveReviewThread`). **Settings → Developer settings → Personal access tokens → Tokens (classic)**. If your org enforces SSO, click **Configure SSO** on the token and authorize it for the org.
-   - **Fine-grained PATs are not recommended here.** Even with **Pull requests: Read and write** they often fail `resolveReviewThread` with `Resource not accessible by personal access token` — and for an **org** repo the write permission stays **read-only until an org owner approves it**, so the fetch succeeds but resolving fails. If you must use one, get it org-approved and expect to troubleshoot.
-2. Store it as a repository (or org) secret, e.g. `secrets.THINGIE_RESOLVE_TOKEN`.
-3. Pass it to the action:
-
-```yaml
-jobs:
-  review:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: Bonusly/thingie/.github/actions/thingie@v1
-        with:
-          api_key: ${{ secrets.LLM_API_KEY }}
-          provider: openrouter
-          model: moonshotai/kimi-k2.6
-          resolve_token: ${{ secrets.THINGIE_RESOLVE_TOKEN }}
-```
-
-Threads are resolved as whichever user owns the PAT. (A machine/bot user account is a good fit if you don't want resolutions attributed to a person.)
-
-### Auto-approving PRs
-
-Thingie can submit an **Approve** review when a PR is clean enough. It's **off by default** — enable it under `[approve]` in `.thingie/config.toml`:
-
-```toml
-[approve]
-enabled = true
-max_changes = 500          # additions + deletions ceiling; blocks approval if GitHub doesn't report the size
-max_severity = 3           # BLOCK line: issues at/below this severity number (1=Critical) block approval — independent from post_process.max_severity (the SHOW line), see "Filtering findings" below
-skip_label = "thingie-skip-approve"
-approval_team = "bonusly/pr-auto-approval"  # only auto-approve PRs whose author is on this GitHub team (needs read:org)
-approval_bots = ["loop-de-loops[bot]"]      # bot logins also eligible, since a GitHub App can't join a team
-main_branch_run_repos = ["bonusly/loop-de-loop"]  # linked Actions runs from these repos must have run from their default branch
-protected_paths = ["app/billing/**", "config/secrets.yml"]  # globs that block approval when changed
-dry_run = false            # evaluate and log the decision without approving/dismissing
-```
-
-A PR is approved only when **all** of these hold:
-
-- It isn't a draft and doesn't carry the `skip_label`.
-- Its author is a member of `approve.approval_team`, when that option is set (a non-member is skipped, not blocked, so a human's approval is left intact). Reading team membership needs a `read:org` token — set `THINGIE_RESOLVE_TOKEN` to a PAT with that scope. A bot login listed in `approve.approval_bots` is eligible too.
-- It doesn't modify `.thingie/config.toml` — a PR can't weaken the approval rules and wave itself through.
-- No changed file matches a `protected_paths` glob — e.g. billing code or sensitive config you always want a human to review.
-- Total changes are within `max_changes` (an unknown size fails safe and blocks approval).
-- This run produced no findings at or above `max_severity`.
-- No Thingie findings at or above `max_severity` are still unresolved.
-- No human reviewer's current review is `CHANGES_REQUESTED` (a later dismissal or approval by that reviewer clears it). Thingie never waves through a change a human has pushed back on; an undeterminable review state fails safe and blocks.
-- Every GitHub Actions run that the description or one of the PR author's comments links, in a repository listed in `main_branch_run_repos`, ran a commit on that repository's default branch. A run dispatched from another branch ran that branch's copy of the workflow, which may hold test settings main never had. Other people's comments don't count, so a reviewer citing a test run doesn't block. A run Thingie can't read (its token needs read access to that repository's Actions; it tries the `resolve_token` PAT too) doesn't block, and the approval lists it under **Linked runs not checked**.
-- Every resolved Thingie finding at or above `max_severity` was resolved by someone who is **neither the PR author nor a contributor** to the PR — an author can't clear their own findings to earn an approval.
-
-When Thingie does **not** approve — a rule failed (block) or the run was skipped — it posts a single status comment on the PR explaining why, and keeps that comment updated in place on re-runs (it doesn't stack a new comment each push). Once the PR qualifies and is approved, that status comment is removed.
-
-Re-runs are idempotent: Thingie won't stack a second approval on a head commit it already approved, and it **dismisses** its earlier approval if a later push stops meeting the rules. It also dismisses any approval left over from a **previous commit** before approving a new head, so an approval never outlives the exact commit it was granted for. **Before each review begins**, Thingie dismisses all its existing approvals on the PR as a separate workflow step, so a stale approval from a prior run can't be used to merge new changes while the current review is still in progress — the approval is only restored at the end if the new review still passes all rules. With `dry_run = true` it takes no approve/dismiss action, but posts the result as a status comment marked `Dry run — no approval action was taken.` A successful dry run includes the same passed-checks details that an approval would have contained, making it useful for rollout.
-
-> **Close the re-review window with branch protection.** Thingie now dismisses its own approvals **before** each review begins, so a stale approval can't be used to merge while the new review is running. For approvals from **other reviewers**, enable branch protection's **"Dismiss stale pull request approvals when new commits are pushed"** so a new commit invalidates those instantly too; Thingie then re-approves only if the new commit still passes.
-
-The approval comment opens with the risk read, then a folded **Thingie details** section: the Thingie version, the review model, and the **Checks passed**. If you set `approve.external_checks` (e.g. `["Security review pass", "Full test suite"]`), those are listed there too under **Checks not evaluated**: checks Thingie does not evaluate but that still gate merge, so it's clear Thingie's approval isn't the only gate (they don't affect Thingie's decision).
-
-When an LLM key is available in the `github-comment` step, it also adds an informational **risk assessment**. Rather than restating the rules, the LLM looks at the actual code diff and gives an honest Low/Medium risk read focused on regressions, downtime, and security impact, with a short reason that justifies the approval. The risk level never affects the decision — the deterministic rules above do — and the section is simply omitted if no LLM client is configured or the call fails.
-
-The approval needs the workflow's `pull-requests: write` permission (already required for comments). The risk assessment and the repeat check each need an LLM key (`LLM_API_KEY`) available to the `github-comment` step, and the bundled action passes it there. Without it, each is skipped and a line in the log says so; without it the approval still posts, just without that section. Thingie tries the approval with the main `github_token` first, then falls back to the `resolve_token` PAT if that attempt fails.
-
-> **Heads up on which token approves.** An approval submitted by `GITHUB_TOKEN` (or a GitHub App installation token) does **not** count toward branch-protection "required approvals", and the fallback only triggers when the first attempt *errors* — a non-counting approval from `GITHUB_TOKEN` succeeds and won't fall through to the PAT. If you need the approval to satisfy required reviewers, run Thingie with the PAT as its main `github_token` (or as a bot user) so the counting identity is the one that approves.
-
-> **Limitation.** "Contributor" is determined from commit author/committer GitHub logins, so a `Co-authored-by:` trailer doesn't count as having committed. If a thread's resolver can't be determined (e.g. a deleted account), Thingie fails safe and does not approve.
-
-### Plain-language comments
-
-Both review prompts tell the model how to write each finding: a title of at most 8 words that says what breaks, and details in three short parts, **What's wrong**, **When it happens** and **Fix**, in plain words and under 80 words, with technical terms explained or left out. The goal is a comment someone can read in ten seconds without having seen the code. The file and line references stay in the collapsed Evidence block.
-
-The text is `lib/thingie/prompts/comment_style.txt`. To replace it, set `comment_style` under `[prompt_vars]` in your config; an empty string turns it off.
-
-```toml
-[prompt_vars]
-comment_style = "Write each finding in two sentences."
-```
-
-### Repeated findings and findings about another file
-
-- **Findings about another file.** A reviewer sometimes reports a problem it found in a different file than the one it was reviewing, so the line number belongs to that other file. When a finding's text cites only other files (`path/to/file.rb:17`) and never the file it is attached to, Thingie does not put it on a line. It lists the finding in the collapsed summary comment under the cited file instead.
-- **A short summary on every run.** Each run posts one short summary. With findings it says how many are new and lists each with its severity and a link to its comment (one that is not on a line of the diff has no comment of its own, so it points at the collapsed one); with none, or with only repeats, it says "No new changes recommended" (on the first review, "No changes recommended"). Findings from earlier runs that are still open are listed under it, each with its severity and a link to its comment. A finding that has since been resolved, or whose code has changed, is not listed. Before listing them, `[open_findings]` (on by default; `enabled = false` turns it off) checks each one against the current file with one model call per file (no tools), so a problem fixed on a different line from its comment is dropped from the list. One it cannot confirm is listed with "can't confirm this is resolved". The check also reads the replies on each thread and says what they claim, so a line can end "replied skip", "replied fixed, can't confirm" or "replied fixed, still looks open". If the call fails, they are all listed as open and a warning is printed. `[open_findings] model` picks the model, and the review model is the default. The thread itself stays open on GitHub, so auto-approval is not affected.
-- **A higher bar on re-runs (`[repeat_run] max_severity = 2`).** The model mentions a different set of issues each run, so re-reviewing a PR after a push can surface new findings about code that has not changed. On a re-run, a new finding about code unchanged since Thingie last commented is posted only if its severity is at or below this (1 = Critical, 2 = High). A finding about new or changed code, such as a new file or method, gets the normal bar. Held-back findings are listed in the log. Set it to 4 to post everything.
-- **An incomplete review never approves.** A finding whose second look failed twice is held to `max_confidence` on its own first-pass grade: within it, it gets a thread with a note; past it, it is listed as lower confidence in the summary's collapsed section. Either way it blocks auto-approval like any other finding of its severity, except a non-`security` finding on a low-risk file, which is held back unless it is a Critical at confidence 1 (see below). A file that got no review at all (its call failed, or it was asked twice and still timed out, hit a connection, rate-limit or provider error, or answered with no JSON, or with an issue missing its title, severity or confidence, even when its conversation was asked once more for just the JSON; a file is reviewed at most twice, so a timed-out one can take up to twice `call_timeout`) blocks auto-approval with "N file(s) got no review" in the approval comment.
-- **Lower-confidence findings are folded, not dropped.** A finding past `[post_process] max_confidence` (on the critic's grade, or on its own when the critic never graded it) gets no thread. It is listed in one collapsed section of the summary comment: one line closed, one line per finding open, with each finding's text folded under its line. One the critic graded past the line does not block approval. A Critical is never folded for its confidence: it gets a thread and blocks approval, whatever its confidence, except a non-`security` one graded confidence 2 or worse on a low-risk file (next item).
-- **A higher bar on low-risk files (with `system_one_enabled`).** On a file System One rated `trivial` or `routine`, only a Critical graded confidence 1 is kept, on the critic's grade or on its own when the critic never graded it; the rest is folded into the same collapsed section and does not block approval. A finding tagged `security` keeps the normal bar on every file. A `risky` or `critical` file, a file that was not scored, and a review whose scoring failed are unaffected.
-- **Repeats (`[dedupe]`, on by default).** On a re-run, Thingie would otherwise post the same problem again beside the thread that is still open, and models word the same issue several ways within one run. With `[dedupe]` on, one extra model call (no tools) compares the new findings with each other and with the Thingie comments still open on the PR, and drops the repeats. Two different problems on the same line are kept. If the call fails, every finding is posted and a warning is printed. `[dedupe] model` picks the model, and the review model is the default.
-
-```toml
-[dedupe]
-enabled = false   # opt out
-```
-
-### Configuration options
-
-Thingie reads configuration from layers (later layers override earlier ones):
-
-1. `lib/thingie/config/default.toml` bundled with the gem.
-2. `.thingie/config.toml` in your project root.
-3. `~/.thingie/.env` (loaded into your environment).
-4. Environment variables.
-5. CLI flags.
-
-Key settings:
-
-| Setting | Default | Config key | Environment variable | CLI flag |
-|---|---|---|---|---|
-| LLM provider | `openai` | `provider` | `LLM_PROVIDER` | `-p`, `--provider` |
-| LLM model | `gpt-5.4-nano` | `model` | `LLM_MODEL` | `-m`, `--model` |
-| API key | — | `llm_api_key` | `LLM_API_KEY` | — |
-| API base URL | provider default | `llm_api_base` | `LLM_API_BASE` | — |
-| Request timeout (seconds) | `120` | `request_timeout` | `LLM_REQUEST_TIMEOUT` | — |
-| File review time limit (seconds, all tool calls included; `0` for none) | `600` | `call_timeout` | — | — |
-| Critic time limit per finding (seconds, retry included; a finding it could not grade is posted unchecked and not capped; `0` for none) | `120` | `[verify] timeout` | — | — |
-| Tool calls one model call may make; a failed call is not charged, up to as many failures as the budget (`0` for none) | `8` | `tool_budget` | — | — |
-| OpenRouter: route a call with tools only to providers that support them | `true` | `[openrouter] require_parameters` | — | — |
-| OpenRouter: provider preferences sent with every call, as OpenRouter's `provider` object (e.g. `sort`, `order`, `quantizations`) | `sort = "throughput"` | `[openrouter.provider]` | — | — |
-| Retries | `3` | `retries` | `LLM_RETRIES` | — |
-| Log file | stdout | `log_file` | `THINGIE_LOG_FILE` | — |
-| Log level | `info` | `log_level` | `THINGIE_LOG_LEVEL` | — |
-| Max concurrent LLM calls (file reviews and critic checks together) | `10` | `max_concurrent_tasks` | `MAX_CONCURRENT_TASKS` | — |
-| Confidence threshold (keep if ≤, applied after the critic) | `2` | `post_process.max_confidence` | — | — |
-| Severity threshold (keep if ≤) | `3` | `post_process.max_severity` | — | — |
-| Critic pass enabled | `true` | `verify.enabled` | — | — |
-| Critic pass model | review model | `verify.model` | `VERIFY_MODEL` | — |
-| Auto-approve PRs | `false` | `approve.enabled` | — | — |
-| Auto-approve change limit | `500` | `approve.max_changes` | — | — |
-| Auto-approve severity gate | `3` | `approve.max_severity` | — | — |
-| Auto-approve skip label | `thingie-skip-approve` | `approve.skip_label` | — | — |
-| Auto-approve protected paths | `[".thingie/**/*"]` | `approve.protected_paths` | — | — |
-| Auto-approve team gate | `""` (disabled) | `approve.approval_team` | — | — |
-| Auto-approve bot authors | `[]` | `approve.approval_bots` | — | — |
-| Auto-approve dry run | `false` | `approve.dry_run` | — | — |
-| Skill directories | `.agents`, `.claude`, `.cursor` | `skill_directories` | — | — |
-| Language servers | none | `lsp.<name>` | — | — |
-| Stats logging | `false` | `stats.enabled` | — | — |
-| System One enabled | `false` | `system_one_enabled` | `SYSTEM_ONE_ENABLED` | — |
-| System One model | `jev-latest` | `system_one_model` | `SYSTEM_ONE_MODEL` | — |
-| System One API base URL | `https://openrouter.ai/api` | `system_one_api_base` | `SYSTEM_ONE_API_BASE` | — |
-| System One API key | — | `system_one_api_key` | `SYSTEM_ONE_API_KEY` | — |
-| Escalation rules | none | `escalations` (`[[escalations]]` with `threshold` 0.0-1.0, `label`, and optional `title` and `description`) | — | — |
-| Change-risk rating levels | see below | `[change_risk.ratings.<level>]` with `floor` and `description` for `trivial`, `routine`, `risky`, `critical` | — | — |
-
-With `system_one_enabled` (off by default), `thingie review` scores every changed file. Each file gets an `overall` score (0.0-1.0) and a rating of `trivial` (below 0.17), `routine`, `risky` (from 0.5) or `critical` (from 0.81), and the report lists every scored file with its rating, its per-question scores, and the escalations. A `threshold` of `0.5` therefore means rated risky or worse and `0.81` means rated critical. `thingie github-comment` then adds the `label` of every `[[escalations]]` rule that the riskiest file's `overall` score reaches, and removes the labels of rules the score no longer reaches, so every label named in a rule is managed by Thingie; don't reuse one for something applied by hand. Labels only raise a flag; they don't affect the review or approval. A scoring or labelling failure is a warning and never fails the run. The token needs permission to label PRs (`pull-requests: write`).
-
-The PR summary comment shows the change risk as a collapsed block, whether or not the review had findings. The block's title gives the changeset's rating and highest `overall` score, shown as "review need" (for example `Change risk: risky (review need 0.62)`), and inside is a table of every scored file with its rating and per-question scores. The review need is the model's own answer to how closely a human should review the file, not a combination of the other columns, so it can be higher than all of them. **Thingie details** names the `Decision model` beside the review model, and the auto-approval status line reads `Thingie v… · <review model> · decision model: <model>`. All of this appears only when System One scored the change.
-
-`thingie risk` scores and rates a changeset without reviewing it, which is cheap and handy for sampling ratings on a branch. It takes the same `--what`, `--against`, `--filters` and `--merge-base` options as `thingie files`, plus `--format cli|md`. It also requires `system_one_enabled` and exits 1 if scoring fails.
-
-Each rating level is a `[change_risk.ratings.<level>]` table, set only in `.thingie/config.toml` (no environment variable or CLI flag). `floor` is the lowest `overall` score rated at that level. `description` is sent to the model as that level of the `overall` question, so it shapes the scores as well as the labels. The four levels are fixed, and floors must rise from `trivial = 0` to `critical`. A table you set is merged over the defaults in `lib/thingie/config/default.toml`, so you can override a single key. Even so, **tune floors and descriptions together, and if you change one level, review and restate all four**: the model judges the levels against each other, so rewording one changes how it uses the rest. Invalid rating config fails `review` and `risk` before any scoring.
-
-```toml
-[change_risk.ratings.critical]
-floor = 0.81
-description = "changes authentication or authorization, moves money, changes account balances or ledger entries, or could cause an outage, data loss, or a security incident if wrong; needs the strongest review available"
-```
-
-Supported providers match whatever RubyLLM supports, including `openai`, `anthropic`, `gemini`, `ollama`, `deepseek`, `openrouter`, `mistral`, `perplexity`, `xai`, `azure`, `bedrock`, `vertexai`, and `gpustack`. Thingie requires ruby_llm 2.1 or later. Two more providers run the review through an installed agent CLI instead of an API (see [Local pre-PR review](#local-pre-pr-review-on-your-own-subscription)):
-
-- `claude-code` — runs each call through the installed `claude` CLI on your own Claude subscription; needs no API key.
-- `codex` — runs each call through the installed `codex` CLI on your own ChatGPT subscription; needs no API key.
-
-Example `.thingie/config.toml`:
-
-```toml
-provider = "openrouter"
-model = "moonshotai/kimi-k2.6"
-request_timeout = 60
-log_file = "log/thingie.log"
-log_level = "debug"
-
-# Customize which directories are scanned for skill fragments
-skill_directories = [".agents", ".github"]
-
-# Only keep the most-confident findings (1) up to medium severity (3).
-[post_process]
-max_confidence = 1
-max_severity = 3
-
-# Re-check every surviving finding with a stronger model before reporting it.
-[verify]
-enabled = true
-model = "anthropic/claude-opus-4.8"
-
-# Give the LLM access to a language server for extra code context.
-[lsp.ruby]
-command = ["ruby-lsp"]
-extensions = [".rb", ".rake"]
-
-# Emit machine-readable stats events after each review and auto-approval.
-[stats]
-enabled = true
-[[stats.sinks]]
-type = "jsonl"
-path = "log/thingie-stats.jsonl"
-```
-
-### Local pre-PR review on your own subscription
-
-Review your branch before opening a PR, on your own Claude or ChatGPT plan, and hand the findings to your coding agent to fix.
-
-**Prerequisites.** Claude Code 2.1.x signed in (`claude auth login`) or Codex signed in (`codex login`), and Thingie installed (`bundle exec thingie` from this repo, or the gem).
-
-**Configure it once** in `~/.thingie/.env` (per developer, layer 3):
-
-```
-LLM_PROVIDER=claude-code      # or codex
-LLM_MODEL=sonnet              # claude-code: alias or full model id; codex: a model Codex offers your plan, e.g. gpt-6-luna
-VERIFY_MODEL=opus             # critic pass; set it to LLM_MODEL to use one model
-MAX_CONCURRENT_TASKS=3        # each call is one CLI process; 10 of them at once is a lot of RAM
-```
-
-Config files (bundled defaults and `.thingie/config.toml`) name models of the project's API provider, so with `claude-code` or `codex` Thingie ignores every model set there (`model`, `[verify] model`, `[dedupe] model`, `[open_findings] model`). It passes a model only when you set it on your machine, with `LLM_MODEL` / `VERIFY_MODEL` (environment or `~/.thingie/.env`) or `--model`. With none set, the CLI runs on its own default model, and the critic reuses the review model. The GitHub Action is untouched. Note that `~/.thingie/.env` is shared by every Thingie run on your machine: if it also sets `LLM_MODEL` for an API provider, override it for local runs (e.g. `LLM_MODEL=sonnet bundle exec thingie review …`).
-
-**Run it:**
+# Thingie: approves pull requests that Copilot approved
+
+Thingie is a deterministic pull request auto-approver. It approves a PR when
+GitHub Copilot code review approves the PR's current commit and a set of safety
+rules all pass. It makes no LLM calls of its own and posts no review comments:
+Copilot does the review, Thingie decides whether that review, plus the rules
+below, is enough for an approval.
+
+Copilot reports its verdict as a review state, not just text: "Approval
+recommended" is submitted as an `APPROVED` review and "Changes recommended" as
+a `COMMENTED` one. A review's state can't be edited after it's submitted (only
+its body can), and logins ending in `[bot]` are reserved for GitHub Apps, so
+Thingie reads the state from the API and never parses the review text.
+
+Thingie versions up to 0.11 also ran their own LLM code review. That was
+removed in 0.12.0; pin an earlier tag if you still need it.
+
+## How it decides
+
+Thingie skips (leaves any existing approval alone) when the PR:
+
+- is a draft or carries the `skip_label` (default `thingie-skip-approve`);
+- is authored by the identity Thingie approves as;
+- has an author outside `approval_team`, when that's set (a bot listed in
+  `approval_bots` is eligible too).
+
+Otherwise it approves only when **all** of these hold, and blocks (dismissing
+its own earlier approvals) when any fails:
+
+- **Copilot approved the current commit.** The latest review by
+  `copilot-pull-request-reviewer[bot]` (a `Bot` account) is `APPROVED` and was
+  submitted on the PR's head commit. Copilot not having reviewed yet, having
+  reviewed an older commit, recommending changes, or having its approval
+  dismissed all block.
+- The PR doesn't change `.thingie/config.toml`, so it can't weaken the rules
+  and wave itself through.
+- No changed file matches a `protected_paths` glob.
+- Additions plus deletions are within `max_changes` (an unknown size blocks).
+- No changed file holds obfuscated code: long hex or base64 blobs, any
+  `eval`-family call, strings built from character codes, or dense escape runs.
+  Thingie reads each changed file's full content at the head commit through the
+  API, so the PR's code is never checked out. A file it can't read blocks.
+- No human reviewer's current review is `CHANGES_REQUESTED` (a later approval
+  or dismissal by that reviewer clears it; an unreadable review state blocks).
+- Every Actions run linked from the description or the author's comments, in a
+  repository listed in `main_branch_run_repos`, ran a commit on that
+  repository's default branch. A run Thingie can't read doesn't block; the
+  approval lists it as not checked.
+
+The approval is submitted for the exact commit Thingie evaluated, and an
+approval Thingie gave an earlier commit is dismissed before it approves the new
+one. When Thingie doesn't approve, it keeps one status comment on the PR saying
+why, updated in place; the comment is removed once the PR is approved.
+
+## Setup
+
+1. Turn on automatic Copilot code review for the repository (a ruleset with
+   the "Automatically request Copilot code review" rule, reviewing on push).
+2. Add `.thingie/config.toml`:
+
+   ```toml
+   [approve]
+   enabled = true
+   max_changes = 500
+   protected_paths = [".thingie/**/*", ".github/**/*", "app/billing/**"]
+   ```
+
+3. Add a workflow that runs whenever the PR or its reviews change, so Thingie
+   re-decides as soon as Copilot's review lands:
+
+   ```yaml
+   # .github/workflows/thingie-approve.yml
+   name: "Thingie Approve"
+   on:
+     pull_request:
+       types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+     pull_request_review:
+       types: [submitted, dismissed]
+
+   concurrency:
+     group: thingie-approve-${{ github.event.pull_request.number }}
+
+   jobs:
+     approve:
+       runs-on: ubuntu-latest
+       permissions:
+         contents: read
+         pull-requests: write
+       steps:
+         # Read the rules from the base branch, never from the PR.
+         - uses: actions/checkout@v4
+           with:
+             ref: ${{ github.event.pull_request.base.sha }}
+             sparse-checkout: .thingie
+         - uses: ruby/setup-ruby@v1
+           with:
+             ruby-version: "3.4"
+         - name: Install Thingie
+           env:
+             THINGIE_REF: "0.12.0"
+           run: |
+             git clone --quiet --depth 1 --branch "$THINGIE_REF" https://github.com/bonusly/thingie.git /tmp/thingie
+             gem build /tmp/thingie/thingie.gemspec --output /tmp/thingie.gem
+             gem install /tmp/thingie.gem
+         - name: Approve
+           env:
+             GITHUB_TOKEN: ${{ github.token }}
+             THINGIE_RESOLVE_TOKEN: ${{ secrets.THINGIE_RESOLVE_TOKEN }}
+           run: thingie approve
+   ```
+
+   The composite action at
+   [`.github/actions/thingie/action.yml`](.github/actions/thingie/action.yml)
+   does the install and run steps for you when Thingie is available as a gem.
+
+### Which token approves
+
+Thingie approves with `GITHUB_TOKEN` first and falls back to
+`THINGIE_RESOLVE_TOKEN` (a PAT) when that attempt errors. An approval from
+`GITHUB_TOKEN` or a GitHub App installation token doesn't count toward
+branch-protection "required approvals", and because it succeeds it never falls
+through to the PAT. If Thingie's approval should satisfy required reviews, pass
+the PAT of a bot user with write access as `GITHUB_TOKEN`. Reading
+`approval_team` membership also needs a token with `read:org`.
+
+## Configuration
+
+All settings live under `[approve]` in `.thingie/config.toml`; the defaults
+are in [`lib/thingie/config/default.toml`](lib/thingie/config/default.toml).
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `enabled` | `false` | Nothing happens unless this is `true` |
+| `dry_run` | `false` | Decide and post the result as a status comment, without approving or dismissing |
+| `max_changes` | `500` | Additions plus deletions above this block |
+| `skip_label` | `thingie-skip-approve` | A PR carrying this label is skipped |
+| `protected_paths` | `[".thingie/**/*"]` | Globs that block when any changed file matches; setting it replaces the default |
+| `approval_team` | `""` | `org/team-slug` whose members' PRs are eligible; empty means anyone |
+| `approval_bots` | `[]` | Bot logins also eligible when `approval_team` is set |
+| `main_branch_run_repos` | `[]` | `owner/name` repos whose linked Actions runs must come from the default branch |
+| `external_checks` | `[]` | Other merge gates, listed in the approval so it's clear Thingie isn't the only one |
+
+Tokens come from the environment (`GITHUB_TOKEN`, `THINGIE_RESOLVE_TOKEN`) or
+the `--token` / `--resolve-token` flags. `~/.thingie/.env` is loaded too, for
+local runs. Outside GitHub Actions, name the PR explicitly:
 
 ```bash
-bundle exec thingie review --against main --output tmp/thingie-review
+thingie approve --gh-repo bonusly/special_sauce --pr 123
 ```
 
-It prints the report and writes `tmp/thingie-review/code-review-report.md` and `.json` (`tmp/` is git-ignored and excluded from review by default).
+Set `THINGIE_DEBUG=1` or pass `--debug` for extra logging.
 
-**Hand it to your agent** (omp, Claude Code, Codex, …) with this prompt:
+## Stats logging
 
-```
-Read tmp/thingie-review/code-review-report.md. For each finding, open the file and lines it cites,
-confirm the problem is real, and fix it in the smallest change that resolves it. Skip a finding you
-can show is wrong, and say why. Run the test suite when done and summarize what you changed per finding.
-```
+Thingie can emit an `approval.decided` event after each decision, so you can
+track the auto-approve rate and block reasons in a dashboard. It's off unless
+`stats.enabled` is `true` **and** at least one `[[stats.sinks]]` is configured.
 
-**What differs from an API-key run:**
-
-- The CLI brings its own read-only tools: Read, Grep and Glob for Claude Code (run with `--safe-mode`, so your hooks, plugins, MCP servers and CLAUDE.md are not loaded), and Codex's read-only sandbox (run with `--ignore-user-config`). Thingie's LSP, file, search, skill and MCP tools and `tool_budget` are not used.
-- Each call is bounded by `call_timeout` (and `[verify] timeout` for the critic); a call that runs out is killed.
-- Usage is billed to your plan. Claude Code reports a cost per call in `--debug` output; Codex reports tokens only.
-- Thingie never sees your login. It runs the unmodified vendor CLIs in their documented headless modes (`claude -p`, `codex exec`), which is what the vendors permit; it is not a third-party OAuth client.
-
-### Skills
-
-Thingie automatically discovers markdown files (`.md`) in skill directories and injects them as additional rules in every review prompt. By default it scans `.agents/`, `.claude/`, and `.cursor/` in the project root. Override this with the `skill_directories` config key.
-
-### The critic pass (reducing false positives)
-
-The biggest source of noise in AI review is confident-but-wrong findings —
-claims that simply aren't true about the code. Tightening the confidence and
-severity thresholds only filters by the model's *self-reported* confidence,
-which it routinely over-states.
-
-The `[verify]` critic pass attacks this directly. After the normal review and
-threshold filtering, each surviving finding gets a second, **fresh** LLM call
-framed adversarially: *"try to refute this; uphold it only if you can point to
-the lines that make it true; when uncertain, reject."* The critic has the diff,
-the full file, and (if configured) the LSP symbol tool, so it can confirm API
-and method claims instead of trusting them. Findings it can't uphold are
-dropped.
-
-```toml
-[verify]
-enabled = true                      # on by default; set false to skip the pass
-model = "anthropic/claude-opus-4.8" # optional: re-check on a stronger model
-```
-
-- **`verify.enabled`** — turn the critic pass on or off. Default `true`.
-- **`verify.model`** — run the critic on a different (usually stronger) model
-  than the review, using the **same provider and API key**. Leave it unset to
-  reuse the review model. With OpenRouter the model slug is provider-prefixed
-  (e.g. `anthropic/claude-opus-4.8`), so one key covers both the cheap review
-  model and the strong critic.
-
-Because the critic runs only on findings that survived filtering — not on every
-file — its cost scales with the number of findings, not the size of the diff. It
-also **fails open**: if a critic call errors or returns an unparseable verdict,
-the finding is kept and a processing warning is recorded, so a broken critic
-never silently swallows a real bug.
-
-The critic can also **correct a miscalibrated severity or confidence grade**
-instead of only upholding/rejecting a finding outright — e.g. downgrade an
-overstated "Critical" cosmetic nit, or upgrade an understated security issue.
-Both the review and critic prompts are given the same severity/confidence
-scale and the current `post_process`/`approve` thresholds (see below), so the
-model reasons about real consequences rather than abstract labels. An override
-only affects this run's final severity/confidence (and therefore whether the
-finding blocks auto-approval, below) — it does not re-run the `post_process`
-filter that already let the finding through to the critic in the first place.
-
-### Filtering findings (`post_process`)
-
-The model scores every finding on a 1–4 **severity** scale (1 = Critical), and
-the critic grades each finding's **confidence** on a 1–4 scale (1 = highest).
-`post_process` is the **SHOW line**: it controls whether a finding is surfaced to
-maintainers as a PR comment at all. `max_severity` drops findings *before* the
-critic pass runs. `max_confidence` drops them *after* it, on the critic's grade:
-
-```toml
-[post_process]
-max_confidence = 1   # keep only findings the critic could confirm in the code
-max_severity = 3     # keep Critical/High/Medium, drop Low
-```
-
-Lower numbers are stricter. An omitted threshold means "no limit". The severity
-cap is a cheap first filter; the critic pass is the precision filter on top of
-it, and its confidence grade is what `max_confidence` is applied to.
-
-This is independent from `approve.max_severity` (the **BLOCK line**, see
-[Auto-approving PRs](#auto-approving-prs)) — a finding can be shown as a
-comment without blocking auto-approval, e.g. `post_process.max_severity = 3`
-but `approve.max_severity = 2`.
-
-### Verified review (`review.prompt = "verified"`)
-
-The default prompt tells the model to report only what it is certain of, which in practice means it reports almost nothing and misses real bugs. The `verified` prompt asks for the opposite discipline: check each suspicion against the code with the tools (a read-only `git grep` search tool, the file tool, and the language server when configured), cite what was confirmed in the finding's `evidence`, and grade `confidence` by how far the verification got, not by how sure the model feels.
-
-```toml
-[review]
-prompt = "verified"
-
-[post_process]
-max_confidence = 2        # post confirmed and likely findings; hunches are dropped
-require_evidence = true   # a finding with no evidence is held to no better than confidence 3
-
-[confidence_scale]
-1 = "Confirmed: you traced the failing path through the code with your tools and cite it in evidence"
-2 = "Likely: plausible and mostly verified, but one link in the path is unchecked"
-3 = "Suspected: a hunch you could not verify"
-4 = "Speculative: do not report"
-```
-
-The confidence the first-pass reviewer writes about its own finding comes before any checking, so it tells you little. Thingie therefore applies `max_confidence` after the critic, to the grade the critic gives: the critic always grades confidence by how far its own check with the tools got. Severity is still capped before the critic. If the critic is disabled, `max_confidence` applies to the reviewer's own grade.
-
-On a benchmark of 303 graded findings, a cap of 2 dropped about a quarter of the nits and a seventh of the good findings, a cap of 3 changed almost nothing, and a cap of 1 dropped most of the good findings. The grade says whether the critic could confirm a finding, not whether it matters, so it does not remove true but minor nits.
-
-The evidence shows under each finding (inline comment and report), collapsed, with the tool calls the model made for debugging: what the second look asked its tools, and what the review pass asked for the file (a long list is cut at 25 lines). The evidence is also passed to the critic, so a reader can see why a finding was raised and the critic can check the claim. The search tool is always available to the reviewer and the critic; it is limited to tracked files under the working directory and runs without a shell.
-
-### Language servers (LSP)
-
-When you configure a language server, Thingie exposes a symbol-lookup tool to the
-LLM during both review and verification. The model uses it to confirm that a
-class, method, or constant actually exists (and how a third-party API is shaped)
-before reporting an "undefined" or "misused API" issue — a major source of
-hallucinated findings.
-
-```toml
-# Each [lsp.<name>] entry is launched in the reviewed project's root, so use
-# that project's own LSP binary. Add more languages with more entries.
-[lsp.ruby]
-command = ["ruby-lsp"]
-extensions = [".rb", ".rake"]
-```
-
-A server is only started when the changeset contains a file whose extension
-matches one of its `extensions`, so unrelated reviews don't pay the startup
-cost. LSP is disabled entirely when no `[lsp.*]` entry is configured.
-
-For TypeScript, use canonical TypeScript/TSX language IDs (sent automatically)
-and opt into semantic-only definitions:
-
-```toml
-[lsp.typescript]
-command = ["node_modules/.bin/typescript-language-server", "--stdio"]
-extensions = [".ts", ".tsx"]
-
-[lsp.typescript.initialization_options.tsserver]
-useSyntaxServer = "never"
-```
-
-Each server's optional `initialization_options` value is passed unchanged as
-LSP `initializationOptions`; nested option names retain their original casing.
-Other servers and configurations without this setting keep their existing defaults.
-TypeScript's default automatic mode can return syntax-only definitions while
-its project loads, missing standard-library targets or stopping at import aliases.
-`useSyntaxServer = "never"` waits for semantic resolution instead.
-
-Ruby/ERB, TypeScript/JavaScript variants, and Python have built-in language IDs.
-For other extensions or server-specific overrides, set `language_ids` on that
-server's table, keyed by lowercase extensions including the dot:
-
-```toml
-[lsp.cpp]
-command = ["clangd"]
-extensions = [".cpp", ".h"]
-language_ids = { ".h" = "cpp" }
-```
-
-Configured IDs take precedence over built-ins. Unmapped extensions retain the
-lowercase extension fallback; configure an ID when that is not the server's
-canonical language identifier.
-
-The tool accepts a required `query` for name discovery, or `query` plus
-workspace-relative `path`, 1-based `line`, and 1-based UTF-16 `column` at a
-reference (including `super`). Contextual lookup uses the server's receiver
-information and can return inherited, private, or dependency definitions directly.
-Caller paths must stay inside the workspace; returned dependency source may be
-outside it. Servers without definition support visibly fall back to name search.
-A supported contextual miss does not fall back to unrelated names, and neither
-misses nor ambiguous candidates prove that an API is absent. Results include up
-to three distinct readable source ranges, with an omission count when necessary.
-
-Ruby-lsp 0.26.11 has UTF-16 coordinate limitations: non-ASCII text before a call
-on the same line, or an earlier supplementary character such as an emoji, can
-cause valid references to return no candidates. Thingie sends standard UTF-16
-positions without speculative offsets; these misses remain inconclusive.
-
-### Logging
-
-Set `log_file` to a file path to persist RubyLLM request logs for debugging. Set `log_level` to `debug` to see full request and response bodies. Valid levels are `debug`, `info`, `warn`, `error`, and `fatal`.
-
-### Stats logging
-
-Thingie can emit machine-readable stats events after each review and auto-approval decision, so you can build dashboards (Datadog, Logstash, Fluentd, Vector, …) that track review volume, finding rates, LLM token usage, and the auto-approve rate. It's **off by default** — nothing is emitted unless `stats.enabled` is `true` **and** at least one `[[stats.sinks]]` destination is configured. There is no environment-variable toggle (enable it in config, the same as `[approve]` and `[verify]`).
-
-Two events are emitted:
-
-- **`review.completed`** — after a successful `thingie review` run. Carries the commit SHA, branch, model, files reviewed, total issues, issue counts by severity and by tag, the review duration in milliseconds, and accumulated LLM usage (input/output/cache tokens and cost).
-- **`approval.decided`** — after the auto-approval step of `thingie github-comment`. Carries the action (`approve`, `block`, or `skip`), the block reasons (empty for `approve`/`skip`), the `repo` (`owner/repo`), PR number, and whether it was a dry run.
-
-Every event is a single JSON object on one line, with a stable schema: `event`, `timestamp` (ISO 8601), `thingie_version`, and the event-specific fields. GitHub identity (`repo`, `pr_number`) is enriched from the GitHub Actions environment when available; explicit fields on the `approval.decided` event override the env-derived ones. Constant `tags` from `[stats.tags]` are copied into every event when set.
-
-Built-in sink types:
-
-- **`jsonl`** — append one JSON object per event to a file, or to `stdout`/`stderr`. Relative paths are resolved against the project root; parent directories are created. The Datadog Agent tails JSON-lines files natively; Logstash/Fluentd/Vector ingest them with a `json` codec — no extra gems required.
-- **`command`** — pipe one JSON line per event to an external command's stdin (e.g. `tee -a /var/log/thingie.jsonl` or a stats shipper you already run). On any failure (bad command, dead pipe) the sink warns once and disables itself for the rest of the run — it never raises into the pipeline.
+Each event is one JSON object per line: `event`, `timestamp` (ISO 8601),
+`thingie_version`, `action` (`approve`, `block` or `skip`), `reasons`, `repo`,
+`pr_number` and `dry_run`, plus any constant `[stats.tags]`.
 
 ```toml
 [stats]
 enabled = true
 
-# Constant key/value pairs copied into every event under "tags".
 [stats.tags]
 team = "platform"
-environment = "production"
-
-# Destinations — one [[stats.sinks]] block each.
-[[stats.sinks]]
-type = "jsonl"
-path = "log/thingie-stats.jsonl"   # or "stdout" / "stderr"
 
 [[stats.sinks]]
-type = "command"
+type = "jsonl"                      # append to a file, or "stdout" / "stderr"
+path = "log/thingie-stats.jsonl"
+
+[[stats.sinks]]
+type = "command"                    # pipe each event to a command's stdin
 command = "my-stats-shipper"
 ```
 
-Sink failures are **fail-open**: a stats outage never fails a review. A failing sink is warned about and skipped; the others still receive the event.
-
-#### Custom sink plugins
-
-Any gem can register an additional sink type via `Thingie::Stats.register_sink`. A sink class implements `initialize(config:, root:)` (raise `ArgumentError` on a missing required key) and `emit(event)` (serialize/ship the fully-formed, string-keyed event Hash). Set the entry's `require` to load the gem before the type is looked up:
-
-```toml
-[[stats.sinks]]
-type = "my_custom_sink"
-require = "my_thingie_sink_gem"   # required before the type is looked up
-```
-
-The two key risk indicators that motivated this feature — **auto-approve rate** and **block-reason histogram** — are directly computable from `approval.decided` events. Post-merge indicators (revert rate, human override after approve) happen after merge and can only be computed downstream, so every event carries stable join keys (`repo`, `pr_number`, `commit_sha`) that let a downstream pipeline correlate them with merge and revert events.
-
-### Structured output
-
-Thingie uses [structured output](https://rubyllm.com/available-models/#structured-output-469) to ensure the LLM returns valid JSON. Not all models support this feature; see the [RubyLLM available models page](https://rubyllm.com/available-models/#structured-output-469) for a list of compatible models. For models that don't support structured output, Thingie falls back to parsing the response as JSON from the prompt instructions.
+Sink failures are fail-open: a failing sink is warned about and skipped. Any
+gem can add a sink type with `Thingie::Stats.register_sink`; set the entry's
+`require` to load it first. A sink class implements `initialize(config:, root:)`
+and `emit(event)`.
 
 ## Development
 
 ```bash
 bundle install
-bundle exec rake
+bundle exec rake   # RuboCop + RSpec
 ```
 
 ## License

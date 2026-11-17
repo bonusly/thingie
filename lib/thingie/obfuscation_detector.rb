@@ -3,9 +3,9 @@
 module Thingie
   # Scans the full content of every changed file for common code-obfuscation
   # techniques (encoded blobs, any eval-family call, indirect eval invocation,
-  # character-code string construction, dense escape runs). Findings are
-  # returned as severity-1 issues tagged `obfuscation`, which the auto-approval
-  # rules treat as a hard block independent of the severity threshold.
+  # character-code string construction, dense escape runs). Any finding is a
+  # hard block on auto-approval: encoded or dynamically-constructed code always
+  # gets human review.
   #
   # Signals naming a real code construct are skipped on lines that are wholly
   # comments, because documentation quotes example code constantly ("a SCORED
@@ -16,18 +16,14 @@ module Thingie
   # consecutive unicode escapes by accident.
   #
   # Deliberately pattern-based rather than LLM-based: obfuscation signals are
-  # lexical, the check must run on every changed file every time (not at the
-  # model's discretion), and a heuristic that can't hallucinate can't be
-  # argued away by the critic pass either — Reviewer adds these issues after
-  # the critic pass so thresholds and verification cannot suppress them.
+  # lexical, the check must run on every changed file every time, and a
+  # heuristic that can't hallucinate can't be argued away.
   class ObfuscationDetector
-    # Tags identifying scanner findings. The LLM's own findings never carry
-    # `obfuscation` — the review schema's tag list is unrestricted, but the
-    # Approver treats a finding with this tag as scanner-authoritative.
-    TAGS = %w[security obfuscation].freeze
+    # One flagged line.
+    Finding = Struct.new(:file, :line_number, :description, :snippet, keyword_init: true)
 
-    # Cap per file so a heavily obfuscated file doesn't flood the PR with
-    # inline comments; one match already blocks approval.
+    # Cap per file so a heavily obfuscated file doesn't flood the status
+    # comment; one match already blocks approval.
     MAX_MATCHES_PER_FILE = 5
 
     # 80+ contiguous hex chars — packed binaries, shellcode, hex-encoded payloads.
@@ -54,28 +50,27 @@ module Thingie
     # A line holding nothing but a comment: Ruby `#` or C-family `//`.
     COMMENT_LINE = %r{\A\s*(?:#|//)}
 
-    # Builds a detector for a changeset.
+    # Builds a detector over already-read file contents.
     #
-    # @param changeset [Thingie::Changeset] the files under review
-    def initialize(changeset)
-      @changeset = changeset
+    # @param files [Hash{String => String, nil}] path => full file content; nil for a binary or deleted file
+    def initialize(files)
+      @files = files
     end
 
-    # Scans the full content of every changed file and returns one severity-1
-    # issue per matched line (up to {MAX_MATCHES_PER_FILE} per file). The whole
-    # file is scanned, not just added lines: a changed file that includes
-    # obfuscated code blocks approval whether or not the obfuscation was
-    # added by this PR. Binary files (nil content) are skipped.
+    # Scans the full content of every file and returns one finding per matched
+    # line (up to {MAX_MATCHES_PER_FILE} per file). The whole file is scanned,
+    # not just added lines: a changed file that includes obfuscated code blocks
+    # approval whether or not the obfuscation was added by this PR. Files with
+    # nil content are skipped.
     #
-    # @return [Array<Thingie::Issue>] issues for each detected signal
+    # @return [Array<Finding>] a finding for each detected signal
     def call
-      @changeset.files.filter_map { |file| issues_for(file) }.flatten
+      @files.flat_map { |file, content| findings_for(file, content) }
     end
 
     private
 
-    def issues_for(file)
-      content = @changeset.full_content_for(file)
+    def findings_for(file, content)
       return [] if content.nil?
 
       matches = []
@@ -85,7 +80,7 @@ module Thingie
         description = describe(line)
         next if description.nil?
 
-        matches << build_issue(file: file, line_number: number, description: description, line: line)
+        matches << Finding.new(file: file, line_number: number, description: description, snippet: snippet(line))
       end
       matches
     end
@@ -134,31 +129,6 @@ module Thingie
       line.match?(FROM_CHAR_CODE) ||
         line.match?(PACK_C_STAR) ||
         line.scan(CHAR_LITERAL).size >= 3
-    end
-
-    def build_issue(file:, line_number:, description:, line:)
-      Issue.new(
-        id: nil,
-        file: file,
-        raw_issue: RawIssue.new(
-          title: "Obfuscated code detected (#{description})",
-          details: details_for(description, line_number, line),
-          severity: 1,
-          confidence: 1,
-          tags: TAGS
-        ),
-        affected_lines: [AffectedRange.new(
-          start_line: line_number,
-          end_line: line_number,
-          affected_code: snippet(line)
-        )]
-      )
-    end
-
-    def details_for(description, line_number, line)
-      "Thingie's obfuscation scanner flagged #{description} on line #{line_number}. " \
-        'Obfuscated code always requires human review and blocks auto-approval. ' \
-        "Matched code: `#{snippet(line)}`"
     end
 
     # @param line [String] the matched source line

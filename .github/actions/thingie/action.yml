@@ -1,34 +1,13 @@
-name: "Thingie Review"
-description: "Run Thingie AI code review on pull requests"
+name: "Thingie Approve"
+description: "Approve pull requests that GitHub Copilot approved, when Thingie's safety rules pass"
 branding:
-  icon: "star"
-  color: "red"
+  icon: "check"
+  color: "green"
 inputs:
-  api_key:
-    description: "LLM API key"
-    required: true
   ruby_version:
     description: "Ruby version to install for running Thingie"
     required: false
     default: "3.4"
-  api_base:
-    description: "OpenAI-compatible API base URL"
-    required: false
-  model:
-    description: >-
-      LLM model name. Optional; when unset, `model` from .thingie/config.toml
-      (or Thingie's bundled default) is used.
-    required: false
-  provider:
-    description: >-
-      LLM provider (e.g. openai, anthropic, gemini, openrouter). Optional; when
-      unset, `provider` from .thingie/config.toml (or Thingie's bundled default)
-      is used.
-    required: false
-  output_dir:
-    description: "Directory for review reports"
-    required: false
-    default: "."
   thingie_version:
     description: >-
       Thingie gem version to install. Use 'local' to build and install from the
@@ -39,45 +18,23 @@ inputs:
   thingie_command:
     description: >-
       Command used to invoke the Thingie CLI. Defaults to 'thingie'. Set to
-      something like 'bundle exec thingie' or 'direnv exec . thingie' for setups
-      that need it.
+      something like 'bundle exec thingie' for setups that need it.
     required: false
     default: "thingie"
   github_token:
     description: >-
-      Token used to post review comments. Falls back to the workflow
-      GITHUB_TOKEN when unset (comments appear as "github-actions"). Pass a
-      GitHub App installation token (e.g. from actions/create-github-app-token)
-      to post under the app's name and avatar instead. Needs pull-requests write.
+      Token used to read the PR and post the approval and status comment.
+      Falls back to the workflow GITHUB_TOKEN when unset. Needs pull-requests
+      write.
     required: false
   resolve_token:
     description: >-
-      Personal access token used to resolve stale review threads (GraphQL
-      resolveReviewThread). Must be a user PAT with pull-requests write —
-      GITHUB_TOKEN and GitHub App installation tokens cannot call this mutation.
-      Optional; resolving is skipped when unset.
-    required: false
-  system_one_api_key:
-    description: >-
-      API key for System One change-risk scoring (OpenRouter by default). Only
-      needed with `system_one_enabled = true` in .thingie/config.toml; without
-      it scoring is skipped with a warning.
-    required: false
-  system_one_model:
-    description: >-
-      System One model for change-risk scoring. Optional; falls back to
-      `system_one_model` in config (default `jev-latest`).
-    required: false
-  system_one_api_base:
-    description: >-
-      System One API base URL. Optional; falls back to `system_one_api_base`
-      in config (default `https://openrouter.ai/api`).
+      Personal access token tried when the main token can't approve or dismiss,
+      and used to read team membership (read:org) when `approval_team` is set.
+      Optional.
     required: false
   debug:
-    description: >-
-      Enable debug logging (sets THINGIE_DEBUG=1). Emits per-call token counts,
-      cost, tool-call details, and section headers for the initial review pass
-      and critic pass. Useful for diagnosing review behaviour or cost.
+    description: "Enable debug logging (sets THINGIE_DEBUG=1)."
     required: false
     default: "false"
 runs:
@@ -102,80 +59,12 @@ runs:
         else
           gem install thingie -v "$THINGIE_VERSION"
         fi
-    - name: Determine base ref
-      id: base
-      shell: bash
-      env:
-        BASE_SHA: ${{ github.event.pull_request.base.sha }}
-      run: |
-        if [ -n "$BASE_SHA" ]; then
-          # Unshallow so merge-base(base, head) is computable. With a depth=1
-          # fetch there's no common ancestor, so Thingie falls back to diffing
-          # the raw base SHA and reviews files that only diverged on the base
-          # branch (not in this PR).
-          # ponytail: unshallow is O(repo history); swap for a bounded
-          # --deepen loop if fetch time becomes a problem on huge repos.
-          if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
-            git fetch --no-tags --unshallow origin || true
-          fi
-          git fetch --no-tags origin "$BASE_SHA" || true
-          echo "ref=$BASE_SHA" >> "$GITHUB_OUTPUT"
-        else
-          # Non-PR run: ensure HEAD~1 exists even on a shallow checkout.
-          git fetch --no-tags --deepen=1 || true
-          echo "ref=HEAD~1" >> "$GITHUB_OUTPUT"
-        fi
-    - name: Dismiss existing approvals
+    - name: Run Thingie approve
       shell: bash
       env:
         GITHUB_TOKEN: ${{ inputs.github_token || github.token }}
         THINGIE_RESOLVE_TOKEN: ${{ inputs.resolve_token }}
-        THINGIE_CMD: ${{ inputs.thingie_command }}
-      run: $THINGIE_CMD dismiss-approvals || true
-
-    - name: Run Thingie review
-      shell: bash
-      env:
-        LLM_API_KEY: ${{ inputs.api_key }}
-        LLM_API_BASE: ${{ inputs.api_base }}
-        SYSTEM_ONE_API_KEY: ${{ inputs.system_one_api_key }}
-        SYSTEM_ONE_MODEL: ${{ inputs.system_one_model }}
-        SYSTEM_ONE_API_BASE: ${{ inputs.system_one_api_base }}
-        LLM_MODEL: ${{ inputs.model }}
-        LLM_PROVIDER: ${{ inputs.provider }}
-        OUTPUT_DIR: ${{ inputs.output_dir }}
-        BASE_REF: ${{ steps.base.outputs.ref }}
         THINGIE_CMD: ${{ inputs.thingie_command }}
         THINGIE_DEBUG: ${{ inputs.debug == 'true' && '1' || '' }}
       # Unquoted so multi-word commands (e.g. "bundle exec thingie") word-split.
-      run: $THINGIE_CMD review --output "$OUTPUT_DIR" --what HEAD --against "$BASE_REF"
-    - name: Post review to GitHub
-      shell: bash
-      env:
-        GITHUB_TOKEN: ${{ inputs.github_token || github.token }}
-        THINGIE_RESOLVE_TOKEN: ${{ inputs.resolve_token }}
-        # The repeat check, the check of earlier findings against the code and the approval
-        # risk note each make a model call from this step.
-        LLM_API_KEY: ${{ inputs.api_key }}
-        LLM_API_BASE: ${{ inputs.api_base }}
-        LLM_MODEL: ${{ inputs.model }}
-        LLM_PROVIDER: ${{ inputs.provider }}
-        OUTPUT_DIR: ${{ inputs.output_dir }}
-        THINGIE_CMD: ${{ inputs.thingie_command }}
-        THINGIE_DEBUG: ${{ inputs.debug == 'true' && '1' || '' }}
-      run: |
-        REPORT="$OUTPUT_DIR/code-review-report.md"
-        if [ -f "$REPORT" ]; then
-          $THINGIE_CMD github-comment --md-report-file "$REPORT"
-        else
-          echo "No report at $REPORT; skipping comment."
-        fi
-      if: always()
-    - name: Upload reports
-      uses: actions/upload-artifact@v4
-      if: always()
-      with:
-        name: thingie-review-results
-        path: |
-          ${{ inputs.output_dir }}/code-review-report.json
-          ${{ inputs.output_dir }}/code-review-report.md
+      run: $THINGIE_CMD approve

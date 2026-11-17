@@ -8,10 +8,10 @@ Gem::Specification.new do |spec|
   spec.authors = ['Bonusly Engineering']
   spec.email = ['engineering@bonus.ly']
 
-  spec.summary = 'Thingie: Ruby (but mostly Rails) Review Thing'
-  spec.description = 'An opinionated, flexible AI code review tool for Ruby and Rails projects. ' \
-                     'Inspired by Gito, thingie reviews pull requests using LLMs, pulling extra ' \
-                     'context from language servers (LSP) and posting feedback on changed lines.'
+  spec.summary = 'Thingie: approves pull requests that GitHub Copilot approved'
+  spec.description = 'A deterministic pull request auto-approver. Thingie approves a PR when ' \
+                     "GitHub Copilot's latest review approves the PR's current commit and a set " \
+                     'of safety rules (protected paths, change size, obfuscated code, ...) all pass.'
   spec.homepage = 'https://github.com/Bonusly/rubyrt'
   spec.license = 'MIT'
   spec.required_ruby_version = '>= 3.4.0'
@@ -33,22 +33,10 @@ Gem::Specification.new do |spec|
   # CLI
   spec.add_dependency 'thor', '~> 1.3'
 
-  # LLM abstraction. ruby_llm 2.1 ships the MCP client (RubyLLM::MCP) and
-  # judgments (RubyLLM::Judge) thingie uses; ruby_llm-skills has no final 2.x
-  # release yet, so the prerelease is allowed.
-  spec.add_dependency 'ruby_llm', '~> 2.1', '>= 2.1.1'
-  spec.add_dependency 'ruby_llm-skills', '>= 0.5.0.pre1', '< 1'
-
-  # Git access
-  spec.add_dependency 'rugged', '~> 1.9'
-
-  # Async reviews
-  spec.add_dependency 'async', '~> 2.40'
-
   # GitHub API
   spec.add_dependency 'octokit', '~> 10.0'
 
-  # Configuration / templating
+  # Configuration
   spec.add_dependency 'dotenv', '~> 3.1'
   spec.add_dependency 'tomlrb', '~> 2.0'
 end
