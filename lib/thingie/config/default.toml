@@ -380,6 +380,12 @@ approval_bots = []
 # branch's copy of the workflow, so the PR is blocked. A run Thingie can't read doesn't
 # block; the approval lists it as not checked.
 main_branch_run_repos = []
+# Also require GitHub Copilot code review to approve the PR's head commit, on top of every rule
+# here and Thingie's own review. Thingie waits up to copilot_wait_minutes for Copilot's review
+# of the head commit; "Changes recommended", no review in time, or a review of an older commit
+# blocks. Needs automatic Copilot code review turned on for the repository.
+require_copilot_approval = false
+copilot_wait_minutes = 15
 # Other required checks Thingie does not evaluate but that still gate merge (e.g.
 # a security scan, the test suite). Listed in the approval comment so it's clear
 # Thingie's approval isn't the only gate — these do not affect Thingie's decision.

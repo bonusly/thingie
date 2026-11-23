@@ -651,6 +651,66 @@ RSpec.describe Thingie::GitHub::Approver do # rubocop:disable RSpec/SpecFilePath
     end
   end
 
+  context 'with require_copilot_approval' do
+    subject(:approver) do
+      described_class.new(token: 'token', owner: 'o', repo: 'r', pr_number: 1, config: config, sleeper: sleeper)
+    end
+
+    let(:reviews) { [] }
+    let(:sleeper) { ->(_seconds) {} }
+
+    def copilot_review(state, commit_id: 'sha1')
+      double('review', state: state, commit_id: commit_id, body: '', id: 5, # rubocop:disable RSpec/VerifiedDoubles
+                       user: double('u', login: described_class::COPILOT_LOGIN, type: 'Bot')) # rubocop:disable RSpec/VerifiedDoubles
+    end
+
+    before do
+      config['require_copilot_approval'] = true
+      config['copilot_wait_minutes'] = 1
+      allow(client).to receive(:pull_request_reviews) { reviews }
+    end
+
+    it 'approves when Copilot approved the head commit and lists it as passed' do
+      reviews << copilot_review('APPROVED')
+      approver.run(report_for([]))
+
+      expect(client).to have_received(:create_pull_request_review)
+        .with('o/r', 1, hash_including(body: a_string_including('Copilot approved the current commit')))
+    end
+
+    it 'blocks when Copilot recommended changes' do
+      reviews << copilot_review('COMMENTED')
+      decision = approver.run(report_for([]))
+
+      expect(decision.reasons).to include('Copilot did not recommend approval (its review is commented)')
+    end
+
+    context 'when Copilot reviews while Thingie waits' do
+      let(:sleeper) { ->(_seconds) { reviews << copilot_review('APPROVED') } }
+
+      it 'approves once the review lands' do
+        approver.run(report_for([]))
+
+        expect(client).to have_received(:create_pull_request_review)
+      end
+    end
+
+    it 'blocks after the wait when Copilot only reviewed an older commit or dismissed it', :aggregate_failures do
+      reviews << copilot_review('APPROVED', commit_id: 'sha0') << copilot_review('DISMISSED')
+      decision = approver.run(report_for([]))
+
+      expect(decision.reasons).to include("Copilot didn't review sha1 within 1 min")
+      expect(client).not_to have_received(:create_pull_request_review)
+    end
+
+    it 'ignores Copilot when the setting is off' do
+      config['require_copilot_approval'] = false
+      approver.run(report_for([]))
+
+      expect(client).to have_received(:create_pull_request_review)
+    end
+  end
+
   context 'with main_branch_run_repos' do
     let(:run_url) { 'https://github.com/bonusly/loop-de-loop/actions/runs/42' }
     let(:pr_body) { 'No runs linked here.' }
