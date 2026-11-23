@@ -53,8 +53,8 @@ RSpec.describe Thingie::GitHub::Approver do # rubocop:disable RSpec/SpecFilePath
     }
   end
 
-  def report_for(issues)
-    target = Thingie::ReviewTarget.new(platform: 'github', repo_url: nil, pr_number: 1, commit_sha: nil,
+  def report_for(issues, commit_sha: nil)
+    target = Thingie::ReviewTarget.new(platform: 'github', repo_url: nil, pr_number: 1, commit_sha: commit_sha,
                                        branch: nil, base_ref: nil, head_ref: nil, merge_base: false)
     Thingie::Report.new(target: target, model: 'm', issues: issues)
   end
@@ -177,7 +177,7 @@ RSpec.describe Thingie::GitHub::Approver do # rubocop:disable RSpec/SpecFilePath
 
   it 'blocks when the PR changes the Thingie config' do
     allow(client).to receive(:pull_request_files)
-      .and_return([double('file', filename: '.thingie/config.toml')]) # rubocop:disable RSpec/VerifiedDoubles
+      .and_return([double('file', filename: '.thingie/config.toml', previous_filename: nil)]) # rubocop:disable RSpec/VerifiedDoubles
     approver.run(report_for([]))
 
     expect(client).not_to have_received(:create_pull_request_review)
@@ -215,7 +215,16 @@ RSpec.describe Thingie::GitHub::Approver do # rubocop:disable RSpec/SpecFilePath
   it 'blocks when a changed file matches a protected glob' do
     config['protected_paths'] = ['app/billing/**']
     allow(client).to receive(:pull_request_files)
-      .and_return([double('file', filename: 'app/billing/charge.rb')]) # rubocop:disable RSpec/VerifiedDoubles
+      .and_return([double('file', filename: 'app/billing/charge.rb', previous_filename: nil)]) # rubocop:disable RSpec/VerifiedDoubles
+    approver.run(report_for([]))
+
+    expect(client).not_to have_received(:create_pull_request_review)
+  end
+
+  it 'blocks when a protected file is renamed out of a protected glob' do
+    config['protected_paths'] = ['app/billing/**']
+    allow(client).to receive(:pull_request_files)
+      .and_return([double('file', filename: 'app/models/charge.rb', previous_filename: 'app/billing/charge.rb')]) # rubocop:disable RSpec/VerifiedDoubles
     approver.run(report_for([]))
 
     expect(client).not_to have_received(:create_pull_request_review)
@@ -224,7 +233,7 @@ RSpec.describe Thingie::GitHub::Approver do # rubocop:disable RSpec/SpecFilePath
   it 'approves when changed files do not match any protected glob' do
     config['protected_paths'] = ['app/billing/**']
     allow(client).to receive(:pull_request_files)
-      .and_return([double('file', filename: 'app/models/user.rb')]) # rubocop:disable RSpec/VerifiedDoubles
+      .and_return([double('file', filename: 'app/models/user.rb', previous_filename: nil)]) # rubocop:disable RSpec/VerifiedDoubles
     approver.run(report_for([]))
 
     expect(client).to have_received(:create_pull_request_review)
@@ -365,6 +374,19 @@ RSpec.describe Thingie::GitHub::Approver do # rubocop:disable RSpec/SpecFilePath
     expect(client).not_to have_received(:create_pull_request_review)
   end
 
+  it 'skips when the PR head moved since the reviewed commit' do
+    approver.run(report_for([], commit_sha: 'sha0'))
+
+    expect(client).not_to have_received(:create_pull_request_review)
+  end
+
+  it 'pins the approval to the reviewed commit' do
+    approver.run(report_for([], commit_sha: 'sha1'))
+
+    expect(client).to have_received(:create_pull_request_review)
+      .with('o/r', 1, hash_including(event: 'APPROVE', commit_id: 'sha1'))
+  end
+
   it 'skips when the approving identity is the PR author' do
     allow(client).to receive(:user).and_return(double('me', login: 'author')) # rubocop:disable RSpec/VerifiedDoubles
     approver.run(report_for([]))
@@ -435,7 +457,8 @@ RSpec.describe Thingie::GitHub::Approver do # rubocop:disable RSpec/SpecFilePath
 
       it 'still blocks on a protected path' do
         config['protected_paths'] = ['db/**/*']
-        allow(client).to receive(:pull_request_files).and_return([double('f', filename: 'db/schema.rb', patch: nil)]) # rubocop:disable RSpec/VerifiedDoubles
+        file = double('f', filename: 'db/schema.rb', previous_filename: nil, patch: nil) # rubocop:disable RSpec/VerifiedDoubles
+        allow(client).to receive(:pull_request_files).and_return([file])
         approver.run(report_for([]))
 
         expect(client).not_to have_received(:create_pull_request_review)

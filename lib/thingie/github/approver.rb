@@ -133,6 +133,7 @@ module Thingie
       def decide(pr, report)
         return skip("skip label '#{skip_label}' present") if labelled_skip?(pr)
         return skip('PR is a draft') if pr.draft
+        return skip('the PR head moved since this review') if head_moved?(pr, report)
         return skip('approving identity is the PR author') if self_approval?(pr)
         return skip("PR author is not in the #{approval_team} team") if outside_approval_team?(pr)
 
@@ -297,8 +298,18 @@ module Thingie
         end
       end
 
+      # A rename counts as both paths, so moving a protected file out of a
+      # protected directory still needs a human.
       def changed_files
-        @changed_files ||= @client.pull_request_files(slug, @pr_number).map(&:filename)
+        @changed_files ||= @client.pull_request_files(slug, @pr_number)
+                                  .flat_map { |file| [file.filename, file.previous_filename] }.compact
+      end
+
+      # A newer push gets its own review; approving it with this one's report
+      # would approve code nobody reviewed.
+      def head_moved?(pr, report)
+        reviewed = report.target.commit_sha.to_s
+        !reviewed.empty? && reviewed != pr.head.sha
       end
 
       # Fail safe: an unknown size (nil) blocks approval so a PR whose size
@@ -403,7 +414,8 @@ module Thingie
         # Main token first, PAT fallback. The PAT fallback covers the common
         # case where the main token (GITHUB_TOKEN) lacks approval rights.
         attempt_with_fallback('approve PR') do |client|
-          client.create_pull_request_review(slug, @pr_number, event: 'APPROVE', body: approval_body(pr, report))
+          client.create_pull_request_review(slug, @pr_number, event: 'APPROVE', commit_id: pr.head.sha,
+                                                              body: approval_body(pr, report))
         end
       end
 
