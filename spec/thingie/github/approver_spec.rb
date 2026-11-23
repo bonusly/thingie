@@ -230,6 +230,15 @@ RSpec.describe Thingie::GitHub::Approver do # rubocop:disable RSpec/SpecFilePath
     expect(client).not_to have_received(:create_pull_request_review)
   end
 
+  it 'blocks when a hidden file under a protected glob changes' do
+    config['protected_paths'] = ['.agents/**/*']
+    allow(client).to receive(:pull_request_files)
+      .and_return([double('file', filename: '.agents/skills/b/.sync-manifest.json', previous_filename: nil)]) # rubocop:disable RSpec/VerifiedDoubles
+    approver.run(report_for([]))
+
+    expect(client).not_to have_received(:create_pull_request_review)
+  end
+
   it 'approves when changed files do not match any protected glob' do
     config['protected_paths'] = ['app/billing/**']
     allow(client).to receive(:pull_request_files)
