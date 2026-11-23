@@ -23,6 +23,7 @@ module Thingie
       DEFAULT_MAX_CHANGES = 500
       DEFAULT_MAX_SEVERITY = 3
       DEFAULT_SKIP_LABEL = 'thingie-skip-approve'
+      PROTECTED_PATH_FLAGS = File::FNM_PATHNAME | File::FNM_EXTGLOB | File::FNM_DOTMATCH
       # The most of the risk summary that is shown, cut at a sentence end. About four lines on GitHub.
       RISK_SUMMARY_LIMIT = 600
 
@@ -288,13 +289,14 @@ module Thingie
       end
 
       # Block when any changed file matches a configured protected glob (e.g.
-      # billing code, sensitive config) — same matching as exclude_files.
+      # billing code, sensitive config). Unlike exclude_files, `**/*` here also
+      # matches hidden files, so `.agents/**/*` covers `.agents/x/.manifest.json`.
       def protected_path_changed?
         patterns = Array(@config['protected_paths'])
         return false if patterns.empty?
 
         changed_files.any? do |file|
-          patterns.any? { |pattern| File.fnmatch?(pattern, file, File::FNM_PATHNAME | File::FNM_EXTGLOB) }
+          patterns.any? { |pattern| File.fnmatch?(pattern, file, PROTECTED_PATH_FLAGS) }
         end
       end
 
