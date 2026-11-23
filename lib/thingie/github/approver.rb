@@ -20,6 +20,11 @@ module Thingie
       # Never auto-approve a PR that edits Thingie's own config — that's how
       # someone would weaken the approval rules to wave their change through.
       CONFIG_PATH = '.thingie/config.toml'
+      # The login Copilot code review submits its reviews as. Logins ending in [bot] are reserved
+      # for GitHub Apps, so no user account can post as it.
+      COPILOT_LOGIN = 'copilot-pull-request-reviewer[bot]'
+      COPILOT_POLL_SECONDS = 30
+      DEFAULT_COPILOT_WAIT_MINUTES = 15
       DEFAULT_MAX_CHANGES = 500
       DEFAULT_MAX_SEVERITY = 3
       DEFAULT_SKIP_LABEL = 'thingie-skip-approve'
@@ -45,8 +50,9 @@ module Thingie
       # @param llm_client [Thingie::LlmClient, nil] optional client used only for the
       #   informational risk assessment in the approval comment
       # @param review_summary [String, nil] the review's summary text, included in the risk prompt
+      # @param sleeper [#call] waits the given number of seconds between checks for Copilot's review
       def initialize(token:, owner:, repo:, pr_number:, config: {}, resolve_token: nil,
-                     llm_client: nil, review_summary: nil)
+                     llm_client: nil, review_summary: nil, sleeper: Kernel.method(:sleep))
         # Reads and the first approval attempt use the main token; the PAT is the
         # fallback when that attempt errors. An empty env var is treated as unset.
         resolve_token = nil if resolve_token.to_s.strip.empty?
@@ -60,6 +66,7 @@ module Thingie
         # approval comment. Absent client/summary just omits that section.
         @llm_client = llm_client
         @review_summary = review_summary.to_s
+        @sleeper = sleeper
       end
 
       # Dismiss all existing Thingie approvals on this PR before a new review
@@ -145,6 +152,7 @@ module Thingie
       def block_reasons(pr, report)
         threads = thingie_threads
         reasons = []
+        reasons << copilot_reason(pr) if require_copilot_approval?
         reasons << "#{CONFIG_PATH} was changed in this PR" if config_changed?
         reasons << 'a protected path was changed in this PR' if protected_path_changed?
         reasons << change_size_reason(pr) if too_many_changes?(pr)
@@ -155,7 +163,48 @@ module Thingie
         reasons << 'a human reviewer requested changes' if human_requested_changes?
         reasons << incomplete_reason(report) if report.unreviewed_files.any?
         reasons.concat(off_main_runs(pr))
+        reasons.compact!
         reasons
+      end
+
+      def require_copilot_approval?
+        @config['require_copilot_approval'] ? true : false
+      end
+
+      def copilot_wait_seconds
+        @config.fetch('copilot_wait_minutes', DEFAULT_COPILOT_WAIT_MINUTES) * 60
+      end
+
+      # Copilot reviews alongside Thingie, and its finished review doesn't reliably start a run of
+      # its own, so Thingie waits for it here. "Changes recommended" is a COMMENTED review, so only
+      # an APPROVED review of the head commit passes.
+      def copilot_reason(pr)
+        sha = pr.head.sha
+        review = copilot_review_of(sha)
+        return "Copilot didn't review #{sha[0, 7]} within #{copilot_wait_seconds / 60} min" if review.nil?
+        return if review.state == 'APPROVED'
+
+        "Copilot did not recommend approval (its review is #{review.state.downcase.tr('_', ' ')})"
+      end
+
+      # Copilot's latest review of the commit, checked every COPILOT_POLL_SECONDS until
+      # copilot_wait_minutes pass. A review Copilot dismissed on push is reported against the new
+      # head too, so dismissed reviews don't count.
+      def copilot_review_of(sha)
+        waited = 0
+        loop do
+          review = @client.pull_request_reviews(slug, @pr_number).reverse.find do |candidate|
+            copilot?(candidate) && candidate.commit_id == sha && candidate.state != 'DISMISSED'
+          end
+          return review if review || waited >= copilot_wait_seconds
+
+          @sleeper.call(COPILOT_POLL_SECONDS)
+          waited += COPILOT_POLL_SECONDS
+        end
+      end
+
+      def copilot?(review)
+        review.user&.login == COPILOT_LOGIN && review.user&.type == 'Bot'
       end
 
       # "owner/name" repositories whose Actions runs, linked from the PR, must have run from
@@ -447,6 +496,7 @@ module Thingie
       # Deterministic list of the gates that were satisfied for this approval.
       def passed_rules_section(pr)
         checks = ['No Thingie config change', 'No protected paths changed']
+        checks.unshift('Copilot approved the current commit') if require_copilot_approval?
         checks << change_size_check(pr)
         checks << "No findings at or above #{severity_label(max_severity)} (#{max_severity})"
         checks << 'No unresolved Thingie findings'
